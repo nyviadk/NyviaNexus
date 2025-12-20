@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "../lib/firebase";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { collection, onSnapshot, doc, deleteDoc } from "firebase/firestore";
+import {
+  collection,
+  onSnapshot,
+  doc,
+  deleteDoc,
+  updateDoc,
+} from "firebase/firestore";
 import { LoginForm } from "../components/LoginForm";
 import { SidebarItem } from "../components/SidebarItem";
 import { CreateItemModal } from "../components/CreateItemModal";
@@ -15,6 +21,8 @@ import {
   FolderPlus,
   X,
   Inbox as InboxIcon,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { NexusItem, Profile, WorkspaceWindow } from "../types";
 
@@ -111,19 +119,95 @@ export const Dashboard = () => {
     );
   }, [selectedWorkspace, isViewingInbox]);
 
-  const TabCard = ({ tab }: { tab: any }) => (
-    <div className="bg-slate-900/40 p-4 rounded-2xl border border-slate-800 flex flex-col gap-1 hover:border-blue-500/50 hover:bg-slate-900 transition group cursor-default">
-      <div className="flex items-center gap-3">
+  const handleMoveTab = async (index: number, direction: "left" | "right") => {
+    const tabs = isViewingInbox
+      ? [...inboxData.tabs]
+      : [...(currentWindowData?.tabs || [])];
+    const newIndex = direction === "left" ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= tabs.length) return;
+
+    [tabs[index], tabs[newIndex]] = [tabs[newIndex], tabs[index]];
+
+    if (isViewingInbox) {
+      await updateDoc(doc(db, "inbox_data", "global"), { tabs });
+    } else if (selectedWorkspace && selectedWindowId) {
+      await updateDoc(
+        doc(
+          db,
+          "workspaces_data",
+          selectedWorkspace.id,
+          "windows",
+          selectedWindowId
+        ),
+        { tabs }
+      );
+    }
+  };
+
+  const handleDeleteTab = async (index: number) => {
+    if (!confirm("Vil du slette denne tab?")) return;
+    const tabs = isViewingInbox
+      ? [...inboxData.tabs]
+      : [...(currentWindowData?.tabs || [])];
+    tabs.splice(index, 1);
+
+    if (isViewingInbox) {
+      await updateDoc(doc(db, "inbox_data", "global"), { tabs });
+    } else if (selectedWorkspace && selectedWindowId) {
+      await updateDoc(
+        doc(
+          db,
+          "workspaces_data",
+          selectedWorkspace.id,
+          "windows",
+          selectedWindowId
+        ),
+        { tabs }
+      );
+    }
+  };
+
+  const TabCard = ({ tab, index }: { tab: any; index: number }) => (
+    <div className="bg-slate-900/40 p-4 rounded-2xl border border-slate-800 flex flex-col gap-2 hover:border-blue-500/50 hover:bg-slate-900 transition group relative">
+      <div
+        className="flex items-center gap-3 cursor-pointer"
+        onClick={() => chrome.tabs.create({ url: tab.url })}
+      >
         <Globe
           size={14}
           className="text-slate-600 group-hover:text-blue-400 shrink-0"
         />
-        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-200">
-          {tab.title}
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold text-slate-200">
+            {tab.title}
+          </div>
+          <div className="truncate text-[10px] text-slate-500 italic font-mono">
+            {tab.url}
+          </div>
         </div>
       </div>
-      <div className="pl-7 truncate text-[10px] text-slate-500 italic font-mono">
-        {tab.url}
+
+      <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-800/50">
+        <div className="flex gap-1">
+          <button
+            onClick={() => handleMoveTab(index, "left")}
+            className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-white"
+          >
+            <ChevronLeft size={14} />
+          </button>
+          <button
+            onClick={() => handleMoveTab(index, "right")}
+            className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-white"
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
+        <button
+          onClick={() => handleDeleteTab(index)}
+          className="p-1 text-slate-600 hover:text-red-500 transition-colors"
+        >
+          <X size={14} />
+        </button>
       </div>
     </div>
   );
@@ -144,7 +228,7 @@ export const Dashboard = () => {
   return (
     <div className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden font-sans">
       <aside className="w-72 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0">
-        <div className="p-6 border-b border-slate-800 flex items-center gap-3 font-black text-white text-xl uppercase">
+        <div className="p-6 border-b border-slate-800 flex items-center gap-3 font-black text-white text-xl uppercase tracking-tighter">
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg">
             N
           </div>{" "}
@@ -166,7 +250,7 @@ export const Dashboard = () => {
 
           <nav className="space-y-1">
             <div className="flex justify-between items-center px-2 mb-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-              Spaces
+              Dine Spaces
               <div className="flex gap-2">
                 <FolderPlus
                   size={14}
@@ -190,7 +274,7 @@ export const Dashboard = () => {
                   item={item}
                   allItems={items}
                   onRefresh={() => {}}
-                  onSelect={(it) => {
+                  onSelect={(it: NexusItem) => {
                     setIsViewingInbox(false);
                     setSelectedWorkspace(it);
                   }}
@@ -213,19 +297,19 @@ export const Dashboard = () => {
                   : "hover:bg-slate-800 text-slate-400"
               }`}
             >
-              <InboxIcon size={16} />{" "}
+              <InboxIcon size={16} />
               <span>Inbox ({inboxData?.tabs?.length || 0})</span>
             </div>
           </nav>
         </div>
 
-        <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-3 text-sm font-medium">
+        <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-3">
           <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase tracking-tighter">
             <Activity size={12} className="animate-pulse" /> Live Sync Active
           </div>
           <button
             onClick={() => auth.signOut()}
-            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition"
+            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition text-sm font-medium"
           >
             <LogOut size={16} /> Log ud
           </button>
@@ -254,40 +338,60 @@ export const Dashboard = () => {
                         ([_, m]: any) => m.internalWindowId === win.id
                       );
                       return (
-                        <div key={win.id} className="relative group">
-                          <button
-                            onClick={() => setSelectedWindowId(win.id)}
-                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-2 ${
-                              selectedWindowId === win.id
-                                ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30"
-                                : "bg-slate-800 text-slate-400 hover:bg-slate-700"
-                            }`}
-                          >
-                            Vindue {idx + 1}{" "}
-                            {isOpen && (
-                              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                            )}
-                          </button>
-                          {!isOpen && (
+                        <div
+                          key={win.id}
+                          className="flex flex-col gap-1 items-center"
+                        >
+                          <div className="relative group">
                             <button
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                if (confirm("Slet data?"))
-                                  await deleteDoc(
-                                    doc(
-                                      db,
-                                      `workspaces_data/${
-                                        selectedWorkspace!.id
-                                      }/windows`,
-                                      win.id
-                                    )
-                                  );
-                              }}
-                              className="absolute -top-2 -right-2 bg-red-600 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition"
+                              onClick={() => setSelectedWindowId(win.id)}
+                              className={`px-4 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-2 ${
+                                selectedWindowId === win.id
+                                  ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30"
+                                  : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                              }`}
                             >
-                              <X size={10} />
+                              Vindue {idx + 1}{" "}
+                              {isOpen && (
+                                <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                              )}
                             </button>
-                          )}
+                            {!isOpen && (
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (confirm("Slet data?"))
+                                    await deleteDoc(
+                                      doc(
+                                        db,
+                                        `workspaces_data/${
+                                          selectedWorkspace!.id
+                                        }/windows`,
+                                        win.id
+                                      )
+                                    );
+                                }}
+                                className="absolute -top-2 -right-2 bg-red-600 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition"
+                              >
+                                <X size={10} />
+                              </button>
+                            )}
+                          </div>
+                          <button
+                            onClick={() =>
+                              chrome.runtime.sendMessage({
+                                type: "OPEN_SPECIFIC_WINDOW",
+                                payload: {
+                                  workspaceId: selectedWorkspace?.id,
+                                  windowData: win,
+                                  name: selectedWorkspace?.name,
+                                },
+                              })
+                            }
+                            className="text-[9px] text-slate-500 hover:text-blue-400 font-bold uppercase"
+                          >
+                            Åbn dette
+                          </button>
                         </div>
                       );
                     })}
@@ -301,7 +405,7 @@ export const Dashboard = () => {
                           },
                         })
                       }
-                      className="p-1 hover:text-blue-400 text-slate-500 transition"
+                      className="p-1 hover:text-blue-400 text-slate-500 transition self-start mt-1"
                     >
                       <PlusCircle size={20} />
                     </button>
@@ -348,7 +452,7 @@ export const Dashboard = () => {
                   ? inboxData?.tabs || []
                   : currentWindowData?.tabs || []
                 ).map((tab: any, i: number) => (
-                  <TabCard key={i} tab={tab} />
+                  <TabCard key={i} tab={tab} index={i} />
                 ))}
               </div>
             </div>
@@ -356,7 +460,7 @@ export const Dashboard = () => {
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-slate-700 gap-4">
             <Monitor size={48} className="opacity-10" />
-            <p className="text-lg font-medium">Vælg et space</p>
+            <p className="text-lg font-medium">Vælg et space i sidebaren</p>
           </div>
         )}
       </main>
