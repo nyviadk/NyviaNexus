@@ -4,6 +4,7 @@ import { onAuthStateChanged, User } from "firebase/auth";
 import { collection, onSnapshot, doc, deleteDoc } from "firebase/firestore";
 import { LoginForm } from "../components/LoginForm";
 import { SidebarItem } from "../components/SidebarItem";
+import { CreateItemModal } from "../components/CreateItemModal";
 import {
   LogOut,
   Globe,
@@ -11,6 +12,7 @@ import {
   Activity,
   Monitor,
   PlusCircle,
+  FolderPlus,
   X,
   Inbox as InboxIcon,
 } from "lucide-react";
@@ -24,8 +26,14 @@ export const Dashboard = () => {
   const [selectedWorkspace, setSelectedWorkspace] = useState<NexusItem | null>(
     null
   );
+
+  // Modal og Inbox states
+  const [modalType, setModalType] = useState<"folder" | "workspace" | null>(
+    null
+  );
   const [inboxWindows, setInboxWindows] = useState<any[]>([]);
   const [isViewingInbox, setIsViewingInbox] = useState(false);
+
   const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const [activeMappings, setActiveMappings] = useState<any[]>([]);
@@ -35,7 +43,7 @@ export const Dashboard = () => {
     onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (u) {
-        setupListeners();
+        setupRealtimeListeners();
         chrome.windows.getCurrent(
           (win) => win.id && setCurrentWindowId(win.id)
         );
@@ -43,16 +51,25 @@ export const Dashboard = () => {
     });
   }, []);
 
-  const setupListeners = () => {
-    onSnapshot(collection(db, "profiles"), (snap) =>
-      setProfiles(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Profile)))
-    );
-    onSnapshot(collection(db, "items"), (snap) =>
-      setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as NexusItem)))
-    );
-    onSnapshot(collection(db, "inbox_data"), (snap) =>
-      setInboxWindows(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    );
+  const setupRealtimeListeners = () => {
+    // Profiler
+    onSnapshot(collection(db, "profiles"), (snap) => {
+      const pList = snap.docs.map(
+        (d) => ({ id: d.id, ...d.data() } as Profile)
+      );
+      setProfiles(pList);
+      if (pList.length > 0 && !activeProfile) setActiveProfile(pList[0].id);
+    });
+
+    // Items (Spaces og Mapper)
+    onSnapshot(collection(db, "items"), (snap) => {
+      setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as NexusItem)));
+    });
+
+    // Inbox
+    onSnapshot(collection(db, "inbox_data"), (snap) => {
+      setInboxWindows(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
 
     setInterval(() => {
       chrome.runtime.sendMessage(
@@ -62,16 +79,7 @@ export const Dashboard = () => {
     }, 2000);
   };
 
-  const handleSelectWorkspace = (item: NexusItem) => {
-    setIsViewingInbox(false);
-    setSelectedWorkspace(item);
-  };
-
-  const handleSelectInbox = () => {
-    setSelectedWorkspace(null);
-    setIsViewingInbox(true);
-  };
-
+  // Realtids lytter på det VALGTE space
   useEffect(() => {
     if (!selectedWorkspace || isViewingInbox) return;
     return onSnapshot(
@@ -81,16 +89,16 @@ export const Dashboard = () => {
           (d) => ({ id: d.id, ...d.data() } as WorkspaceWindow)
         );
         setWindows(winList);
-        if (
-          winList.length > 0 &&
-          (!selectedWindowId || !winList.find((w) => w.id === selectedWindowId))
-        ) {
-          setSelectedWindowId(winList[0].id);
+        if (winList.length > 0) {
+          const stillExists = winList.some((w) => w.id === selectedWindowId);
+          if (!selectedWindowId || !stillExists)
+            setSelectedWindowId(winList[0].id);
         }
       }
     );
-  }, [selectedWorkspace, isViewingInbox]);
+  }, [selectedWorkspace, isViewingInbox, selectedWindowId]);
 
+  // Håndter Inbox visning
   useEffect(() => {
     if (isViewingInbox) {
       setWindows(
@@ -103,17 +111,7 @@ export const Dashboard = () => {
       if (inboxWindows.length > 0 && !selectedWindowId)
         setSelectedWindowId(inboxWindows[0].id);
     }
-  }, [inboxWindows, isViewingInbox]);
-
-  const deleteWindowData = async (e: React.MouseEvent, winId: string) => {
-    e.stopPropagation();
-    if (confirm("Slet dette vindues data permanent?")) {
-      const col = isViewingInbox
-        ? "inbox_data"
-        : `workspaces_data/${selectedWorkspace!.id}/windows`;
-      await deleteDoc(doc(db, col, winId));
-    }
-  };
+  }, [inboxWindows, isViewingInbox, selectedWindowId]);
 
   if (!user)
     return (
@@ -130,20 +128,22 @@ export const Dashboard = () => {
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden font-sans">
+      {/* Sidebar */}
       <aside className="w-72 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0">
         <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center font-bold">
+          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center font-bold text-white shadow-lg">
             N
           </div>
           <div className="font-black text-white text-xl uppercase tracking-tighter">
             NyviaNexus
           </div>
         </div>
+
         <div className="p-4 flex-1 overflow-y-auto space-y-6">
           <select
             value={activeProfile}
             onChange={(e) => setActiveProfile(e.target.value)}
-            className="w-full bg-slate-800 p-2 rounded border border-slate-700 text-sm outline-none"
+            className="w-full bg-slate-800 p-2 rounded border border-slate-700 text-sm outline-none focus:border-blue-500"
           >
             {profiles.map((p) => (
               <option key={p.id} value={p.id}>
@@ -151,10 +151,25 @@ export const Dashboard = () => {
               </option>
             ))}
           </select>
+
           <nav className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-500 uppercase px-2 mb-2 block tracking-widest">
-              Spaces
-            </label>
+            <div className="flex justify-between items-center px-2 mb-2">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                Dine Spaces
+              </label>
+              <div className="flex gap-2">
+                <FolderPlus
+                  size={14}
+                  className="text-slate-500 hover:text-white cursor-pointer"
+                  onClick={() => setModalType("folder")}
+                />
+                <PlusCircle
+                  size={14}
+                  className="text-slate-500 hover:text-white cursor-pointer"
+                  onClick={() => setModalType("workspace")}
+                />
+              </div>
+            </div>
             {items
               .filter(
                 (i) => i.profileId === activeProfile && i.parentId === "root"
@@ -165,46 +180,50 @@ export const Dashboard = () => {
                   item={item}
                   allItems={items}
                   onRefresh={() => {}}
-                  onSelect={handleSelectWorkspace}
+                  onSelect={(item) => {
+                    setIsViewingInbox(false);
+                    setSelectedWorkspace(item);
+                  }}
                 />
               ))}
           </nav>
+
           <nav className="space-y-1">
             <label className="text-[10px] font-bold text-slate-500 uppercase px-2 mb-2 block tracking-widest">
               Opsamling
             </label>
             <div
-              onClick={handleSelectInbox}
+              onClick={() => {
+                setSelectedWorkspace(null);
+                setIsViewingInbox(true);
+              }}
               className={`flex items-center gap-2 p-2 rounded cursor-pointer text-sm transition ${
                 isViewingInbox
                   ? "bg-orange-600/20 text-orange-400"
-                  : "hover:bg-slate-800"
+                  : "hover:bg-slate-800 text-slate-400"
               }`}
             >
-              <InboxIcon
-                size={16}
-                className={
-                  isViewingInbox ? "text-orange-400" : "text-slate-400"
-                }
-              />
+              <InboxIcon size={16} />
               <span>Inbox ({inboxWindows.length})</span>
             </div>
           </nav>
         </div>
+
         <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-3">
-          <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase">
+          <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase tracking-tighter">
             <Activity size={12} className="animate-pulse" /> Live Sync Active
           </div>
           <button
             onClick={() => auth.signOut()}
-            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition text-sm"
+            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition text-sm font-medium"
           >
             <LogOut size={16} /> Log ud
           </button>
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col bg-slate-950">
+      {/* Main View */}
+      <main className="flex-1 flex flex-col bg-slate-950 relative">
         {selectedWorkspace || isViewingInbox ? (
           <>
             <header className="p-8 pb-4 flex justify-between items-end border-b border-slate-900 bg-slate-900/10">
@@ -214,7 +233,7 @@ export const Dashboard = () => {
                     {isViewingInbox ? "Inbox" : selectedWorkspace?.name}
                   </h2>
                   {isViewingCurrent && (
-                    <span className="text-[10px] bg-blue-600/20 text-blue-400 px-2.5 py-1 rounded-full border border-blue-500/20 font-bold uppercase">
+                    <span className="text-[10px] bg-blue-600/20 text-blue-400 px-2.5 py-1 rounded-full border border-blue-500/20 font-bold uppercase tracking-widest">
                       <Monitor size={10} className="inline mr-1" /> Dette Vindue
                     </span>
                   )}
@@ -230,7 +249,7 @@ export const Dashboard = () => {
                           onClick={() => setSelectedWindowId(win.id)}
                           className={`px-4 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-2 ${
                             selectedWindowId === win.id
-                              ? "bg-blue-600 text-white shadow-lg"
+                              ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30"
                               : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                           }`}
                         >
@@ -241,8 +260,22 @@ export const Dashboard = () => {
                         </button>
                         {!isOpen && (
                           <button
-                            onClick={(e) => deleteWindowData(e, win.id)}
-                            className="absolute -top-2 -right-2 bg-red-600 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (confirm("Slet data?"))
+                                await deleteDoc(
+                                  doc(
+                                    db,
+                                    isViewingInbox
+                                      ? "inbox_data"
+                                      : `workspaces_data/${
+                                          selectedWorkspace!.id
+                                        }/windows`,
+                                    win.id
+                                  )
+                                );
+                            }}
+                            className="absolute -top-2 -right-2 bg-red-600 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition"
                           >
                             <X size={10} />
                           </button>
@@ -279,7 +312,6 @@ export const Dashboard = () => {
                         })
                       }
                       className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl hover:text-orange-400 transition"
-                      title="Force Sync"
                     >
                       <RotateCw size={20} />
                     </button>
@@ -294,7 +326,7 @@ export const Dashboard = () => {
                           },
                         })
                       }
-                      className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg active:scale-95 transition"
+                      className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition"
                     >
                       Åbn Space
                     </button>
@@ -302,15 +334,18 @@ export const Dashboard = () => {
                 )}
               </div>
             </header>
-            {/* Rettet Tailwind klasse herunder: fjernet mellemrum i arbitrary values */}
+
             <div className="flex-1 overflow-y-auto p-8 bg-[radial-gradient(circle_at_top_right,#1e293b_0%,transparent_40%)]">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {currentWindowData?.tabs.map((tab, i) => (
                   <div
                     key={i}
-                    className="bg-slate-900/40 p-4 rounded-2xl border border-slate-800 flex items-center gap-4 hover:border-blue-500/50 transition"
+                    className="bg-slate-900/40 p-4 rounded-2xl border border-slate-800 flex items-center gap-4 hover:border-blue-500/50 hover:bg-slate-900 transition group cursor-default"
                   >
-                    <Globe size={16} className="text-slate-600" />
+                    <Globe
+                      size={16}
+                      className="text-slate-600 group-hover:text-blue-400"
+                    />
                     <div className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-200">
                       {tab.title}
                     </div>
@@ -320,11 +355,27 @@ export const Dashboard = () => {
             </div>
           </>
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-slate-700 italic">
-            Vælg et space eller tjek din Inbox
+          <div className="h-full flex flex-col items-center justify-center text-slate-700 gap-4">
+            <div className="p-6 bg-slate-900 rounded-full">
+              <Monitor size={48} className="opacity-10" />
+            </div>
+            <p className="text-lg font-medium">
+              Brug sidebaren til at oprette eller vælge et space
+            </p>
           </div>
         )}
       </main>
+
+      {/* Modals til Dashboard creation */}
+      {modalType && (
+        <CreateItemModal
+          type={modalType}
+          activeProfile={activeProfile}
+          parentId="root"
+          onClose={() => setModalType(null)}
+          onSuccess={() => setModalType(null)}
+        />
+      )}
     </div>
   );
 };

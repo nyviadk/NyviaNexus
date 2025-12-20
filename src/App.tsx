@@ -60,7 +60,8 @@ export default function App() {
       });
     };
     fetchMappings();
-    setInterval(fetchMappings, 3000);
+    const interval = setInterval(fetchMappings, 3000);
+    return () => clearInterval(interval);
   };
 
   if (!user) return <LoginForm />;
@@ -74,7 +75,7 @@ export default function App() {
         <div className="flex gap-2 items-center">
           <button
             onClick={() => chrome.tabs.create({ url: "dashboard.html" })}
-            className="p-1.5 bg-blue-600/20 text-blue-400 rounded-lg hover:bg-blue-600 transition"
+            className="p-1.5 bg-blue-600/20 text-blue-400 rounded-lg hover:bg-blue-600 transition shadow-inner"
           >
             <LayoutDashboard size={18} />
           </button>
@@ -99,7 +100,7 @@ export default function App() {
                   payload: { windowId: currentWindowId },
                 })
               }
-              className="p-1 text-orange-400"
+              className="p-1 text-orange-400 hover:scale-110 transition"
             >
               <RotateCw size={20} />
             </button>
@@ -182,7 +183,7 @@ export default function App() {
           activeProfile={activeProfile}
           parentId="root"
           onClose={() => setModalType(null)}
-          onSuccess={() => {}}
+          onSuccess={() => setModalType(null)}
         />
       )}
     </div>

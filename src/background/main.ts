@@ -14,29 +14,7 @@ const activeWindows = new Map<
 >();
 
 /**
- * Rydder alle eksisterende grupper i et vindue.
- * Løser problemet med de mange gemte grupper i Chrome.
- */
-async function purgeAllGroupsInWindow(windowId: number) {
-  try {
-    const groups = await chrome.tabGroups.query({ windowId });
-    for (const group of groups) {
-      const tabsInGroup = await chrome.tabs.query({ groupId: group.id });
-      const tabIds = tabsInGroup
-        .map((t) => t.id)
-        .filter((id) => id !== undefined) as number[];
-      if (tabIds.length > 0) {
-        // Cast til [number, ...number[]] for at fjerne TS-fejl 2345
-        await chrome.tabs.ungroup(tabIds as [number, ...number[]]);
-      }
-    }
-  } catch (e) {
-    console.error("Purge Error:", e);
-  }
-}
-
-/**
- * Intelligent gruppering der sikrer én unik gruppe pr. Space.
+ * Grupperer faner intelligent pr. space for at identificere vinduet.
  */
 async function updateWindowGrouping(windowId: number, name: string) {
   if (isRestoring) return;
@@ -51,7 +29,7 @@ async function updateWindowGrouping(windowId: number, name: string) {
     const groups = await chrome.tabGroups.query({ windowId });
     const existingGroup = groups.find((g) => g.title === name.toUpperCase());
 
-    // Fjern grupper der har det forkerte navn
+    // Ryd op i andre grupper med forkert navn i dette vindue
     for (const g of groups) {
       if (g.title !== name.toUpperCase()) {
         const otherTabs = await chrome.tabs.query({ groupId: g.id });
@@ -64,7 +42,6 @@ async function updateWindowGrouping(windowId: number, name: string) {
     }
 
     if (existingGroup) {
-      // Cast til [number, ...number[]] for at fjerne TS-fejl 2345
       await chrome.tabs.group({
         tabIds: tabIds as [number, ...number[]],
         groupId: existingGroup.id,
@@ -79,10 +56,13 @@ async function updateWindowGrouping(windowId: number, name: string) {
       });
     }
   } catch (e) {
-    /* Tab lukket under process */
+    /* Ignorer fejl ved lukkede faner */
   }
 }
 
+/**
+ * Sikrer at Dashboardet altid er pinned som første fane og fjerner dubletter.
+ */
 async function enforceDashboardSingleton(windowId: number) {
   const tabs = await chrome.tabs.query({ windowId });
   const dashTabs = tabs.filter(
@@ -97,6 +77,9 @@ async function enforceDashboardSingleton(windowId: number) {
   }
 }
 
+/**
+ * Gemmer faner til Firestore.
+ */
 async function saveToFirestore(windowId: number) {
   if (isRestoring) return;
   const mapping = activeWindows.get(windowId);
@@ -144,7 +127,7 @@ async function saveToFirestore(windowId: number) {
       );
     }
   } catch (error) {
-    console.error("Save Error:", error);
+    console.error("Sync Error:", error);
   }
 }
 
@@ -215,7 +198,6 @@ async function handleOpenWorkspace(
         break;
       }
     }
-
     if (existingWinId !== null) {
       chrome.windows.update(existingWinId, { focused: true });
     } else {
@@ -224,7 +206,6 @@ async function handleOpenWorkspace(
         url: urls.length > 0 ? urls : "about:blank",
       });
       if (newWin?.id) {
-        await purgeAllGroupsInWindow(newWin.id);
         activeWindows.set(newWin.id, {
           workspaceId,
           internalWindowId: win.id,
@@ -248,7 +229,6 @@ async function handleCreateNewWindowInWorkspace(
   const newWin = await chrome.windows.create({ url: "about:blank" });
   if (newWin?.id) {
     const newInternalId = `win_${Date.now()}`;
-    await purgeAllGroupsInWindow(newWin.id);
     activeWindows.set(newWin.id, {
       workspaceId,
       internalWindowId: newInternalId,
