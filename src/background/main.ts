@@ -7,7 +7,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 
-// Typer (Sørg for at disse matcher dine definitioner i src/types.ts)
+// Typer
 interface TabData {
   title: string;
   url: string;
@@ -29,7 +29,7 @@ const lockedWindowIds = new Set<number>();
 const isDash = (url?: string) => url?.includes("dashboard.html");
 
 /**
- * GRUPPERING: Finder eller opretter ÉN gruppe med Space-navnet.
+ * GRUPPERING: Finder eller opretter ÉN gruppe.
  */
 async function updateWindowGrouping(windowId: number, name: string | null) {
   try {
@@ -70,7 +70,7 @@ async function updateWindowGrouping(windowId: number, name: string | null) {
       });
     }
   } catch (e) {
-    console.warn("[Nexus] Grouping failed", e);
+    // Ignorer fejl hvis vinduet er ved at lukke
   }
 }
 
@@ -138,7 +138,7 @@ async function saveToFirestore(windowId: number) {
       });
     }
   } catch (e) {
-    console.error("[Nexus] Save Error:", e);
+    // Vinduet kan være lukket under query
   }
 }
 
@@ -169,7 +169,6 @@ chrome.windows.onFocusChanged.addListener(async (winId) => {
 
     if (!hasDash) {
       lastDashboardTime = now;
-      // Dashboard skal oprettes via tabs.create for at kunne være 'pinned'
       await chrome.tabs.create({
         windowId: winId,
         url: "dashboard.html",
@@ -218,7 +217,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 });
 
 /**
- * ÅBN SPACE: Opretter vinduer og faner sekventielt uden 'random timeouts'.
+ * ÅBN SPACE: Deterministisk indlæsning af vinduer og faner.
  */
 async function handleOpenWorkspace(
   workspaceId: string,
@@ -232,7 +231,6 @@ async function handleOpenWorkspace(
       .map((t: any) => t.url)
       .filter((u: string) => !isDash(u));
 
-    // 1. Opret vinduet med Dashboard som første fane
     const newWin = await chrome.windows.create({
       url: "dashboard.html",
       incognito: winData.isIncognito || false,
@@ -242,27 +240,29 @@ async function handleOpenWorkspace(
       const winId = newWin.id;
       lockedWindowIds.add(winId);
 
-      // Gør dashboardet pinned (da windows.create ikke kan gøre det)
       const tabs = await chrome.tabs.query({ windowId: winId });
       if (tabs[0]?.id) {
         await chrome.tabs.update(tabs[0].id, { pinned: true });
       }
 
-      // 2. Map vinduet med det samme
       activeWindows.set(winId, {
         workspaceId,
         internalWindowId: winData.id,
         workspaceName: name,
       });
 
-      // 3. Opret alle resterende faner
+      // Opret faner
       for (const url of urls) {
         await chrome.tabs.create({ windowId: winId, url });
       }
 
-      // 4. Grupper og lås op
       await updateWindowGrouping(winId, name);
-      lockedWindowIds.delete(winId);
+
+      // Frigiv vinduet efter en kort pause så Firestore når at følge med
+      setTimeout(() => {
+        lockedWindowIds.delete(winId);
+        saveToFirestore(winId);
+      }, 1000);
     }
   }
 
