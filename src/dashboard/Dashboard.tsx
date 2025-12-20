@@ -107,6 +107,38 @@ export const Dashboard = () => {
     }
   }, [inboxWindows, isViewingInbox, selectedWindowId]);
 
+  useEffect(() => {
+    if (
+      activeMappings.length > 0 &&
+      currentWindowId &&
+      items.length > 0 &&
+      !selectedWorkspace &&
+      !isViewingInbox
+    ) {
+      // Find ud af om dette vindue er mappet til et space
+      const mapping = activeMappings.find(
+        ([winId]) => winId === currentWindowId
+      );
+      if (mapping) {
+        const [_, mapData] = mapping;
+        const workspace = items.find((i) => i.id === mapData.workspaceId);
+        if (workspace) {
+          setSelectedWorkspace(workspace);
+          setSelectedWindowId(mapData.internalWindowId);
+        }
+      }
+    }
+  }, [activeMappings, currentWindowId, items]);
+
+  const TabCard = ({ tab }: { tab: any }) => (
+    <div className="bg-slate-900/40 p-4 rounded-2xl border border-slate-800 flex items-center gap-4 hover:border-blue-500/50 hover:bg-slate-900 transition group cursor-default">
+      <Globe size={16} className="text-slate-600 group-hover:text-blue-400" />
+      <div className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-200">
+        {tab.title}
+      </div>
+    </div>
+  );
+
   if (!user)
     return (
       <div className="h-screen flex items-center justify-center bg-slate-950">
@@ -329,20 +361,15 @@ export const Dashboard = () => {
 
             <div className="flex-1 overflow-y-auto p-8 bg-[radial-gradient(circle_at_top_right,#1e293b_0%,transparent_40%)]">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {currentWindowData?.tabs.map((tab, i) => (
-                  <div
-                    key={i}
-                    className="bg-slate-900/40 p-4 rounded-2xl border border-slate-800 flex items-center gap-4 hover:border-blue-500/50 hover:bg-slate-900 transition group cursor-default"
-                  >
-                    <Globe
-                      size={16}
-                      className="text-slate-600 group-hover:text-blue-400"
-                    />
-                    <div className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-200">
-                      {tab.title}
-                    </div>
-                  </div>
-                ))}
+                {isViewingInbox
+                  ? // FLAD LISTE TIL INBOX
+                    inboxWindows
+                      .flatMap((win) => win.tabs || [])
+                      .map((tab, i) => <TabCard key={i} tab={tab} />)
+                  : // WORKSPACE VISNING (Som før)
+                    currentWindowData?.tabs.map((tab, i) => (
+                      <TabCard key={i} tab={tab} />
+                    ))}
               </div>
             </div>
           </>

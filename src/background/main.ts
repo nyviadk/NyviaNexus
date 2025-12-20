@@ -13,37 +13,21 @@ const activeWindows = new Map<
   { workspaceId: string; internalWindowId: string; workspaceName: string }
 >();
 
-/**
- * Rydder alle eksisterende grupper i et vindue.
- */
-async function purgeAllGroupsInWindow(windowId: number) {
-  try {
-    const groups = await chrome.tabGroups.query({ windowId });
-    for (const group of groups) {
-      const tabsInGroup = await chrome.tabs.query({ groupId: group.id });
-      const tabIds = tabsInGroup
-        .map((t) => t.id)
-        .filter((id) => id !== undefined) as number[];
-      if (tabIds.length > 0) {
-        await chrome.tabs.ungroup(tabIds as [number, ...number[]]);
-      }
-    }
-  } catch (e) {
-    console.error("Purge Error:", e);
-  }
-}
-
-/**
- * Grupperer faner intelligent. Hvis vinduet ikke længere er aktivt i et space,
- * opløses gruppen automatisk.
- */
+// I background.ts - Opdater updateWindowGrouping funktionen
 async function updateWindowGrouping(windowId: number, name: string | null) {
   if (isRestoring) return;
+
   try {
     const groups = await chrome.tabGroups.query({ windowId });
 
+    // Hvis vinduet ikke er et aktivt space, skal vi bare fjerne alle grupper (Inbox)
     if (!name) {
-      await purgeAllGroupsInWindow(windowId);
+      for (const g of groups) {
+        const tabsInGroup = await chrome.tabs.query({ groupId: g.id });
+        const ids = tabsInGroup.map((t) => t.id).filter(Boolean) as number[];
+        if (ids.length > 0)
+          await chrome.tabs.ungroup(ids as [number, ...number[]]);
+      }
       return;
     }
 
@@ -54,26 +38,25 @@ async function updateWindowGrouping(windowId: number, name: string | null) {
 
     if (tabIds.length === 0) return;
 
+    // Tjek om der allerede findes EN gruppe med det rigtige navn
     const existingGroup = groups.find((g) => g.title === name.toUpperCase());
 
-    // Fjern grupper med forkert navn
-    for (const g of groups) {
-      if (g.title !== name.toUpperCase()) {
-        const otherTabs = await chrome.tabs.query({ groupId: g.id });
-        const otherIds = otherTabs
-          .map((t) => t.id!)
-          .filter((id) => id !== undefined);
-        if (otherIds.length > 0)
-          await chrome.tabs.ungroup(otherIds as [number, ...number[]]);
-      }
-    }
-
     if (existingGroup) {
-      await chrome.tabs.group({
-        tabIds: tabIds as [number, ...number[]],
-        groupId: existingGroup.id,
-      });
+      // Hvis gruppen findes, så tjek om alle relevante faner er i den.
+      // Lad være med at kalde chrome.tabs.group igen hvis de allerede er der (det skaber flimmer)
+      const tabsInExisting = tabs
+        .filter((t) => t.groupId === existingGroup.id)
+        .map((t) => t.id);
+      const needsUpdate = tabIds.some((id) => !tabsInExisting.includes(id));
+
+      if (needsUpdate) {
+        await chrome.tabs.group({
+          tabIds: tabIds as [number, ...number[]],
+          groupId: existingGroup.id,
+        });
+      }
     } else {
+      // Opret kun gruppen én gang
       const groupId = await (chrome.tabs.group({
         tabIds: tabIds as [number, ...number[]],
       }) as any);
@@ -82,7 +65,9 @@ async function updateWindowGrouping(windowId: number, name: string | null) {
         color: "blue",
       });
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error("Grouping error:", e);
+  }
 }
 
 async function saveToFirestore(windowId: number) {
