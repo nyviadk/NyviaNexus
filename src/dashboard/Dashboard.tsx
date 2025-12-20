@@ -29,7 +29,7 @@ export const Dashboard = () => {
   const [modalType, setModalType] = useState<"folder" | "workspace" | null>(
     null
   );
-  const [inboxWindows, setInboxWindows] = useState<any[]>([]);
+  const [inboxData, setInboxData] = useState<any>(null);
   const [isViewingInbox, setIsViewingInbox] = useState(false);
   const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
@@ -40,7 +40,7 @@ export const Dashboard = () => {
     onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (u) {
-        setupRealtimeListeners();
+        setupListeners();
         chrome.windows.getCurrent(
           (win) => win.id && setCurrentWindowId(win.id)
         );
@@ -48,7 +48,7 @@ export const Dashboard = () => {
     });
   }, []);
 
-  const setupRealtimeListeners = () => {
+  const setupListeners = () => {
     onSnapshot(collection(db, "profiles"), (snap) => {
       const pList = snap.docs.map(
         (d) => ({ id: d.id, ...d.data() } as Profile)
@@ -56,56 +56,22 @@ export const Dashboard = () => {
       setProfiles(pList);
       if (pList.length > 0 && !activeProfile) setActiveProfile(pList[0].id);
     });
+    onSnapshot(collection(db, "items"), (snap) =>
+      setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as NexusItem)))
+    );
+    onSnapshot(
+      doc(db, "inbox_data", "global"),
+      (snap) => snap.exists() && setInboxData(snap.data())
+    );
 
-    onSnapshot(collection(db, "items"), (snap) => {
-      setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as NexusItem)));
-    });
-
-    onSnapshot(collection(db, "inbox_data"), (snap) => {
-      setInboxWindows(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
-
-    // Hurtigere interval for mapping sync (hvert sekund)
-    const interval = setInterval(() => {
+    const int = setInterval(() => {
       chrome.runtime.sendMessage(
         { type: "GET_ACTIVE_MAPPINGS" },
         (m) => m && setActiveMappings(m)
       );
     }, 1000);
-    return () => clearInterval(interval);
+    return () => clearInterval(int);
   };
-
-  useEffect(() => {
-    if (!selectedWorkspace || isViewingInbox) return;
-    return onSnapshot(
-      collection(db, "workspaces_data", selectedWorkspace.id, "windows"),
-      (snap) => {
-        const winList = snap.docs.map(
-          (d) => ({ id: d.id, ...d.data() } as WorkspaceWindow)
-        );
-        setWindows(winList);
-        if (winList.length > 0) {
-          const stillExists = winList.some((w) => w.id === selectedWindowId);
-          if (!selectedWindowId || !stillExists)
-            setSelectedWindowId(winList[0].id);
-        }
-      }
-    );
-  }, [selectedWorkspace, isViewingInbox, selectedWindowId]);
-
-  useEffect(() => {
-    if (isViewingInbox) {
-      setWindows(
-        inboxWindows.map((w) => ({
-          id: w.id,
-          tabs: w.tabs,
-          isActive: w.isActive,
-        }))
-      );
-      if (inboxWindows.length > 0 && !selectedWindowId)
-        setSelectedWindowId(inboxWindows[0].id);
-    }
-  }, [inboxWindows, isViewingInbox, selectedWindowId]);
 
   useEffect(() => {
     if (
@@ -115,20 +81,35 @@ export const Dashboard = () => {
       !selectedWorkspace &&
       !isViewingInbox
     ) {
-      // Find ud af om dette vindue er mappet til et space
-      const mapping = activeMappings.find(
-        ([winId]) => winId === currentWindowId
-      );
+      const mapping = activeMappings.find(([id]) => id === currentWindowId);
       if (mapping) {
-        const [_, mapData] = mapping;
-        const workspace = items.find((i) => i.id === mapData.workspaceId);
-        if (workspace) {
-          setSelectedWorkspace(workspace);
-          setSelectedWindowId(mapData.internalWindowId);
+        const ws = items.find((i) => i.id === mapping[1].workspaceId);
+        if (ws) {
+          setSelectedWorkspace(ws);
+          setSelectedWindowId(mapping[1].internalWindowId);
         }
       }
     }
   }, [activeMappings, currentWindowId, items]);
+
+  useEffect(() => {
+    if (!selectedWorkspace || isViewingInbox) return;
+    return onSnapshot(
+      collection(db, "workspaces_data", selectedWorkspace.id, "windows"),
+      (snap) => {
+        const list = snap.docs.map(
+          (d) => ({ id: d.id, ...d.data() } as WorkspaceWindow)
+        );
+        setWindows(list);
+        if (
+          list.length > 0 &&
+          (!selectedWindowId || !list.some((w) => w.id === selectedWindowId))
+        ) {
+          setSelectedWindowId(list[0].id);
+        }
+      }
+    );
+  }, [selectedWorkspace, isViewingInbox]);
 
   const TabCard = ({ tab }: { tab: any }) => (
     <div className="bg-slate-900/40 p-4 rounded-2xl border border-slate-800 flex flex-col gap-1 hover:border-blue-500/50 hover:bg-slate-900 transition group cursor-default">
@@ -141,7 +122,6 @@ export const Dashboard = () => {
           {tab.title}
         </div>
       </div>
-      {/* URL Linje tilføjet herunder */}
       <div className="pl-7 min-w-0 flex-1 truncate text-[10px] text-slate-500 font-mono italic">
         {tab.url}
       </div>
@@ -157,27 +137,25 @@ export const Dashboard = () => {
 
   const currentWindowData = windows.find((w) => w.id === selectedWindowId);
   const isViewingCurrent = activeMappings.some(
-    ([winId, map]: any) =>
-      winId === currentWindowId && map.internalWindowId === selectedWindowId
+    ([id, m]: any) =>
+      id === currentWindowId && m.internalWindowId === selectedWindowId
   );
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden font-sans">
       <aside className="w-72 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0">
-        <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center font-bold text-white shadow-lg">
+        <div className="p-6 border-b border-slate-800 flex items-center gap-3 font-black text-white text-xl uppercase tracking-tighter">
+          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg">
             N
-          </div>
-          <div className="font-black text-white text-xl uppercase tracking-tighter">
-            NyviaNexus
-          </div>
+          </div>{" "}
+          NyviaNexus
         </div>
 
         <div className="p-4 flex-1 overflow-y-auto space-y-6">
           <select
             value={activeProfile}
             onChange={(e) => setActiveProfile(e.target.value)}
-            className="w-full bg-slate-800 p-2 rounded border border-slate-700 text-sm outline-none focus:border-blue-500"
+            className="w-full bg-slate-800 p-2 rounded border border-slate-700 text-sm outline-none"
           >
             {profiles.map((p) => (
               <option key={p.id} value={p.id}>
@@ -187,19 +165,17 @@ export const Dashboard = () => {
           </select>
 
           <nav className="space-y-1">
-            <div className="flex justify-between items-center px-2 mb-2">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                Dine Spaces
-              </label>
+            <div className="flex justify-between items-center px-2 mb-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+              Dine Spaces
               <div className="flex gap-2">
                 <FolderPlus
                   size={14}
-                  className="text-slate-500 hover:text-white cursor-pointer"
+                  className="cursor-pointer hover:text-white"
                   onClick={() => setModalType("folder")}
                 />
                 <PlusCircle
                   size={14}
-                  className="text-slate-500 hover:text-white cursor-pointer"
+                  className="cursor-pointer hover:text-white"
                   onClick={() => setModalType("workspace")}
                 />
               </div>
@@ -214,9 +190,9 @@ export const Dashboard = () => {
                   item={item}
                   allItems={items}
                   onRefresh={() => {}}
-                  onSelect={(item) => {
+                  onSelect={(it) => {
                     setIsViewingInbox(false);
-                    setSelectedWorkspace(item);
+                    setSelectedWorkspace(it);
                   }}
                 />
               ))}
@@ -238,14 +214,13 @@ export const Dashboard = () => {
               }`}
             >
               <InboxIcon size={16} />
-              Inbox (
-              {inboxWindows.find((d) => d.id === "global")?.tabs?.length || 0})
+              <span>Inbox ({inboxData?.tabs?.length || 0})</span>
             </div>
           </nav>
         </div>
 
-        <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-3">
-          <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase tracking-tighter">
+        <div className="p-4 border-t border-slate-800 flex flex-col gap-3">
+          <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase">
             <Activity size={12} className="animate-pulse" /> Live Sync Active
           </div>
           <button
@@ -272,52 +247,50 @@ export const Dashboard = () => {
                     </span>
                   )}
                 </div>
-                <div className="flex gap-4 items-center">
-                  {windows.map((win, idx) => {
-                    const isOpen = activeMappings.some(
-                      ([_, map]: any) => map.internalWindowId === win.id
-                    );
-                    return (
-                      <div key={win.id} className="relative group">
-                        <button
-                          onClick={() => setSelectedWindowId(win.id)}
-                          className={`px-4 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-2 ${
-                            selectedWindowId === win.id
-                              ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30"
-                              : "bg-slate-800 text-slate-400 hover:bg-slate-700"
-                          }`}
-                        >
-                          Vindue {idx + 1}{" "}
-                          {isOpen && (
-                            <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                          )}
-                        </button>
-                        {!isOpen && (
+                {!isViewingInbox && (
+                  <div className="flex gap-4 items-center">
+                    {windows.map((win, idx) => {
+                      const isOpen = activeMappings.some(
+                        ([_, m]: any) => m.internalWindowId === win.id
+                      );
+                      return (
+                        <div key={win.id} className="relative group">
                           <button
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              if (confirm("Slet data?"))
-                                await deleteDoc(
-                                  doc(
-                                    db,
-                                    isViewingInbox
-                                      ? "inbox_data"
-                                      : `workspaces_data/${
-                                          selectedWorkspace!.id
-                                        }/windows`,
-                                    win.id
-                                  )
-                                );
-                            }}
-                            className="absolute -top-2 -right-2 bg-red-600 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition"
+                            onClick={() => setSelectedWindowId(win.id)}
+                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-2 ${
+                              selectedWindowId === win.id
+                                ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30"
+                                : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                            }`}
                           >
-                            <X size={10} />
+                            Vindue {idx + 1}{" "}
+                            {isOpen && (
+                              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                            )}
                           </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {!isViewingInbox && (
+                          {!isOpen && (
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (confirm("Slet data?"))
+                                  await deleteDoc(
+                                    doc(
+                                      db,
+                                      `workspaces_data/${
+                                        selectedWorkspace!.id
+                                      }/windows`,
+                                      win.id
+                                    )
+                                  );
+                              }}
+                              className="absolute -top-2 -right-2 bg-red-600 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition"
+                            >
+                              <X size={10} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                     <button
                       onClick={() =>
                         chrome.runtime.sendMessage({
@@ -332,67 +305,56 @@ export const Dashboard = () => {
                     >
                       <PlusCircle size={20} />
                     </button>
-                  )}
-                </div>
-              </div>
-              <div className="flex gap-2 mb-1">
-                {!isViewingInbox && (
-                  <>
-                    <button
-                      onClick={() =>
-                        chrome.runtime.sendMessage({
-                          type: "FORCE_SYNC_ACTIVE_WINDOW",
-                          payload: { windowId: currentWindowId },
-                        })
-                      }
-                      className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl hover:text-orange-400 transition"
-                    >
-                      <RotateCw size={20} />
-                    </button>
-                    <button
-                      onClick={() =>
-                        chrome.runtime.sendMessage({
-                          type: "OPEN_WORKSPACE",
-                          payload: {
-                            workspaceId: selectedWorkspace?.id,
-                            windows,
-                            name: selectedWorkspace?.name,
-                          },
-                        })
-                      }
-                      className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition"
-                    >
-                      Åbn Space
-                    </button>
-                  </>
+                  </div>
                 )}
               </div>
+              {!isViewingInbox && (
+                <div className="flex gap-2 mb-1">
+                  <button
+                    onClick={() =>
+                      chrome.runtime.sendMessage({
+                        type: "FORCE_SYNC_ACTIVE_WINDOW",
+                        payload: { windowId: currentWindowId },
+                      })
+                    }
+                    className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl hover:text-orange-400 transition"
+                  >
+                    <RotateCw size={20} />
+                  </button>
+                  <button
+                    onClick={() =>
+                      chrome.runtime.sendMessage({
+                        type: "OPEN_WORKSPACE",
+                        payload: {
+                          workspaceId: selectedWorkspace?.id,
+                          windows,
+                          name: selectedWorkspace?.name,
+                        },
+                      })
+                    }
+                    className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition"
+                  >
+                    Åbn Space
+                  </button>
+                </div>
+              )}
             </header>
 
-            <div className="flex-1 overflow-y-auto p-8 bg-[radial-gradient(circle_at_top_right,#1e293b_0%,transparent_40%)]">
+            <div className="flex-1 overflow-y-auto p-8">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {isViewingInbox
-                  ? // FINDER DET GLOBALE INBOX DOKUMENT OG VISER ALLE TABS
-                    inboxWindows
-                      .find((d) => d.id === "global")
-                      ?.tabs?.map((tab: any, i: number) => (
-                        <TabCard key={i} tab={tab} />
-                      ))
-                  : // WORKSPACE VISNING (Forbliver som den er)
-                    currentWindowData?.tabs.map((tab, i) => (
-                      <TabCard key={i} tab={tab} />
-                    ))}
+                {(isViewingInbox
+                  ? inboxData?.tabs || []
+                  : currentWindowData?.tabs || []
+                ).map((tab: any, i: number) => (
+                  <TabCard key={i} tab={tab} />
+                ))}
               </div>
             </div>
           </>
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-slate-700 gap-4">
-            <div className="p-6 bg-slate-900 rounded-full">
-              <Monitor size={48} className="opacity-10" />
-            </div>
-            <p className="text-lg font-medium">
-              Brug sidebaren til at oprette eller vælge et space
-            </p>
+            <Monitor size={48} className="opacity-10" />
+            <p className="text-lg font-medium">Vælg et space</p>
           </div>
         )}
       </main>
