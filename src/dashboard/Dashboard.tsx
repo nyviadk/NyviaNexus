@@ -122,7 +122,7 @@ export const Dashboard = () => {
           {tab.title}
         </div>
       </div>
-      <div className="pl-7 min-w-0 flex-1 truncate text-[10px] text-slate-500 font-mono italic">
+      <div className="pl-7 truncate text-[10px] text-slate-500 italic font-mono">
         {tab.url}
       </div>
     </div>
@@ -144,7 +144,7 @@ export const Dashboard = () => {
   return (
     <div className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden font-sans">
       <aside className="w-72 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0">
-        <div className="p-6 border-b border-slate-800 flex items-center gap-3 font-black text-white text-xl uppercase tracking-tighter">
+        <div className="p-6 border-b border-slate-800 flex items-center gap-3 font-black text-white text-xl uppercase">
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg">
             N
           </div>{" "}
@@ -166,7 +166,7 @@ export const Dashboard = () => {
 
           <nav className="space-y-1">
             <div className="flex justify-between items-center px-2 mb-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-              Dine Spaces
+              Spaces
               <div className="flex gap-2">
                 <FolderPlus
                   size={14}
@@ -213,19 +213,19 @@ export const Dashboard = () => {
                   : "hover:bg-slate-800 text-slate-400"
               }`}
             >
-              <InboxIcon size={16} />
+              <InboxIcon size={16} />{" "}
               <span>Inbox ({inboxData?.tabs?.length || 0})</span>
             </div>
           </nav>
         </div>
 
-        <div className="p-4 border-t border-slate-800 flex flex-col gap-3">
-          <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase">
+        <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-3 text-sm font-medium">
+          <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase tracking-tighter">
             <Activity size={12} className="animate-pulse" /> Live Sync Active
           </div>
           <button
             onClick={() => auth.signOut()}
-            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition text-sm font-medium"
+            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition"
           >
             <LogOut size={16} /> Log ud
           </button>
@@ -308,36 +308,38 @@ export const Dashboard = () => {
                   </div>
                 )}
               </div>
-              {!isViewingInbox && (
-                <div className="flex gap-2 mb-1">
-                  <button
-                    onClick={() =>
-                      chrome.runtime.sendMessage({
-                        type: "FORCE_SYNC_ACTIVE_WINDOW",
-                        payload: { windowId: currentWindowId },
-                      })
-                    }
-                    className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl hover:text-orange-400 transition"
-                  >
-                    <RotateCw size={20} />
-                  </button>
-                  <button
-                    onClick={() =>
-                      chrome.runtime.sendMessage({
-                        type: "OPEN_WORKSPACE",
-                        payload: {
-                          workspaceId: selectedWorkspace?.id,
-                          windows,
-                          name: selectedWorkspace?.name,
-                        },
-                      })
-                    }
-                    className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition"
-                  >
-                    Åbn Space
-                  </button>
-                </div>
-              )}
+              <div className="flex gap-2 mb-1">
+                {!isViewingInbox && (
+                  <>
+                    <button
+                      onClick={() =>
+                        chrome.runtime.sendMessage({
+                          type: "FORCE_SYNC_ACTIVE_WINDOW",
+                          payload: { windowId: currentWindowId },
+                        })
+                      }
+                      className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl hover:text-orange-400 transition"
+                    >
+                      <RotateCw size={20} />
+                    </button>
+                    <button
+                      onClick={() =>
+                        chrome.runtime.sendMessage({
+                          type: "OPEN_WORKSPACE",
+                          payload: {
+                            workspaceId: selectedWorkspace?.id,
+                            windows,
+                            name: selectedWorkspace?.name,
+                          },
+                        })
+                      }
+                      className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition"
+                    >
+                      Åbn Space
+                    </button>
+                  </>
+                )}
+              </div>
             </header>
 
             <div className="flex-1 overflow-y-auto p-8">

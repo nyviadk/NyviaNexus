@@ -7,18 +7,29 @@ import {
   updateDoc,
 } from "firebase/firestore";
 
-// System State
+// Typer (Sørg for at disse matcher dine definitioner i src/types.ts)
+interface TabData {
+  title: string;
+  url: string;
+  favIconUrl: string;
+}
+
+interface WinMapping {
+  workspaceId: string;
+  internalWindowId: string;
+  workspaceName: string;
+}
+
+// State
 let isRestoring = false;
 let lastDashboardTime = 0;
-const activeWindows = new Map<
-  number,
-  { workspaceId: string; internalWindowId: string; workspaceName: string }
->();
+const activeWindows = new Map<number, WinMapping>();
+const lockedWindowIds = new Set<number>();
 
 const isDash = (url?: string) => url?.includes("dashboard.html");
 
 /**
- * Grupperer faner præcist uden timeouts.
+ * GRUPPERING: Finder eller opretter ÉN gruppe med Space-navnet.
  */
 async function updateWindowGrouping(windowId: number, name: string | null) {
   try {
@@ -43,6 +54,7 @@ async function updateWindowGrouping(windowId: number, name: string | null) {
     if (tabIds.length === 0) return;
 
     const existingGroup = groups.find((g) => g.title === name.toUpperCase());
+
     if (!existingGroup) {
       const groupId = await (chrome.tabs.group({
         tabIds: tabIds as [number, ...number[]],
@@ -58,22 +70,22 @@ async function updateWindowGrouping(windowId: number, name: string | null) {
       });
     }
   } catch (e) {
-    console.warn("[Nexus] Grouping failed (window might be closing)");
+    console.warn("[Nexus] Grouping failed", e);
   }
 }
 
 /**
- * Kerne-logik: Gem til Firestore
+ * SYNC: Gemmer vinduets tilstand til Firestore.
  */
 async function saveToFirestore(windowId: number) {
-  if (isRestoring) return;
+  if (lockedWindowIds.has(windowId) || isRestoring) return;
 
   try {
     const win = await chrome.windows.get(windowId);
     const mapping = activeWindows.get(windowId);
     const tabs = await chrome.tabs.query({ windowId });
 
-    const validTabs = tabs
+    const validTabs: TabData[] = tabs
       .filter((t) => t.url && !t.url.startsWith("chrome") && !isDash(t.url))
       .map((t) => ({
         title: t.title || "Ny fane",
@@ -102,12 +114,11 @@ async function saveToFirestore(windowId: number) {
       );
     } else {
       await updateWindowGrouping(windowId, null);
-
-      // Global Inbox (Flad liste)
       const allWindows = await chrome.windows.getAll();
-      let allInboxTabs: any[] = [];
+      let allInboxTabs: TabData[] = [];
+
       for (const w of allWindows) {
-        if (!activeWindows.has(w.id!)) {
+        if (w.id && !activeWindows.has(w.id) && !lockedWindowIds.has(w.id)) {
           const winTabs = await chrome.tabs.query({ windowId: w.id });
           const filtered = winTabs
             .filter(
@@ -127,40 +138,38 @@ async function saveToFirestore(windowId: number) {
       });
     }
   } catch (e) {
-    console.error("[Nexus] Sync Error:", e);
+    console.error("[Nexus] Save Error:", e);
   }
 }
 
-// --- EVENT LISTENERS ---
+// --- LISTENERS ---
 
 chrome.tabs.onUpdated.addListener((_id, change, tab) => {
   if (change.status === "complete" && tab.windowId)
     saveToFirestore(tab.windowId);
 });
 
-chrome.tabs.onRemoved.addListener((_id, removeInfo) => {
-  if (!removeInfo.isWindowClosing) saveToFirestore(removeInfo.windowId);
+chrome.tabs.onRemoved.addListener((_id, info) => {
+  if (!info.isWindowClosing) saveToFirestore(info.windowId);
 });
 
-chrome.tabs.onMoved.addListener((_id, moveInfo) =>
-  saveToFirestore(moveInfo.windowId)
-);
-
 chrome.windows.onFocusChanged.addListener(async (winId) => {
-  if (winId === chrome.windows.WINDOW_ID_NONE || isRestoring) return;
+  if (winId === chrome.windows.WINDOW_ID_NONE || lockedWindowIds.has(winId))
+    return;
 
   const now = Date.now();
-  if (now - lastDashboardTime < 1500) return;
+  if (now - lastDashboardTime < 2000) return;
 
   try {
     const win = await chrome.windows.get(winId);
-    // Vigtigt: Opret ikke dashboards i nye inkognito vinduer automatisk
     if (win.incognito && !activeWindows.has(winId)) return;
 
     const tabs = await chrome.tabs.query({ windowId: winId });
     const hasDash = tabs.some((t) => isDash(t.url));
+
     if (!hasDash) {
       lastDashboardTime = now;
+      // Dashboard skal oprettes via tabs.create for at kunne være 'pinned'
       await chrome.tabs.create({
         windowId: winId,
         url: "dashboard.html",
@@ -184,17 +193,19 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
     await updateDoc(docRef, { isActive: false });
     activeWindows.delete(windowId);
   }
+  lockedWindowIds.delete(windowId);
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  const { type, payload } = message;
-  if (type === "OPEN_WORKSPACE") handleOpenWorkspace(payload);
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  const { type, payload } = msg;
+  if (type === "OPEN_WORKSPACE")
+    handleOpenWorkspace(payload.workspaceId, payload.windows, payload.name);
   else if (type === "GET_ACTIVE_MAPPINGS")
     sendResponse(Array.from(activeWindows.entries()));
   else if (type === "FORCE_SYNC_ACTIVE_WINDOW")
     handleForceSync(payload.windowId);
   else if (type === "CREATE_NEW_WINDOW_IN_WORKSPACE")
-    handleCreateNewWindow(payload);
+    handleCreateNewWindowInWorkspace(payload.workspaceId, payload.name);
   else if (type === "CLAIM_WINDOW") {
     activeWindows.set(payload.windowId, {
       workspaceId: payload.workspaceId,
@@ -207,60 +218,83 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 /**
- * Åbner et Space vindue for vindue og mapper dem før næste vindue startes.
+ * ÅBN SPACE: Opretter vinduer og faner sekventielt uden 'random timeouts'.
  */
-async function handleOpenWorkspace({ workspaceId, windows, name }: any) {
+async function handleOpenWorkspace(
+  workspaceId: string,
+  windowsToOpen: any[],
+  name: string
+) {
   isRestoring = true;
 
-  for (const winData of windows) {
+  for (const winData of windowsToOpen) {
     const urls = winData.tabs
       .map((t: any) => t.url)
       .filter((u: string) => !isDash(u));
 
-    // Vi venter på at vinduet er oprettet før vi går videre
+    // 1. Opret vinduet med Dashboard som første fane
     const newWin = await chrome.windows.create({
-      url: urls.length > 0 ? urls : undefined,
+      url: "dashboard.html",
       incognito: winData.isIncognito || false,
     });
 
-    if (newWin?.id) {
-      // Map vinduet med det samme så listeners genkender det
-      activeWindows.set(newWin.id, {
+    if (newWin && newWin.id) {
+      const winId = newWin.id;
+      lockedWindowIds.add(winId);
+
+      // Gør dashboardet pinned (da windows.create ikke kan gøre det)
+      const tabs = await chrome.tabs.query({ windowId: winId });
+      if (tabs[0]?.id) {
+        await chrome.tabs.update(tabs[0].id, { pinned: true });
+      }
+
+      // 2. Map vinduet med det samme
+      activeWindows.set(winId, {
         workspaceId,
         internalWindowId: winData.id,
         workspaceName: name,
       });
 
-      // Grupper med det samme
-      await updateWindowGrouping(newWin.id, name);
+      // 3. Opret alle resterende faner
+      for (const url of urls) {
+        await chrome.tabs.create({ windowId: winId, url });
+      }
+
+      // 4. Grupper og lås op
+      await updateWindowGrouping(winId, name);
+      lockedWindowIds.delete(winId);
     }
   }
 
-  // Giv systemet ro til at færdiggøre rendering
-  setTimeout(() => {
-    isRestoring = false;
-  }, 2000);
+  isRestoring = false;
 }
 
-async function handleCreateNewWindow({ workspaceId, name }: any) {
-  isRestoring = true;
-  const newWin = await chrome.windows.create({ url: "about:blank" });
-  if (newWin?.id) {
-    activeWindows.set(newWin.id, {
+async function handleCreateNewWindowInWorkspace(
+  workspaceId: string,
+  name: string
+) {
+  const newWin = await chrome.windows.create({ url: "dashboard.html" });
+  if (newWin && newWin.id) {
+    const winId = newWin.id;
+    const tabs = await chrome.tabs.query({ windowId: winId });
+    if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
+
+    activeWindows.set(winId, {
       workspaceId,
       internalWindowId: `win_${Date.now()}`,
       workspaceName: name,
     });
-    await updateWindowGrouping(newWin.id, name);
-    await saveToFirestore(newWin.id);
+
+    await updateWindowGrouping(winId, name);
+    saveToFirestore(winId);
   }
-  isRestoring = false;
 }
 
 async function handleForceSync(windowId: number) {
   const mapping = activeWindows.get(windowId);
   if (!mapping) return;
-  isRestoring = true;
+
+  lockedWindowIds.add(windowId);
   const snap = await getDoc(
     doc(
       db,
@@ -270,14 +304,18 @@ async function handleForceSync(windowId: number) {
       mapping.internalWindowId
     )
   );
+
   if (snap.exists()) {
     const urls = snap.data().tabs.map((t: any) => t.url);
     const currentTabs = await chrome.tabs.query({ windowId });
+
     for (const url of urls) await chrome.tabs.create({ windowId, url });
     for (const tab of currentTabs) {
       if (tab.id && !isDash(tab.url)) await chrome.tabs.remove(tab.id);
     }
     await updateWindowGrouping(windowId, mapping.workspaceName);
   }
-  isRestoring = false;
+
+  lockedWindowIds.delete(windowId);
+  saveToFirestore(windowId);
 }
