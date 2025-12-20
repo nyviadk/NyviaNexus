@@ -1,27 +1,24 @@
-import path from 'node:path'
-import { crx } from '@crxjs/vite-plugin'
-import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
-import zip from 'vite-plugin-zip-pack'
-import manifest from './manifest.config.js'
-import { name, version } from './package.json'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { crx } from "@crxjs/vite-plugin";
+import manifest from "./manifest.json";
+import { resolve } from "path";
 
+// Vite opsætning til Chrome Extension
 export default defineConfig({
+  plugins: [react(), crx({ manifest })],
   resolve: {
     alias: {
-      '@': `${path.resolve(__dirname, 'src')}`,
+      "@": resolve(__dirname, "src"),
     },
   },
-  plugins: [
-    react(),
-    crx({ manifest }),
-    zip({ outDir: 'release', outFileName: `crx-${name}-${version}.zip` }),
-  ],
-  server: {
-    cors: {
-      origin: [
-        /chrome-extension:\/\//,
-      ],
+  build: {
+    rollupOptions: {
+      input: {
+        // Vi definerer eksplicit begge HTML-indgange
+        popup: resolve(__dirname, "index.html"),
+        dashboard: resolve(__dirname, "dashboard.html"),
+      },
     },
   },
-})
+});

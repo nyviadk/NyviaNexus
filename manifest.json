@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "NyviaNexus",
+  "version": "1.0.0",
+  "action": {
+    "default_popup": "index.html"
+  },
+  "options_page": "dashboard.html",
+  "background": {
+    "service_worker": "src/background/main.ts",
+    "type": "module"
+  },
+  "permissions": [
+    "tabs",
+    "windows",
+    "storage",
+    "unlimitedStorage",
+    "scripting",
+    "tabGroups"
+  ],
+  "incognito": "spanning",
+  "host_permissions": ["<all_urls>"]
+}
