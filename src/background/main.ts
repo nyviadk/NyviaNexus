@@ -5,22 +5,20 @@ import {
   serverTimestamp,
   getDoc,
   updateDoc,
-  deleteDoc,
 } from "firebase/firestore";
 
 let isRestoring = false;
+// Tracker: browserWindowId -> { workspaceId, internalWindowId, workspaceName }
 const activeWindows = new Map<
   number,
   { workspaceId: string; internalWindowId: string; workspaceName: string }
 >();
 
 /**
- * Grupperer faner intelligent. Finder eksisterende gruppe med samme navn
- * og genbruger den, eller opretter en ny hvis nødvendigt.
+ * Grupperer faner for at give vinduet et visuelt navn (ID).
  */
 async function updateWindowGrouping(windowId: number, name: string) {
   if (isRestoring) return;
-
   try {
     const tabs = await chrome.tabs.query({ windowId });
     const tabIds = tabs
@@ -29,18 +27,15 @@ async function updateWindowGrouping(windowId: number, name: string) {
 
     if (tabIds.length === 0) return;
 
-    // Tjek eksisterende grupper i vinduet
     const groups = await chrome.tabGroups.query({ windowId });
     const existingGroup = groups.find((g) => g.title === name.toUpperCase());
 
     if (existingGroup) {
-      // Tilføj faner til eksisterende gruppe
       await chrome.tabs.group({
-        tabIds: tabIds as [number, ...number[]], // Rettelse af TS-fejl
+        tabIds: tabIds as [number, ...number[]],
         groupId: existingGroup.id,
       });
     } else {
-      // Opret ny gruppe
       const groupId = await chrome.tabs.group({
         tabIds: tabIds as [number, ...number[]], // Rettelse af TS-fejl
       });
@@ -50,10 +45,13 @@ async function updateWindowGrouping(windowId: number, name: string) {
       });
     }
   } catch (e) {
-    console.error("NyviaNexus Grouping Error:", e);
+    console.error("Grouping Error:", e);
   }
 }
 
+/**
+ * Sikrer kun ét dashboard pr. vindue.
+ */
 async function enforceDashboardSingleton(windowId: number) {
   const tabs = await chrome.tabs.query({ windowId });
   const dashTabs = tabs.filter(
@@ -69,7 +67,11 @@ async function enforceDashboardSingleton(windowId: number) {
   }
 }
 
-async function saveWindowToFirestore(windowId: number) {
+/**
+ * Gemmer faner. Hvis vinduet er i et space, gemmes det dér.
+ * Ellers gemmes det i 'inbox_data' (Persistent).
+ */
+async function saveToFirestore(windowId: number) {
   if (isRestoring) return;
   const mapping = activeWindows.get(windowId);
 
@@ -89,7 +91,7 @@ async function saveWindowToFirestore(windowId: number) {
       }));
 
     if (mapping) {
-      // Gem til det aktive Space
+      updateWindowGrouping(windowId, mapping.workspaceName);
       const docRef = doc(
         db,
         "workspaces_data",
@@ -99,37 +101,33 @@ async function saveWindowToFirestore(windowId: number) {
       );
       await setDoc(
         docRef,
-        {
-          tabs: validTabs,
-          lastActive: serverTimestamp(),
-          isActive: true,
-        },
+        { tabs: validTabs, lastActive: serverTimestamp(), isActive: true },
         { merge: true }
       );
     } else {
-      // Gem til Inbox (for ikke-tildelte vinduer)
+      // Inbox gemmes med et unikt ID baseret på vinduet, men slettes ikke ved luk
       const inboxRef = doc(db, "inbox_data", `win_${windowId}`);
-      await setDoc(inboxRef, {
-        windowId: windowId,
-        tabs: validTabs,
-        lastActive: serverTimestamp(),
-        isActive: true,
-      });
+      await setDoc(
+        inboxRef,
+        { tabs: validTabs, lastActive: serverTimestamp(), isActive: true },
+        { merge: true }
+      );
     }
-  } catch (error) {
-    console.error("Sync Error:", error);
+  } catch (e) {
+    console.error("Save Error:", e);
   }
 }
 
-// Event Listeners
+// --- LISTENERS ---
 chrome.tabs.onUpdated.addListener((_id, change, tab) => {
-  if (change.status === "complete" && tab.windowId)
-    saveWindowToFirestore(tab.windowId);
+  if (change.status === "complete" && tab.windowId) {
+    saveToFirestore(tab.windowId);
+    enforceDashboardSingleton(tab.windowId);
+  }
 });
 
 chrome.windows.onFocusChanged.addListener((winId) => {
-  if (isRestoring || winId === chrome.windows.WINDOW_ID_NONE) return;
-  enforceDashboardSingleton(winId);
+  if (winId !== chrome.windows.WINDOW_ID_NONE) enforceDashboardSingleton(winId);
 });
 
 chrome.windows.onRemoved.addListener(async (windowId) => {
@@ -142,37 +140,33 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
       "windows",
       mapping.internalWindowId
     );
-    await updateDoc(docRef, { isActive: false }); // Fjerner ghost status
+    await updateDoc(docRef, { isActive: false });
     activeWindows.delete(windowId);
   } else {
-    // Fjern fra Inbox når vinduet lukkes
-    await deleteDoc(doc(db, "inbox_data", `win_${windowId}`));
+    // Inbox vindue markeres blot som inaktivt, så det bliver i databasen
+    const inboxRef = doc(db, "inbox_data", `win_${windowId}`);
+    const snap = await getDoc(inboxRef);
+    if (snap.exists()) await updateDoc(inboxRef, { isActive: false });
   }
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.type === "OPEN_WORKSPACE") {
-    handleOpenWorkspace(
-      message.payload.workspaceId,
-      message.payload.windows,
-      message.payload.name
-    );
-  } else if (message.type === "GET_ACTIVE_MAPPINGS") {
+  const { type, payload } = message;
+  if (type === "OPEN_WORKSPACE")
+    handleOpenWorkspace(payload.workspaceId, payload.windows, payload.name);
+  else if (type === "GET_ACTIVE_MAPPINGS")
     sendResponse(Array.from(activeWindows.entries()));
-  } else if (message.type === "FORCE_SYNC_ACTIVE_WINDOW") {
-    handleForceSync(message.payload.windowId);
-  } else if (message.type === "CREATE_NEW_WINDOW_IN_WORKSPACE") {
-    handleCreateNewWindowInWorkspace(
-      message.payload.workspaceId,
-      message.payload.name
-    );
-  } else if (message.type === "CLAIM_WINDOW") {
-    activeWindows.set(message.payload.windowId, {
-      workspaceId: message.payload.workspaceId,
-      internalWindowId: message.payload.internalWindowId,
-      workspaceName: message.payload.name,
+  else if (type === "FORCE_SYNC_ACTIVE_WINDOW")
+    handleForceSync(payload.windowId);
+  else if (type === "CREATE_NEW_WINDOW_IN_WORKSPACE")
+    handleCreateNewWindowInWorkspace(payload.workspaceId, payload.name);
+  else if (type === "CLAIM_WINDOW") {
+    activeWindows.set(payload.windowId, {
+      workspaceId: payload.workspaceId,
+      internalWindowId: payload.internalWindowId,
+      workspaceName: payload.name,
     });
-    saveWindowToFirestore(message.payload.windowId);
+    saveToFirestore(payload.windowId);
   }
   return true;
 });
@@ -183,30 +177,25 @@ async function handleOpenWorkspace(
   name: string
 ) {
   isRestoring = true;
-
-  for (const winToOpen of windowsToOpen) {
+  for (const win of windowsToOpen) {
     let existingWinId: number | null = null;
     for (const [id, map] of activeWindows.entries()) {
-      if (
-        map.workspaceId === workspaceId &&
-        map.internalWindowId === winToOpen.id
-      ) {
+      if (map.workspaceId === workspaceId && map.internalWindowId === win.id) {
         existingWinId = id;
         break;
       }
     }
-
     if (existingWinId !== null) {
       chrome.windows.update(existingWinId, { focused: true });
     } else {
-      const urls = winToOpen.tabs.map((t: any) => t.url);
+      const urls = win.tabs.map((t: any) => t.url);
       const newWin = await chrome.windows.create({
         url: urls.length > 0 ? urls : "about:blank",
       });
       if (newWin?.id) {
         activeWindows.set(newWin.id, {
           workspaceId,
-          internalWindowId: winToOpen.id,
+          internalWindowId: win.id,
           workspaceName: name,
         });
         await enforceDashboardSingleton(newWin.id);
@@ -214,7 +203,6 @@ async function handleOpenWorkspace(
       }
     }
   }
-
   setTimeout(() => {
     isRestoring = false;
   }, 3000);
@@ -235,7 +223,7 @@ async function handleCreateNewWindowInWorkspace(
     });
     await enforceDashboardSingleton(newWin.id);
     await updateWindowGrouping(newWin.id, name);
-    await saveWindowToFirestore(newWin.id);
+    await saveToFirestore(newWin.id);
   }
   setTimeout(() => {
     isRestoring = false;
@@ -263,6 +251,7 @@ async function handleForceSync(windowId: number) {
       if (tab.id && !tab.url?.includes("dashboard.html"))
         await chrome.tabs.remove(tab.id);
     }
+    updateWindowGrouping(windowId, mapping.workspaceName);
   }
   setTimeout(() => {
     isRestoring = false;

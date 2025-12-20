@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "./lib/firebase";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { collection, getDocs } from "firebase/firestore";
-
+import { collection, onSnapshot } from "firebase/firestore";
 import { LoginForm } from "./components/LoginForm";
 import { SidebarItem } from "./components/SidebarItem";
 import { Inbox } from "./components/Inbox";
 import { IncognitoMove } from "./components/IncognitoMove";
 import { CreateItemModal } from "./components/CreateItemModal";
-
 import {
   RefreshCw,
   LogOut,
@@ -26,83 +24,57 @@ export default function App() {
   const [items, setItems] = useState<NexusItem[]>([]);
   const [activeMappings, setActiveMappings] = useState<any[]>([]);
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
   const [modalType, setModalType] = useState<"folder" | "workspace" | null>(
     null
   );
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
+    onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (u) {
-        fetchData();
-        chrome.windows.getCurrent((win) => {
-          if (win.id) setCurrentWindowId(win.id);
-        });
-      } else setLoading(false);
+        setupListeners();
+        chrome.windows.getCurrent(
+          (win) => win.id && setCurrentWindowId(win.id)
+        );
+      }
     });
-    return unsub;
-  }, [activeProfile]);
+  }, []);
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const pSnap = await getDocs(collection(db, "profiles"));
-      const pList = pSnap.docs.map(
-        (d) => ({ id: d.id, ...d.data() } as Profile)
-      );
-      setProfiles(pList);
-      if (pList.length > 0 && !activeProfile) setActiveProfile(pList[0].id);
+  const setupListeners = () => {
+    onSnapshot(collection(db, "profiles"), (snap) =>
+      setProfiles(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Profile)))
+    );
+    onSnapshot(collection(db, "items"), (snap) =>
+      setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as NexusItem)))
+    );
 
-      const iSnap = await getDocs(collection(db, "items"));
-      const iList = iSnap.docs.map(
-        (d) => ({ id: d.id, ...d.data() } as NexusItem)
-      );
-      setItems(iList);
-
-      chrome.runtime.sendMessage(
-        { type: "GET_ACTIVE_MAPPINGS" },
-        (mappings) => {
-          if (mappings) {
-            const formatted = mappings.map(([windowId, map]: any) => {
-              const item = iList.find((i) => i.id === map.workspaceId);
-              return { windowId, ...map, name: item?.name || "Ukendt" };
-            });
-            setActiveMappings(formatted);
-          }
+    const fetchMappings = () => {
+      chrome.runtime.sendMessage({ type: "GET_ACTIVE_MAPPINGS" }, (m) => {
+        if (m) {
+          const formatted = m.map(([winId, map]: any) => ({
+            windowId: winId,
+            ...map,
+          }));
+          setActiveMappings(formatted);
         }
-      );
-    } catch (e) {
-      console.error(e);
-    }
-    setLoading(false);
-  };
-
-  const openDashboard = () => {
-    chrome.tabs.create({ url: "dashboard.html" });
-  };
-
-  const handleForceSync = () => {
-    if (currentWindowId) {
-      chrome.runtime.sendMessage({
-        type: "FORCE_SYNC_ACTIVE_WINDOW",
-        payload: { windowId: currentWindowId },
       });
-    }
+    };
+    fetchMappings();
+    const interval = setInterval(fetchMappings, 3000);
+    return () => clearInterval(interval);
   };
 
   if (!user) return <LoginForm />;
-  const currentWindowMapping = activeMappings.find(
+  const currentMapping = activeMappings.find(
     (m) => m.windowId === currentWindowId
   );
 
-  // Rettet Tailwind klasser til standard-shorthands (w-100, h-150)
   return (
     <div className="w-100 h-150 bg-slate-950 text-slate-200 flex flex-col font-sans overflow-hidden">
       <header className="p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center shrink-0">
         <div className="flex gap-2 items-center">
           <button
-            onClick={openDashboard}
+            onClick={() => chrome.tabs.create({ url: "dashboard.html" })}
             className="p-1.5 bg-blue-600/20 text-blue-400 rounded-lg hover:bg-blue-600 hover:text-white transition"
           >
             <LayoutDashboard size={18} />
@@ -119,18 +91,25 @@ export default function App() {
             ))}
           </select>
         </div>
-
         <div className="flex gap-2 items-center">
-          {currentWindowMapping && (
+          {currentMapping && (
             <button
-              onClick={handleForceSync}
-              className="p-1 text-orange-400 hover:text-orange-300"
+              onClick={() =>
+                chrome.runtime.sendMessage({
+                  type: "FORCE_SYNC_ACTIVE_WINDOW",
+                  payload: { windowId: currentWindowId },
+                })
+              }
+              className="p-1 text-orange-400"
             >
               <RotateCw size={20} />
             </button>
           )}
-          <button onClick={fetchData} className="p-1 hover:text-blue-400">
-            <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
+          <button
+            onClick={() => window.location.reload()}
+            className="p-1 hover:text-blue-400"
+          >
+            <RefreshCw size={18} />
           </button>
           <button
             onClick={() => auth.signOut()}
@@ -143,31 +122,34 @@ export default function App() {
 
       <main className="flex-1 overflow-y-auto p-2 space-y-4">
         <IncognitoMove activeItems={activeMappings} />
-        {currentWindowMapping && (
+        {currentMapping && (
           <div className="px-2 py-1 bg-blue-600/10 border border-blue-500/20 rounded text-[10px] text-blue-400 flex justify-between items-center">
             <span>
-              Aktivt: <strong>{currentWindowMapping.name}</strong>
+              Aktivt:{" "}
+              <strong>
+                {items.find((i) => i.id === currentMapping.workspaceId)?.name ||
+                  "Space"}
+              </strong>
             </span>
             <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-pulse"></span>
           </div>
         )}
+
         <section>
           <div className="flex justify-between items-center px-2 mb-2">
-            <h2 className="text-xs font-bold uppercase text-slate-500 tracking-wider">
+            <h2 className="text-xs font-bold uppercase text-slate-500">
               Workspaces
             </h2>
-            <div className="flex gap-2 text-slate-500">
+            <div className="flex gap-2">
               <button
                 onClick={() => setModalType("folder")}
-                className="hover:text-white"
-                title="Ny mappe"
+                className="text-slate-500 hover:text-white"
               >
                 <FolderPlus size={14} />
               </button>
               <button
                 onClick={() => setModalType("workspace")}
-                className="hover:text-white"
-                title="Nyt workspace"
+                className="text-slate-500 hover:text-white"
               >
                 <PlusCircle size={14} />
               </button>
@@ -183,15 +165,17 @@ export default function App() {
                   key={item.id}
                   item={item}
                   allItems={items}
-                  onRefresh={fetchData}
+                  onRefresh={() => {}}
                 />
               ))}
           </div>
         </section>
+
+        {/* Inbox vises nu uanset hvad, men henter data fra skyen */}
         <Inbox
           activeProfile={activeProfile}
           items={items}
-          onRefresh={fetchData}
+          onRefresh={() => {}}
         />
       </main>
 
@@ -201,7 +185,7 @@ export default function App() {
           activeProfile={activeProfile}
           parentId="root"
           onClose={() => setModalType(null)}
-          onSuccess={fetchData}
+          onSuccess={() => {}}
         />
       )}
     </div>
