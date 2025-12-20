@@ -26,14 +26,11 @@ export const Dashboard = () => {
   const [selectedWorkspace, setSelectedWorkspace] = useState<NexusItem | null>(
     null
   );
-
-  // Modal og Inbox states
   const [modalType, setModalType] = useState<"folder" | "workspace" | null>(
     null
   );
   const [inboxWindows, setInboxWindows] = useState<any[]>([]);
   const [isViewingInbox, setIsViewingInbox] = useState(false);
-
   const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const [activeMappings, setActiveMappings] = useState<any[]>([]);
@@ -52,7 +49,6 @@ export const Dashboard = () => {
   }, []);
 
   const setupRealtimeListeners = () => {
-    // Profiler
     onSnapshot(collection(db, "profiles"), (snap) => {
       const pList = snap.docs.map(
         (d) => ({ id: d.id, ...d.data() } as Profile)
@@ -61,25 +57,24 @@ export const Dashboard = () => {
       if (pList.length > 0 && !activeProfile) setActiveProfile(pList[0].id);
     });
 
-    // Items (Spaces og Mapper)
     onSnapshot(collection(db, "items"), (snap) => {
       setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as NexusItem)));
     });
 
-    // Inbox
     onSnapshot(collection(db, "inbox_data"), (snap) => {
       setInboxWindows(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
 
-    setInterval(() => {
+    // Hurtigere interval for mapping sync (hvert sekund)
+    const interval = setInterval(() => {
       chrome.runtime.sendMessage(
         { type: "GET_ACTIVE_MAPPINGS" },
         (m) => m && setActiveMappings(m)
       );
-    }, 2000);
+    }, 1000);
+    return () => clearInterval(interval);
   };
 
-  // Realtids lytter på det VALGTE space
   useEffect(() => {
     if (!selectedWorkspace || isViewingInbox) return;
     return onSnapshot(
@@ -98,7 +93,6 @@ export const Dashboard = () => {
     );
   }, [selectedWorkspace, isViewingInbox, selectedWindowId]);
 
-  // Håndter Inbox visning
   useEffect(() => {
     if (isViewingInbox) {
       setWindows(
@@ -128,7 +122,6 @@ export const Dashboard = () => {
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden font-sans">
-      {/* Sidebar */}
       <aside className="w-72 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0">
         <div className="p-6 border-b border-slate-800 flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center font-bold text-white shadow-lg">
@@ -222,7 +215,6 @@ export const Dashboard = () => {
         </div>
       </aside>
 
-      {/* Main View */}
       <main className="flex-1 flex flex-col bg-slate-950 relative">
         {selectedWorkspace || isViewingInbox ? (
           <>
@@ -366,7 +358,6 @@ export const Dashboard = () => {
         )}
       </main>
 
-      {/* Modals til Dashboard creation */}
       {modalType && (
         <CreateItemModal
           type={modalType}

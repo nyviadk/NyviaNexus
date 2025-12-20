@@ -60,7 +60,7 @@ export default function App() {
       });
     };
     fetchMappings();
-    const interval = setInterval(fetchMappings, 3000);
+    const interval = setInterval(fetchMappings, 2000);
     return () => clearInterval(interval);
   };
 
