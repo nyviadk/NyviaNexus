@@ -5,7 +5,6 @@ import { collection, onSnapshot } from "firebase/firestore";
 import { LoginForm } from "./components/LoginForm";
 import { SidebarItem } from "./components/SidebarItem";
 import { Inbox } from "./components/Inbox";
-import { IncognitoMove } from "./components/IncognitoMove";
 import { CreateItemModal } from "./components/CreateItemModal";
 import {
   RefreshCw,
@@ -41,22 +40,23 @@ export default function App() {
   }, []);
 
   const setupListeners = () => {
-    onSnapshot(collection(db, "profiles"), (snap) =>
-      setProfiles(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Profile)))
-    );
+    onSnapshot(collection(db, "profiles"), (snap) => {
+      const pList = snap.docs.map(
+        (d) => ({ id: d.id, ...d.data() } as Profile)
+      );
+      setProfiles(pList);
+      if (pList.length > 0 && !activeProfile) setActiveProfile(pList[0].id);
+    });
     onSnapshot(collection(db, "items"), (snap) =>
       setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as NexusItem)))
     );
 
     const fetchMappings = () => {
       chrome.runtime.sendMessage({ type: "GET_ACTIVE_MAPPINGS" }, (m) => {
-        if (m) {
-          const formatted = m.map(([winId, map]: any) => ({
-            windowId: winId,
-            ...map,
-          }));
-          setActiveMappings(formatted);
-        }
+        if (m)
+          setActiveMappings(
+            m.map(([winId, map]: any) => ({ windowId: winId, ...map }))
+          );
       });
     };
     fetchMappings();
@@ -121,7 +121,6 @@ export default function App() {
       </header>
 
       <main className="flex-1 overflow-y-auto p-2 space-y-4">
-        <IncognitoMove activeItems={activeMappings} />
         {currentMapping && (
           <div className="px-2 py-1 bg-blue-600/10 border border-blue-500/20 rounded text-[10px] text-blue-400 flex justify-between items-center">
             <span>
@@ -171,7 +170,6 @@ export default function App() {
           </div>
         </section>
 
-        {/* Inbox vises nu uanset hvad, men henter data fra skyen */}
         <Inbox
           activeProfile={activeProfile}
           items={items}

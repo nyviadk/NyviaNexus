@@ -8,14 +8,13 @@ import {
 } from "firebase/firestore";
 
 let isRestoring = false;
-// Tracker: browserWindowId -> { workspaceId, internalWindowId, workspaceName }
 const activeWindows = new Map<
   number,
   { workspaceId: string; internalWindowId: string; workspaceName: string }
 >();
 
 /**
- * Grupperer faner for at give vinduet et visuelt navn (ID).
+ * Grupperer faner for at give vinduet et visuelt navn.
  */
 async function updateWindowGrouping(windowId: number, name: string) {
   if (isRestoring) return;
@@ -36,9 +35,9 @@ async function updateWindowGrouping(windowId: number, name: string) {
         groupId: existingGroup.id,
       });
     } else {
-      const groupId = await chrome.tabs.group({
-        tabIds: tabIds as [number, ...number[]], // Rettelse af TS-fejl
-      });
+      const groupId = await (chrome.tabs.group({
+        tabIds: tabIds as [number, ...number[]],
+      }) as any);
       await chrome.tabGroups.update(groupId, {
         title: name.toUpperCase(),
         color: "blue",
@@ -68,8 +67,7 @@ async function enforceDashboardSingleton(windowId: number) {
 }
 
 /**
- * Gemmer faner. Hvis vinduet er i et space, gemmes det dér.
- * Ellers gemmes det i 'inbox_data' (Persistent).
+ * Realtids-gemmefunktion.
  */
 async function saveToFirestore(windowId: number) {
   if (isRestoring) return;
@@ -105,11 +103,16 @@ async function saveToFirestore(windowId: number) {
         { merge: true }
       );
     } else {
-      // Inbox gemmes med et unikt ID baseret på vinduet, men slettes ikke ved luk
+      // Gem til Inbox med vinduets ID som nøgle
       const inboxRef = doc(db, "inbox_data", `win_${windowId}`);
       await setDoc(
         inboxRef,
-        { tabs: validTabs, lastActive: serverTimestamp(), isActive: true },
+        {
+          tabs: validTabs,
+          lastActive: serverTimestamp(),
+          isActive: true,
+          windowName: "Unsaved Window",
+        },
         { merge: true }
       );
     }
@@ -143,10 +146,11 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
     await updateDoc(docRef, { isActive: false });
     activeWindows.delete(windowId);
   } else {
-    // Inbox vindue markeres blot som inaktivt, så det bliver i databasen
+    // Marker blot Inbox som inaktiv
     const inboxRef = doc(db, "inbox_data", `win_${windowId}`);
-    const snap = await getDoc(inboxRef);
-    if (snap.exists()) await updateDoc(inboxRef, { isActive: false });
+    try {
+      await updateDoc(inboxRef, { isActive: false });
+    } catch (e) {}
   }
 });
 
