@@ -131,10 +131,19 @@ export const Dashboard = () => {
   }, [activeMappings, currentWindowId, items]);
 
   const TabCard = ({ tab }: { tab: any }) => (
-    <div className="bg-slate-900/40 p-4 rounded-2xl border border-slate-800 flex items-center gap-4 hover:border-blue-500/50 hover:bg-slate-900 transition group cursor-default">
-      <Globe size={16} className="text-slate-600 group-hover:text-blue-400" />
-      <div className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-200">
-        {tab.title}
+    <div className="bg-slate-900/40 p-4 rounded-2xl border border-slate-800 flex flex-col gap-1 hover:border-blue-500/50 hover:bg-slate-900 transition group cursor-default">
+      <div className="flex items-center gap-3">
+        <Globe
+          size={14}
+          className="text-slate-600 group-hover:text-blue-400 shrink-0"
+        />
+        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-200">
+          {tab.title}
+        </div>
+      </div>
+      {/* URL Linje tilføjet herunder */}
+      <div className="pl-7 min-w-0 flex-1 truncate text-[10px] text-slate-500 font-mono italic">
+        {tab.url}
       </div>
     </div>
   );
@@ -362,11 +371,13 @@ export const Dashboard = () => {
             <div className="flex-1 overflow-y-auto p-8 bg-[radial-gradient(circle_at_top_right,#1e293b_0%,transparent_40%)]">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {isViewingInbox
-                  ? // FLAD LISTE TIL INBOX
+                  ? // FINDER DET GLOBALE INBOX DOKUMENT OG VISER ALLE TABS
                     inboxWindows
-                      .flatMap((win) => win.tabs || [])
-                      .map((tab, i) => <TabCard key={i} tab={tab} />)
-                  : // WORKSPACE VISNING (Som før)
+                      .find((d) => d.id === "global")
+                      ?.tabs?.map((tab: any, i: number) => (
+                        <TabCard key={i} tab={tab} />
+                      ))
+                  : // WORKSPACE VISNING (Forbliver som den er)
                     currentWindowData?.tabs.map((tab, i) => (
                       <TabCard key={i} tab={tab} />
                     ))}
