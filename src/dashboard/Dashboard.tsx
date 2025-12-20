@@ -1,18 +1,19 @@
-import { onAuthStateChanged, User } from "firebase/auth";
-import { collection, onSnapshot } from "firebase/firestore";
-import {
-  Activity,
-  Globe,
-  Inbox as InboxIcon,
-  LogOut,
-  Monitor,
-  PlusCircle,
-  RotateCw,
-} from "lucide-react";
 import { useEffect, useState } from "react";
+import { auth, db } from "../lib/firebase";
+import { onAuthStateChanged, User } from "firebase/auth";
+import { collection, onSnapshot, doc, deleteDoc } from "firebase/firestore";
 import { LoginForm } from "../components/LoginForm";
 import { SidebarItem } from "../components/SidebarItem";
-import { auth, db } from "../lib/firebase";
+import {
+  LogOut,
+  Globe,
+  RotateCw,
+  Activity,
+  Monitor,
+  PlusCircle,
+  X,
+  Inbox as InboxIcon,
+} from "lucide-react";
 import { NexusItem, Profile, WorkspaceWindow } from "../types";
 
 export const Dashboard = () => {
@@ -23,11 +24,8 @@ export const Dashboard = () => {
   const [selectedWorkspace, setSelectedWorkspace] = useState<NexusItem | null>(
     null
   );
-
-  // Inbox data
   const [inboxWindows, setInboxWindows] = useState<any[]>([]);
   const [isViewingInbox, setIsViewingInbox] = useState(false);
-
   const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const [activeMappings, setActiveMappings] = useState<any[]>([]);
@@ -52,11 +50,9 @@ export const Dashboard = () => {
     onSnapshot(collection(db, "items"), (snap) =>
       setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as NexusItem)))
     );
-
-    // Lyt på Inbox i skyen
-    onSnapshot(collection(db, "inbox_data"), (snap) => {
-      setInboxWindows(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
+    onSnapshot(collection(db, "inbox_data"), (snap) =>
+      setInboxWindows(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    );
 
     setInterval(() => {
       chrome.runtime.sendMessage(
@@ -66,26 +62,16 @@ export const Dashboard = () => {
     }, 2000);
   };
 
-  // Håndter skift til et Workspace
   const handleSelectWorkspace = (item: NexusItem) => {
     setIsViewingInbox(false);
     setSelectedWorkspace(item);
   };
 
-  // Håndter skift til Inbox
   const handleSelectInbox = () => {
     setSelectedWorkspace(null);
     setIsViewingInbox(true);
-    setWindows(
-      inboxWindows.map((w) => ({
-        id: w.id,
-        tabs: w.tabs,
-        isActive: w.isActive,
-      }))
-    );
   };
 
-  // Realtids-lytter på det valgte Space's vinduer
   useEffect(() => {
     if (!selectedWorkspace || isViewingInbox) return;
     return onSnapshot(
@@ -105,19 +91,29 @@ export const Dashboard = () => {
     );
   }, [selectedWorkspace, isViewingInbox]);
 
-  // Opdater visning hvis Inbox data ændrer sig mens vi kigger på den
   useEffect(() => {
     if (isViewingInbox) {
-      const formatted = inboxWindows.map((w) => ({
-        id: w.id,
-        tabs: w.tabs,
-        isActive: w.isActive,
-      }));
-      setWindows(formatted);
-      if (formatted.length > 0 && !selectedWindowId)
-        setSelectedWindowId(formatted[0].id);
+      setWindows(
+        inboxWindows.map((w) => ({
+          id: w.id,
+          tabs: w.tabs,
+          isActive: w.isActive,
+        }))
+      );
+      if (inboxWindows.length > 0 && !selectedWindowId)
+        setSelectedWindowId(inboxWindows[0].id);
     }
   }, [inboxWindows, isViewingInbox]);
+
+  const deleteWindowData = async (e: React.MouseEvent, winId: string) => {
+    e.stopPropagation();
+    if (confirm("Slet dette vindues data permanent?")) {
+      const col = isViewingInbox
+        ? "inbox_data"
+        : `workspaces_data/${selectedWorkspace!.id}/windows`;
+      await deleteDoc(doc(db, col, winId));
+    }
+  };
 
   if (!user)
     return (
@@ -136,19 +132,18 @@ export const Dashboard = () => {
     <div className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden font-sans">
       <aside className="w-72 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0">
         <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center font-bold text-white shadow-lg shadow-blue-600/20">
+          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center font-bold">
             N
           </div>
           <div className="font-black text-white text-xl uppercase tracking-tighter">
             NyviaNexus
           </div>
         </div>
-
         <div className="p-4 flex-1 overflow-y-auto space-y-6">
           <select
             value={activeProfile}
             onChange={(e) => setActiveProfile(e.target.value)}
-            className="w-full bg-slate-800 p-2 rounded border border-slate-700 text-sm outline-none focus:border-blue-500 transition"
+            className="w-full bg-slate-800 p-2 rounded border border-slate-700 text-sm outline-none"
           >
             {profiles.map((p) => (
               <option key={p.id} value={p.id}>
@@ -156,10 +151,9 @@ export const Dashboard = () => {
               </option>
             ))}
           </select>
-
           <nav className="space-y-1">
             <label className="text-[10px] font-bold text-slate-500 uppercase px-2 mb-2 block tracking-widest">
-              Dine Spaces
+              Spaces
             </label>
             {items
               .filter(
@@ -175,7 +169,6 @@ export const Dashboard = () => {
                 />
               ))}
           </nav>
-
           <nav className="space-y-1">
             <label className="text-[10px] font-bold text-slate-500 uppercase px-2 mb-2 block tracking-widest">
               Opsamling
@@ -198,21 +191,20 @@ export const Dashboard = () => {
             </div>
           </nav>
         </div>
-
         <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-3">
-          <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase tracking-tighter">
+          <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase">
             <Activity size={12} className="animate-pulse" /> Live Sync Active
           </div>
           <button
             onClick={() => auth.signOut()}
-            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition text-sm font-medium"
+            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition text-sm"
           >
             <LogOut size={16} /> Log ud
           </button>
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col bg-slate-950 relative">
+      <main className="flex-1 flex flex-col bg-slate-950">
         {selectedWorkspace || isViewingInbox ? (
           <>
             <header className="p-8 pb-4 flex justify-between items-end border-b border-slate-900 bg-slate-900/10">
@@ -222,7 +214,7 @@ export const Dashboard = () => {
                     {isViewingInbox ? "Inbox" : selectedWorkspace?.name}
                   </h2>
                   {isViewingCurrent && (
-                    <span className="text-[10px] bg-blue-600/20 text-blue-400 px-2 py-1 rounded-full border border-blue-500/20 font-bold uppercase tracking-widest">
+                    <span className="text-[10px] bg-blue-600/20 text-blue-400 px-2.5 py-1 rounded-full border border-blue-500/20 font-bold uppercase">
                       <Monitor size={10} className="inline mr-1" /> Dette Vindue
                     </span>
                   )}
@@ -233,20 +225,29 @@ export const Dashboard = () => {
                       ([_, map]: any) => map.internalWindowId === win.id
                     );
                     return (
-                      <button
-                        key={win.id}
-                        onClick={() => setSelectedWindowId(win.id)}
-                        className={`px-4 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-2 ${
-                          selectedWindowId === win.id
-                            ? "bg-blue-600 text-white shadow-lg"
-                            : "bg-slate-800 text-slate-400 hover:bg-slate-700"
-                        }`}
-                      >
-                        Vindue {idx + 1}{" "}
-                        {isOpen && (
-                          <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                      <div key={win.id} className="relative group">
+                        <button
+                          onClick={() => setSelectedWindowId(win.id)}
+                          className={`px-4 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-2 ${
+                            selectedWindowId === win.id
+                              ? "bg-blue-600 text-white shadow-lg"
+                              : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                          }`}
+                        >
+                          Vindue {idx + 1}{" "}
+                          {isOpen && (
+                            <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                          )}
+                        </button>
+                        {!isOpen && (
+                          <button
+                            onClick={(e) => deleteWindowData(e, win.id)}
+                            className="absolute -top-2 -right-2 bg-red-600 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100"
+                          >
+                            <X size={10} />
+                          </button>
                         )}
-                      </button>
+                      </div>
                     );
                   })}
                   {!isViewingInbox && (
@@ -293,7 +294,7 @@ export const Dashboard = () => {
                           },
                         })
                       }
-                      className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition"
+                      className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg active:scale-95 transition"
                     >
                       Åbn Space
                     </button>
@@ -301,17 +302,15 @@ export const Dashboard = () => {
                 )}
               </div>
             </header>
+            {/* Rettet Tailwind klasse herunder: fjernet mellemrum i arbitrary values */}
             <div className="flex-1 overflow-y-auto p-8 bg-[radial-gradient(circle_at_top_right,#1e293b_0%,transparent_40%)]">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {currentWindowData?.tabs.map((tab, i) => (
                   <div
                     key={i}
-                    className="bg-slate-900/40 p-4 rounded-2xl border border-slate-800 flex items-center gap-4 hover:border-blue-500/50 hover:bg-slate-900 transition group cursor-default"
+                    className="bg-slate-900/40 p-4 rounded-2xl border border-slate-800 flex items-center gap-4 hover:border-blue-500/50 transition"
                   >
-                    <Globe
-                      size={16}
-                      className="text-slate-600 group-hover:text-blue-400"
-                    />
+                    <Globe size={16} className="text-slate-600" />
                     <div className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-200">
                       {tab.title}
                     </div>
@@ -321,13 +320,8 @@ export const Dashboard = () => {
             </div>
           </>
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-slate-700 gap-4">
-            <div className="p-6 bg-slate-900 rounded-full">
-              <Monitor size={48} className="opacity-10" />
-            </div>
-            <p className="text-lg font-medium">
-              Vælg et space i sidebaren eller tjek din Inbox
-            </p>
+          <div className="h-full flex flex-col items-center justify-center text-slate-700 italic">
+            Vælg et space eller tjek din Inbox
           </div>
         )}
       </main>

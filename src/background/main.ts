@@ -14,7 +14,29 @@ const activeWindows = new Map<
 >();
 
 /**
- * Grupperer faner for at give vinduet et visuelt navn.
+ * Rydder alle eksisterende grupper i et vindue.
+ * Løser problemet med de mange gemte grupper i Chrome.
+ */
+async function purgeAllGroupsInWindow(windowId: number) {
+  try {
+    const groups = await chrome.tabGroups.query({ windowId });
+    for (const group of groups) {
+      const tabsInGroup = await chrome.tabs.query({ groupId: group.id });
+      const tabIds = tabsInGroup
+        .map((t) => t.id)
+        .filter((id) => id !== undefined) as number[];
+      if (tabIds.length > 0) {
+        // Cast til [number, ...number[]] for at fjerne TS-fejl 2345
+        await chrome.tabs.ungroup(tabIds as [number, ...number[]]);
+      }
+    }
+  } catch (e) {
+    console.error("Purge Error:", e);
+  }
+}
+
+/**
+ * Intelligent gruppering der sikrer én unik gruppe pr. Space.
  */
 async function updateWindowGrouping(windowId: number, name: string) {
   if (isRestoring) return;
@@ -29,7 +51,20 @@ async function updateWindowGrouping(windowId: number, name: string) {
     const groups = await chrome.tabGroups.query({ windowId });
     const existingGroup = groups.find((g) => g.title === name.toUpperCase());
 
+    // Fjern grupper der har det forkerte navn
+    for (const g of groups) {
+      if (g.title !== name.toUpperCase()) {
+        const otherTabs = await chrome.tabs.query({ groupId: g.id });
+        const otherIds = otherTabs
+          .map((t) => t.id!)
+          .filter((id) => id !== undefined);
+        if (otherIds.length > 0)
+          await chrome.tabs.ungroup(otherIds as [number, ...number[]]);
+      }
+    }
+
     if (existingGroup) {
+      // Cast til [number, ...number[]] for at fjerne TS-fejl 2345
       await chrome.tabs.group({
         tabIds: tabIds as [number, ...number[]],
         groupId: existingGroup.id,
@@ -44,19 +79,15 @@ async function updateWindowGrouping(windowId: number, name: string) {
       });
     }
   } catch (e) {
-    console.error("Grouping Error:", e);
+    /* Tab lukket under process */
   }
 }
 
-/**
- * Sikrer kun ét dashboard pr. vindue.
- */
 async function enforceDashboardSingleton(windowId: number) {
   const tabs = await chrome.tabs.query({ windowId });
   const dashTabs = tabs.filter(
     (t) => t.url && t.url.includes("dashboard.html")
   );
-
   if (dashTabs.length === 0) {
     const url = chrome.runtime.getURL("dashboard.html");
     await chrome.tabs.create({ windowId, url, pinned: true, index: 0 });
@@ -66,9 +97,6 @@ async function enforceDashboardSingleton(windowId: number) {
   }
 }
 
-/**
- * Realtids-gemmefunktion.
- */
 async function saveToFirestore(windowId: number) {
   if (isRestoring) return;
   const mapping = activeWindows.get(windowId);
@@ -89,7 +117,7 @@ async function saveToFirestore(windowId: number) {
       }));
 
     if (mapping) {
-      updateWindowGrouping(windowId, mapping.workspaceName);
+      await updateWindowGrouping(windowId, mapping.workspaceName);
       const docRef = doc(
         db,
         "workspaces_data",
@@ -103,7 +131,6 @@ async function saveToFirestore(windowId: number) {
         { merge: true }
       );
     } else {
-      // Gem til Inbox med vinduets ID som nøgle
       const inboxRef = doc(db, "inbox_data", `win_${windowId}`);
       await setDoc(
         inboxRef,
@@ -111,17 +138,17 @@ async function saveToFirestore(windowId: number) {
           tabs: validTabs,
           lastActive: serverTimestamp(),
           isActive: true,
-          windowName: "Unsaved Window",
+          windowName: "Inbox",
         },
         { merge: true }
       );
     }
-  } catch (e) {
-    console.error("Save Error:", e);
+  } catch (error) {
+    console.error("Save Error:", error);
   }
 }
 
-// --- LISTENERS ---
+// --- EVENT LISTENERS ---
 chrome.tabs.onUpdated.addListener((_id, change, tab) => {
   if (change.status === "complete" && tab.windowId) {
     saveToFirestore(tab.windowId);
@@ -146,7 +173,6 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
     await updateDoc(docRef, { isActive: false });
     activeWindows.delete(windowId);
   } else {
-    // Marker blot Inbox som inaktiv
     const inboxRef = doc(db, "inbox_data", `win_${windowId}`);
     try {
       await updateDoc(inboxRef, { isActive: false });
@@ -189,6 +215,7 @@ async function handleOpenWorkspace(
         break;
       }
     }
+
     if (existingWinId !== null) {
       chrome.windows.update(existingWinId, { focused: true });
     } else {
@@ -197,6 +224,7 @@ async function handleOpenWorkspace(
         url: urls.length > 0 ? urls : "about:blank",
       });
       if (newWin?.id) {
+        await purgeAllGroupsInWindow(newWin.id);
         activeWindows.set(newWin.id, {
           workspaceId,
           internalWindowId: win.id,
@@ -220,6 +248,7 @@ async function handleCreateNewWindowInWorkspace(
   const newWin = await chrome.windows.create({ url: "about:blank" });
   if (newWin?.id) {
     const newInternalId = `win_${Date.now()}`;
+    await purgeAllGroupsInWindow(newWin.id);
     activeWindows.set(newWin.id, {
       workspaceId,
       internalWindowId: newInternalId,
@@ -255,7 +284,7 @@ async function handleForceSync(windowId: number) {
       if (tab.id && !tab.url?.includes("dashboard.html"))
         await chrome.tabs.remove(tab.id);
     }
-    updateWindowGrouping(windowId, mapping.workspaceName);
+    await updateWindowGrouping(windowId, mapping.workspaceName);
   }
   setTimeout(() => {
     isRestoring = false;

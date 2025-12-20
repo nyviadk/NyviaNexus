@@ -60,8 +60,7 @@ export default function App() {
       });
     };
     fetchMappings();
-    const interval = setInterval(fetchMappings, 3000);
-    return () => clearInterval(interval);
+    setInterval(fetchMappings, 3000);
   };
 
   if (!user) return <LoginForm />;
@@ -75,7 +74,7 @@ export default function App() {
         <div className="flex gap-2 items-center">
           <button
             onClick={() => chrome.tabs.create({ url: "dashboard.html" })}
-            className="p-1.5 bg-blue-600/20 text-blue-400 rounded-lg hover:bg-blue-600 hover:text-white transition"
+            className="p-1.5 bg-blue-600/20 text-blue-400 rounded-lg hover:bg-blue-600 transition"
           >
             <LayoutDashboard size={18} />
           </button>
