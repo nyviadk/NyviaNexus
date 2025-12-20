@@ -16,21 +16,21 @@ const activeWindows = new Map<
 // I background.ts - Opdater updateWindowGrouping funktionen
 async function updateWindowGrouping(windowId: number, name: string | null) {
   if (isRestoring) return;
-
   try {
     const groups = await chrome.tabGroups.query({ windowId });
 
-    // Hvis vinduet ikke er et aktivt space, skal vi bare fjerne alle grupper (Inbox)
+    // Hvis det er Inbox (intet navn), så fjern alle eksisterende grupper
     if (!name) {
       for (const g of groups) {
-        const tabsInGroup = await chrome.tabs.query({ groupId: g.id });
-        const ids = tabsInGroup.map((t) => t.id).filter(Boolean) as number[];
+        const tabs = await chrome.tabs.query({ groupId: g.id });
+        const ids = tabs.map((t) => t.id).filter(Boolean) as number[];
         if (ids.length > 0)
           await chrome.tabs.ungroup(ids as [number, ...number[]]);
       }
       return;
     }
 
+    // Find faner der skal grupperes (undgå Dashboard og Pinned)
     const tabs = await chrome.tabs.query({ windowId });
     const tabIds = tabs
       .filter((t) => !t.pinned && t.id && !t.url?.includes("dashboard.html"))
@@ -38,25 +38,11 @@ async function updateWindowGrouping(windowId: number, name: string | null) {
 
     if (tabIds.length === 0) return;
 
-    // Tjek om der allerede findes EN gruppe med det rigtige navn
+    // Tjek om gruppen allerede findes med det rigtige navn
     const existingGroup = groups.find((g) => g.title === name.toUpperCase());
 
-    if (existingGroup) {
-      // Hvis gruppen findes, så tjek om alle relevante faner er i den.
-      // Lad være med at kalde chrome.tabs.group igen hvis de allerede er der (det skaber flimmer)
-      const tabsInExisting = tabs
-        .filter((t) => t.groupId === existingGroup.id)
-        .map((t) => t.id);
-      const needsUpdate = tabIds.some((id) => !tabsInExisting.includes(id));
-
-      if (needsUpdate) {
-        await chrome.tabs.group({
-          tabIds: tabIds as [number, ...number[]],
-          groupId: existingGroup.id,
-        });
-      }
-    } else {
-      // Opret kun gruppen én gang
+    if (!existingGroup) {
+      // Opret gruppen og navngiv den - dette giver dig din visuelle identifikation!
       const groupId = await (chrome.tabs.group({
         tabIds: tabIds as [number, ...number[]],
       }) as any);
@@ -64,9 +50,15 @@ async function updateWindowGrouping(windowId: number, name: string | null) {
         title: name.toUpperCase(),
         color: "blue",
       });
+    } else {
+      // Hvis gruppen findes, så bare tilføj de faner der mangler
+      await chrome.tabs.group({
+        tabIds: tabIds as [number, ...number[]],
+        groupId: existingGroup.id,
+      });
     }
   } catch (e) {
-    console.error("Grouping error:", e);
+    console.error("Visual ID error:", e);
   }
 }
 
@@ -160,17 +152,21 @@ chrome.tabs.onMoved.addListener((_id, moveInfo) => {
   saveToFirestore(moveInfo.windowId);
 });
 
+let lastDashboardOpenTime = 0;
+
 chrome.windows.onFocusChanged.addListener(async (winId) => {
   if (winId === chrome.windows.WINDOW_ID_NONE) return;
 
+  // Vent mindst 2 sekunder mellem hver dashboard-oprettelse for at undgå spam
+  const now = Date.now();
+  if (now - lastDashboardOpenTime < 2000) return;
+
   const url = chrome.runtime.getURL("dashboard.html");
   const tabs = await chrome.tabs.query({ windowId: winId });
-
-  // Tjek om der allerede findes et dashboard i dette vindue
   const hasDash = tabs.some((t) => t.url && t.url.includes("dashboard.html"));
 
   if (!hasDash) {
-    // Opret kun dashboardet hvis det ikke findes i forvejen
+    lastDashboardOpenTime = now; // Opdater tiden
     await chrome.tabs.create({ windowId: winId, url, pinned: true, index: 0 });
   }
 });

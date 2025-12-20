@@ -238,7 +238,8 @@ export const Dashboard = () => {
               }`}
             >
               <InboxIcon size={16} />
-              <span>Inbox ({inboxWindows.length})</span>
+              Inbox (
+              {inboxWindows.find((d) => d.id === "global")?.tabs?.length || 0})
             </div>
           </nav>
         </div>
