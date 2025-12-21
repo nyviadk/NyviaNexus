@@ -164,12 +164,15 @@ export const Dashboard = () => {
       : [...(windows.find((w) => w.id === selectedWindowId)?.tabs || [])];
     const updatedTabs = currentTabs.filter((_, i) => i !== index);
     try {
-      if (!isViewingInbox && selectedWindowId) {
-        chrome.runtime.sendMessage({
-          type: "CLOSE_PHYSICAL_TAB",
-          payload: { url: tabUrl, internalWindowId: selectedWindowId },
-        });
-      }
+      // Besked til baggrund om at fjerne den fysiske fane i Chrome
+      chrome.runtime.sendMessage({
+        type: "CLOSE_PHYSICAL_TAB",
+        payload: {
+          url: tabUrl,
+          internalWindowId: isViewingInbox ? "global" : selectedWindowId,
+        },
+      });
+
       if (isViewingInbox) {
         await updateDoc(doc(db, "inbox_data", "global"), { tabs: updatedTabs });
       } else if (selectedWorkspace && selectedWindowId) {
