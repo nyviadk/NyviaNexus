@@ -227,12 +227,19 @@ export const Dashboard = () => {
     }
   };
 
-  const selectAll = () => {
+  // NY LOGIK: Toggle Select All / Unselect All
+  const toggleSelectAll = () => {
     const tabs = isViewingInbox
       ? inboxData?.tabs || []
       : currentWindowData?.tabs || [];
-    const urls = tabs.map((t: any) => t.url);
-    setSelectedUrls(urls);
+    const allUrls = tabs.map((t: any) => t.url);
+
+    // Hvis alt allerede er valgt (og listen ikke er tom), så fravælg alt.
+    if (selectedUrls.length === allUrls.length && allUrls.length > 0) {
+      setSelectedUrls([]);
+    } else {
+      setSelectedUrls(allUrls);
+    }
   };
 
   const deleteWindowData = async () => {
@@ -552,10 +559,18 @@ export const Dashboard = () => {
                   ? inboxData?.tabs?.length ?? 0
                   : currentWindowData?.tabs?.length ?? 0) > 0 && (
                   <button
-                    onClick={selectAll}
+                    onClick={toggleSelectAll}
                     disabled={isSystemRestoring}
-                    className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl hover:text-blue-400 transition"
-                    title="Marker alle"
+                    className={`p-2.5 bg-slate-900 border rounded-xl transition ${
+                      selectedUrls.length > 0 &&
+                      selectedUrls.length ===
+                        (isViewingInbox
+                          ? inboxData?.tabs?.length ?? 0
+                          : currentWindowData?.tabs?.length ?? 0)
+                        ? "border-blue-500 text-blue-400"
+                        : "border-slate-800 hover:text-blue-400"
+                    }`}
+                    title="Marker alle / Fravælg alle"
                   >
                     <CheckSquare size={20} />
                   </button>
