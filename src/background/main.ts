@@ -22,6 +22,7 @@ interface WinMapping {
   internalWindowId: string;
   workspaceName: string;
   index: number;
+  createdAt: number; // Tilføjet for at forhindre øjeblikkelig sletning
 }
 
 // State
@@ -100,7 +101,6 @@ async function updateWindowGrouping(
 
 /**
  * SYNC: Gemmer til Firestore.
- * NU: Stopper ALT synkronisering hvis activeRestorations > 0.
  */
 async function saveToFirestore(windowId: number) {
   if (lockedWindowIds.has(windowId) || activeRestorations > 0) return;
@@ -118,19 +118,26 @@ async function saveToFirestore(windowId: number) {
         favIconUrl: t.favIconUrl || "",
       }));
 
-    if (validTabs.length === 0 && mapping) {
-      const docRef = doc(
-        db,
-        "workspaces_data",
-        mapping.workspaceId,
-        "windows",
-        mapping.internalWindowId
-      );
-      await deleteDoc(docRef);
-      activeWindows.delete(windowId);
-      await saveActiveWindowsToStorage();
-      chrome.windows.remove(windowId);
-      return;
+    // BUG FIX: Slet kun vindue hvis det er tomt OG det er ældre end 10 sekunder
+    if (mapping && validTabs.length === 0) {
+      const windowAge = Date.now() - mapping.createdAt;
+      if (windowAge > 10000) {
+        // 10 sekunders grace period
+        console.log("[Nexus] Sletter tomt vindue efter grace period");
+        const docRef = doc(
+          db,
+          "workspaces_data",
+          mapping.workspaceId,
+          "windows",
+          mapping.internalWindowId
+        );
+        await deleteDoc(docRef);
+        activeWindows.delete(windowId);
+        await saveActiveWindowsToStorage();
+        chrome.windows.remove(windowId);
+        return;
+      }
+      return; // Stop sync men lad vinduet leve
     }
 
     if (mapping) {
@@ -256,6 +263,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
         internalWindowId: payload.internalWindowId,
         workspaceName: payload.name,
         index: payload.index || 1,
+        createdAt: Date.now(),
       });
       saveActiveWindowsToStorage();
     }
@@ -329,6 +337,7 @@ async function handleOpenSpecificWindow(
         internalWindowId: winData.id,
         workspaceName: name,
         index,
+        createdAt: Date.now(),
       };
       activeWindows.set(winId, mapping);
       await saveActiveWindowsToStorage();
@@ -373,6 +382,7 @@ async function handleCreateNewWindowInWorkspace(
         internalWindowId: internalId,
         workspaceName: name,
         index: snap.size + 1,
+        createdAt: Date.now(),
       };
 
       activeWindows.set(winId, mapping);

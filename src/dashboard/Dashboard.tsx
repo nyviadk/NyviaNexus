@@ -46,11 +46,8 @@ export const Dashboard = () => {
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const [activeMappings, setActiveMappings] = useState<any[]>([]);
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
-
-  // UI Låse-stater
   const [isUpdating, setIsUpdating] = useState(false);
   const [isSystemRestoring, setIsSystemRestoring] = useState(false);
-
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
 
   useEffect(() => {
@@ -322,7 +319,6 @@ export const Dashboard = () => {
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden font-sans relative">
-      {/* RESTORE OVERLAY */}
       {isSystemRestoring && (
         <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center flex-col gap-4">
           <Loader2 size={48} className="text-blue-500 animate-spin" />
@@ -412,13 +408,13 @@ export const Dashboard = () => {
             </div>
           </nav>
         </div>
-        <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-3">
+        <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-3 text-sm font-medium">
           <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase tracking-tighter">
             <Activity size={12} className="animate-pulse" /> Live Sync Active
           </div>
           <button
             onClick={() => auth.signOut()}
-            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition text-sm font-medium"
+            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition"
           >
             <LogOut size={16} /> Log ud
           </button>
