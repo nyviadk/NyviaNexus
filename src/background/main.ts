@@ -23,46 +23,51 @@ interface WinMapping {
   workspaceId: string;
   internalWindowId: string;
   workspaceName: string;
+  index: number;
 }
 
-// State
-let isRestoring = false;
+// State - Vi bruger en tæller i stedet for boolean for bedre præcision
+let activeRestorations = 0;
 let lastDashboardTime = 0;
-const activeWindows = new Map<number, WinMapping>();
+let activeWindows = new Map<number, WinMapping>();
 const lockedWindowIds = new Set<number>();
 
 const isDash = (url?: string) => url?.includes("dashboard.html");
 
-/**
- * Hjælper til at finde vinduets index i et workspace for navngivning (1, 2, 3...)
- */
-async function getWorkspaceWindowIndex(
-  workspaceId: string,
-  internalWindowId: string
-): Promise<number> {
-  try {
-    const q = query(
-      collection(db, "workspaces_data", workspaceId, "windows"),
-      orderBy("lastActive", "asc")
+// --- PERSISTENCE LOGIK ---
+
+async function saveActiveWindowsToStorage() {
+  const data = Array.from(activeWindows.entries());
+  await chrome.storage.local.set({ nexus_active_windows: data });
+}
+
+async function loadActiveWindowsFromStorage() {
+  const data = await chrome.storage.local.get("nexus_active_windows");
+  if (
+    data &&
+    data.nexus_active_windows &&
+    Array.isArray(data.nexus_active_windows)
+  ) {
+    activeWindows = new Map<number, WinMapping>(
+      data.nexus_active_windows as [number, WinMapping][]
     );
-    const snap = await getDocs(q);
-    const index = snap.docs.findIndex((d) => d.id === internalWindowId);
-    return index !== -1 ? index + 1 : 1;
-  } catch (e) {
-    return 1;
   }
 }
 
+loadActiveWindowsFromStorage();
+
 /**
- * GRUPPERING: Navngiver gruppen med Space Navn + Nummer (f.eks. KODE (1))
+ * GRUPPERING: Navngiver gruppen præcist.
  */
 async function updateWindowGrouping(
   windowId: number,
   mapping: WinMapping | null
 ) {
-  if (isRestoring || lockedWindowIds.has(windowId)) return;
-
   try {
+    const groupName = mapping
+      ? `${mapping.workspaceName.toUpperCase()} (${mapping.index})`
+      : "INBOX";
+
     const groups = await chrome.tabGroups.query({ windowId });
     const tabs = await chrome.tabs.query({ windowId });
     const tabIds = tabs
@@ -79,23 +84,13 @@ async function updateWindowGrouping(
       return;
     }
 
-    let groupTitle = "INBOX";
-    if (mapping) {
-      const index = await getWorkspaceWindowIndex(
-        mapping.workspaceId,
-        mapping.internalWindowId
-      );
-      groupTitle = `${mapping.workspaceName.toUpperCase()} (${index})`;
-    }
-
     const existingGroup = groups[0];
-
-    if (!existingGroup || existingGroup.title !== groupTitle) {
+    if (!existingGroup || existingGroup.title !== groupName) {
       const groupId = await (chrome.tabs.group({
         tabIds: tabIds as [number, ...number[]],
       }) as any);
       await chrome.tabGroups.update(groupId, {
-        title: groupTitle,
+        title: groupName,
         color: mapping ? "blue" : "grey",
       });
     } else {
@@ -104,16 +99,15 @@ async function updateWindowGrouping(
         groupId: existingGroup.id,
       });
     }
-  } catch (e) {
-    console.warn("[Nexus] Grouping failed", e);
-  }
+  } catch (e) {}
 }
 
 /**
- * SYNC: Gemmer vinduets tilstand til Firestore.
+ * SYNC: Gemmer til Firestore.
  */
 async function saveToFirestore(windowId: number) {
-  if (lockedWindowIds.has(windowId) || isRestoring) return;
+  // Bloker hvis vinduet er låst eller systemet er i gang med restore
+  if (lockedWindowIds.has(windowId) || activeRestorations > 0) return;
 
   try {
     const win = await chrome.windows.get(windowId);
@@ -138,6 +132,7 @@ async function saveToFirestore(windowId: number) {
       );
       await deleteDoc(docRef);
       activeWindows.delete(windowId);
+      await saveActiveWindowsToStorage();
       chrome.windows.remove(windowId);
       return;
     }
@@ -165,20 +160,21 @@ async function saveToFirestore(windowId: number) {
       await updateWindowGrouping(windowId, null);
       const allWindows = await chrome.windows.getAll();
       let allInboxTabs: TabData[] = [];
-
       for (const w of allWindows) {
         if (w.id && !activeWindows.has(w.id) && !lockedWindowIds.has(w.id)) {
           const winTabs = await chrome.tabs.query({ windowId: w.id });
-          const filtered = winTabs
-            .filter(
-              (t) => t.url && !t.url.startsWith("chrome") && !isDash(t.url)
-            )
-            .map((t) => ({
-              title: t.title || "Ny fane",
-              url: t.url || "",
-              favIconUrl: t.favIconUrl || "",
-            }));
-          allInboxTabs = [...allInboxTabs, ...filtered];
+          allInboxTabs = [
+            ...allInboxTabs,
+            ...winTabs
+              .filter(
+                (t) => t.url && !t.url.startsWith("chrome") && !isDash(t.url)
+              )
+              .map((t) => ({
+                title: t.title || "Ny fane",
+                url: t.url || "",
+                favIconUrl: t.favIconUrl || "",
+              })),
+          ];
         }
       }
       await setDoc(doc(db, "inbox_data", "global"), {
@@ -201,20 +197,15 @@ chrome.tabs.onRemoved.addListener((_id, info) => {
 });
 
 chrome.windows.onFocusChanged.addListener(async (winId) => {
-  if (
-    winId === chrome.windows.WINDOW_ID_NONE ||
-    lockedWindowIds.has(winId) ||
-    isRestoring
-  )
-    return;
+  // TOTAL STOP FOR DASHBOARD GENERERING UNDER RESTORE
+  if (winId === chrome.windows.WINDOW_ID_NONE || activeRestorations > 0) return;
 
   const now = Date.now();
-  if (now - lastDashboardTime < 1500) return;
+  if (now - lastDashboardTime < 2000) return;
 
   try {
     const win = await chrome.windows.get(winId);
     if (win.incognito && !activeWindows.has(winId)) return;
-
     const tabs = await chrome.tabs.query({ windowId: winId });
     if (!tabs.some((t) => isDash(t.url))) {
       lastDashboardTime = now;
@@ -240,6 +231,7 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
     );
     await updateDoc(docRef, { isActive: false });
     activeWindows.delete(windowId);
+    await saveActiveWindowsToStorage();
   }
   lockedWindowIds.delete(windowId);
 });
@@ -263,13 +255,19 @@ chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
   else if (type === "CLOSE_PHYSICAL_TAB")
     handleClosePhysicalTab(payload.url, payload.internalWindowId);
   else if (type === "CLAIM_WINDOW") {
-    if (!lockedWindowIds.has(payload.windowId)) {
-      activeWindows.set(payload.windowId, {
-        workspaceId: payload.workspaceId,
-        internalWindowId: payload.internalWindowId,
-        workspaceName: payload.name,
+    if (activeRestorations === 0) {
+      getWorkspaceWindowIndex(
+        payload.workspaceId,
+        payload.internalWindowId
+      ).then((idx) => {
+        activeWindows.set(payload.windowId, {
+          workspaceId: payload.workspaceId,
+          internalWindowId: payload.internalWindowId,
+          workspaceName: payload.name,
+          index: idx,
+        });
+        saveActiveWindowsToStorage();
       });
-      saveToFirestore(payload.windowId);
     }
   }
   return true;
@@ -283,26 +281,40 @@ async function handleClosePhysicalTab(url: string, internalWindowId: string) {
       break;
     }
   }
-  // Hvis det er et space-vindue
   if (chromeWinId) {
     const tabs = await chrome.tabs.query({ windowId: chromeWinId });
     const tabToClose = tabs.find((t) => t.url === url);
     if (tabToClose?.id) await chrome.tabs.remove(tabToClose.id);
-  } else {
-    // Hvis det er i Inbox (global)
-    const allTabs = await chrome.tabs.query({});
-    const tabToClose = allTabs.find(
-      (t) => t.url === url && !activeWindows.has(t.windowId)
-    );
-    if (tabToClose?.id) await chrome.tabs.remove(tabToClose.id);
   }
 }
 
+async function getWorkspaceWindowIndex(
+  workspaceId: string,
+  internalWindowId: string
+): Promise<number> {
+  try {
+    const q = query(
+      collection(db, "workspaces_data", workspaceId, "windows"),
+      orderBy("lastActive", "asc")
+    );
+    const snap = await getDocs(q);
+    const index = snap.docs.findIndex((d) => d.id === internalWindowId);
+    return index !== -1 ? index + 1 : 1;
+  } catch (e) {
+    return 1;
+  }
+}
+
+/**
+ * ÅBN VINDUE: ATOMAR UDGAVE.
+ * Vi sender alle URL'er i ét kald, så Chrome ikke kan merge fanerne.
+ */
 async function handleOpenSpecificWindow(
   workspaceId: string,
   winData: any,
   name: string
 ) {
+  // 1. Tjek om vinduet allerede findes
   for (const [chromeId, map] of activeWindows.entries()) {
     if (
       map.workspaceId === workspaceId &&
@@ -313,13 +325,15 @@ async function handleOpenSpecificWindow(
     }
   }
 
-  isRestoring = true;
+  activeRestorations++; // Øg tæller
   try {
     const urls = winData.tabs
       .map((t: any) => t.url)
       .filter((u: string) => !isDash(u));
+
+    // ATOMAR OPRETTELSE: Dashboard + alle faner i ét hug!
     const newWin = await chrome.windows.create({
-      url: "dashboard.html",
+      url: ["dashboard.html", ...urls],
       incognito: winData.isIncognito || false,
     });
 
@@ -327,25 +341,28 @@ async function handleOpenSpecificWindow(
       const winId = newWin.id;
       lockedWindowIds.add(winId);
 
+      // Pin dashboardet (det er altid fane 0)
       const tabs = await chrome.tabs.query({ windowId: winId });
       if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
 
+      const idx = await getWorkspaceWindowIndex(workspaceId, winData.id);
       const mapping = {
         workspaceId,
         internalWindowId: winData.id,
         workspaceName: name,
+        index: idx,
       };
+
       activeWindows.set(winId, mapping);
-
-      for (const url of urls) {
-        await chrome.tabs.create({ windowId: winId, url });
-      }
-
+      await saveActiveWindowsToStorage();
       await updateWindowGrouping(winId, mapping);
+
+      // En lille buffer så Chrome kan nå at registrere fanerne færdigt
+      await new Promise((r) => setTimeout(r, 1000));
       lockedWindowIds.delete(winId);
     }
   } finally {
-    isRestoring = false;
+    activeRestorations--; // Sænk tæller
   }
 }
 
@@ -354,13 +371,8 @@ async function handleOpenWorkspace(
   windowsToOpen: any[],
   name: string
 ) {
-  isRestoring = true;
-  try {
-    for (const winData of windowsToOpen) {
-      await handleOpenSpecificWindow(workspaceId, winData, name);
-    }
-  } finally {
-    isRestoring = false;
+  for (const winData of windowsToOpen) {
+    await handleOpenSpecificWindow(workspaceId, winData, name);
   }
 }
 
@@ -368,7 +380,7 @@ async function handleCreateNewWindowInWorkspace(
   workspaceId: string,
   name: string
 ) {
-  isRestoring = true;
+  activeRestorations++;
   try {
     const newWin = await chrome.windows.create({ url: "dashboard.html" });
     if (newWin && newWin.id) {
@@ -376,16 +388,23 @@ async function handleCreateNewWindowInWorkspace(
       const tabs = await chrome.tabs.query({ windowId: winId });
       if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
 
+      const internalId = `win_${Date.now()}`;
+      const snap = await getDocs(
+        collection(db, "workspaces_data", workspaceId, "windows")
+      );
       const mapping = {
         workspaceId,
-        internalWindowId: `win_${Date.now()}`,
+        internalWindowId: internalId,
         workspaceName: name,
+        index: snap.size + 1,
       };
+
       activeWindows.set(winId, mapping);
+      await saveActiveWindowsToStorage();
       await updateWindowGrouping(winId, mapping);
     }
   } finally {
-    isRestoring = false;
+    activeRestorations--;
   }
 }
 
@@ -394,6 +413,7 @@ async function handleForceSync(windowId: number) {
   if (!mapping) return;
 
   lockedWindowIds.add(windowId);
+  activeRestorations++;
   try {
     const snap = await getDoc(
       doc(
@@ -415,6 +435,7 @@ async function handleForceSync(windowId: number) {
     }
   } finally {
     lockedWindowIds.delete(windowId);
+    activeRestorations--;
     saveToFirestore(windowId);
   }
 }

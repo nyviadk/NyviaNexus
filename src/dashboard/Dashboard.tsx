@@ -164,7 +164,6 @@ export const Dashboard = () => {
       : [...(windows.find((w) => w.id === selectedWindowId)?.tabs || [])];
     const updatedTabs = currentTabs.filter((_, i) => i !== index);
     try {
-      // Besked til baggrund om at fjerne den fysiske fane i Chrome
       chrome.runtime.sendMessage({
         type: "CLOSE_PHYSICAL_TAB",
         payload: {
@@ -172,7 +171,6 @@ export const Dashboard = () => {
           internalWindowId: isViewingInbox ? "global" : selectedWindowId,
         },
       });
-
       if (isViewingInbox) {
         await updateDoc(doc(db, "inbox_data", "global"), { tabs: updatedTabs });
       } else if (selectedWorkspace && selectedWindowId) {
@@ -323,13 +321,13 @@ export const Dashboard = () => {
             </div>
           </nav>
         </div>
-        <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-3">
+        <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-3 text-sm font-medium">
           <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase tracking-tighter">
             <Activity size={12} className="animate-pulse" /> Live Sync Active
           </div>
           <button
             onClick={() => auth.signOut()}
-            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition text-sm font-medium"
+            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition"
           >
             <LogOut size={16} /> Log ud
           </button>
