@@ -343,6 +343,7 @@ async function handleOpenSpecificWindow(
   name: string,
   index: number
 ) {
+  // 1. Tjek om vinduet allerede er åbent
   for (const [chromeId, map] of activeWindows.entries()) {
     if (
       map.workspaceId === workspaceId &&
@@ -355,17 +356,25 @@ async function handleOpenSpecificWindow(
 
   activeRestorations++;
   try {
-    const urls = winData.tabs
+    // FIX: Håndter hvis winData.tabs er undefined eller null
+    const safeTabs = winData.tabs || [];
+    const urls = safeTabs
       .map((t: any) => t.url)
-      .filter((u: string) => !isDash(u));
+      .filter((u: string) => u && !isDash(u));
+
+    // Altid åbn dashboard.html, selvom der ikke er andre tabs
+    const finalUrls = ["dashboard.html", ...urls];
+
     const newWin = await chrome.windows.create({
-      url: ["dashboard.html", ...urls],
+      url: finalUrls,
       incognito: winData.isIncognito || false,
     });
 
     if (newWin && newWin.id) {
       const winId = newWin.id;
       lockedWindowIds.add(winId);
+
+      // Vent på at dashboard tab'en oprettes og pin den
       const tabs = await chrome.tabs.query({ windowId: winId });
       if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
 
@@ -375,12 +384,20 @@ async function handleOpenSpecificWindow(
         workspaceName: name,
         index,
       };
+
       activeWindows.set(winId, mapping);
       await saveActiveWindowsToStorage();
       await updateWindowGrouping(winId, mapping);
-      await waitForWindowToLoad(winId);
+
+      // Kun vent på load hvis der rent faktisk er URL'er udover dashboardet
+      if (urls.length > 0) {
+        await waitForWindowToLoad(winId);
+      }
+
       lockedWindowIds.delete(winId);
     }
+  } catch (err) {
+    console.error("[Nexus] Fejl ved åbning af vindue:", err);
   } finally {
     activeRestorations--;
   }
@@ -391,6 +408,14 @@ async function handleOpenWorkspace(
   windowsToOpen: any[],
   name: string
 ) {
+  // Hvis der slet ikke er nogen vinduer gemt, så opret det første
+  if (!windowsToOpen || windowsToOpen.length === 0) {
+    console.log("[Nexus] Ingen vinduer fundet, opretter det første i " + name);
+    await handleCreateNewWindowInWorkspace(workspaceId, name);
+    return;
+  }
+
+  // Ellers åbn dem der findes
   for (let i = 0; i < windowsToOpen.length; i++) {
     await handleOpenSpecificWindow(workspaceId, windowsToOpen[i], name, i + 1);
   }
@@ -405,13 +430,18 @@ async function handleCreateNewWindowInWorkspace(
     const newWin = await chrome.windows.create({ url: "dashboard.html" });
     if (newWin && newWin.id) {
       const winId = newWin.id;
+
+      // Vent lidt på at tab'en er klar, og pin den
       const tabs = await chrome.tabs.query({ windowId: winId });
       if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
 
       const internalId = `win_${Date.now()}`;
+
+      // Find næste index
       const snap = await getDocs(
         collection(db, "workspaces_data", workspaceId, "windows")
       );
+
       const mapping = {
         workspaceId,
         internalWindowId: internalId,
@@ -422,6 +452,9 @@ async function handleCreateNewWindowInWorkspace(
       activeWindows.set(winId, mapping);
       await saveActiveWindowsToStorage();
       await updateWindowGrouping(winId, mapping);
+
+      // FORCE SYNC: Gem det med det samme så det dukker op på dashboardet
+      await saveToFirestore(winId, false);
     }
   } finally {
     activeRestorations--;
@@ -443,12 +476,26 @@ async function handleForceSync(windowId: number) {
         mapping.internalWindowId
       )
     );
+
     if (snap.exists()) {
-      const urls = snap.data().tabs.map((t: any) => t.url);
+      const data = snap.data();
+      // FIX: Sikr dig at tabs eksisterer
+      const urls = (data.tabs || [])
+        .map((t: any) => t.url)
+        .filter((u: string) => u && !isDash(u));
+
       const currentTabs = await chrome.tabs.query({ windowId });
-      for (const url of urls) await chrome.tabs.create({ windowId, url });
+
+      // Opret nye tabs fra data
+      for (const url of urls) {
+        await chrome.tabs.create({ windowId, url });
+      }
+
+      // Fjern gamle tabs (undtagen dashboard/pinned)
       for (const tab of currentTabs) {
-        if (tab.id && !isDash(tab.url)) await chrome.tabs.remove(tab.id);
+        if (tab.id && !isDash(tab.url) && !tab.pinned) {
+          await chrome.tabs.remove(tab.id);
+        }
       }
       await updateWindowGrouping(windowId, mapping);
     }
