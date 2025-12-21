@@ -1,14 +1,16 @@
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
 import { db } from "../lib/firebase";
+import {
+  doc,
+  setDoc,
+  serverTimestamp,
+  getDoc,
+  updateDoc,
+  deleteDoc,
+  collection,
+  getDocs,
+  query,
+  orderBy,
+} from "firebase/firestore";
 
 // Typer
 interface TabData {
@@ -22,7 +24,7 @@ interface WinMapping {
   internalWindowId: string;
   workspaceName: string;
   index: number;
-  createdAt: number; // Tilføjet for at forhindre øjeblikkelig sletning
+  createdAt: number;
 }
 
 // State
@@ -118,12 +120,10 @@ async function saveToFirestore(windowId: number) {
         favIconUrl: t.favIconUrl || "",
       }));
 
-    // BUG FIX: Slet kun vindue hvis det er tomt OG det er ældre end 10 sekunder
+    // Grace period på 10 sekunder for tomme vinduer
     if (mapping && validTabs.length === 0) {
-      const windowAge = Date.now() - mapping.createdAt;
-      if (windowAge > 10000) {
-        // 10 sekunders grace period
-        console.log("[Nexus] Sletter tomt vindue efter grace period");
+      const age = Date.now() - mapping.createdAt;
+      if (age > 10000) {
         const docRef = doc(
           db,
           "workspaces_data",
@@ -135,9 +135,8 @@ async function saveToFirestore(windowId: number) {
         activeWindows.delete(windowId);
         await saveActiveWindowsToStorage();
         chrome.windows.remove(windowId);
-        return;
       }
-      return; // Stop sync men lad vinduet leve
+      return;
     }
 
     if (mapping) {
@@ -258,14 +257,19 @@ chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
     handleClosePhysicalTabs(payload.urls, payload.internalWindowId);
   else if (type === "CLAIM_WINDOW") {
     if (activeRestorations === 0) {
-      activeWindows.set(payload.windowId, {
-        workspaceId: payload.workspaceId,
-        internalWindowId: payload.internalWindowId,
-        workspaceName: payload.name,
-        index: payload.index || 1,
-        createdAt: Date.now(),
+      getWorkspaceWindowIndex(
+        payload.workspaceId,
+        payload.internalWindowId
+      ).then((idx) => {
+        activeWindows.set(payload.windowId, {
+          workspaceId: payload.workspaceId,
+          internalWindowId: payload.internalWindowId,
+          workspaceName: payload.name,
+          index: idx,
+          createdAt: Date.now(),
+        });
+        saveActiveWindowsToStorage();
       });
-      saveActiveWindowsToStorage();
     }
   }
   return true;
@@ -298,6 +302,47 @@ async function handleClosePhysicalTabs(
       .map((t) => t.id as number);
     if (tabIds.length > 0) await chrome.tabs.remove(tabIds);
   }
+}
+
+async function getWorkspaceWindowIndex(
+  workspaceId: string,
+  internalWindowId: string
+): Promise<number> {
+  try {
+    const q = query(
+      collection(db, "workspaces_data", workspaceId, "windows"),
+      orderBy("lastActive", "asc")
+    );
+    const snap = await getDocs(q);
+    const index = snap.docs.findIndex((d) => d.id === internalWindowId);
+    return index !== -1 ? index + 1 : 1;
+  } catch (e) {
+    return 1;
+  }
+}
+
+/**
+ * VENT PÅ FANER: Funktion der venter på at alle faner i et vindue er indlæst.
+ */
+async function waitForWindowToLoad(windowId: number) {
+  return new Promise<void>((resolve) => {
+    const check = async () => {
+      try {
+        const tabs = await chrome.tabs.query({ windowId });
+        const stillLoading = tabs.some((t) => t.status === "loading");
+        if (!stillLoading) {
+          resolve();
+        } else {
+          setTimeout(check, 500); // Tjek igen hvert halve sekund
+        }
+      } catch (e) {
+        resolve();
+      }
+    };
+    // Max safety timeout på 10 sekunder hvis en side hænger
+    setTimeout(resolve, 10000);
+    check();
+  });
 }
 
 async function handleOpenSpecificWindow(
@@ -343,7 +388,9 @@ async function handleOpenSpecificWindow(
       await saveActiveWindowsToStorage();
       await updateWindowGrouping(winId, mapping);
 
-      await new Promise((r) => setTimeout(r, 1500));
+      // NYT: Vent deterministisk på at fanerne er færdige
+      await waitForWindowToLoad(winId);
+
       lockedWindowIds.delete(winId);
     }
   } finally {
@@ -419,6 +466,7 @@ async function handleForceSync(windowId: number) {
       await updateWindowGrouping(windowId, mapping);
     }
   } finally {
+    await waitForWindowToLoad(windowId);
     lockedWindowIds.delete(windowId);
     activeRestorations--;
     saveToFirestore(windowId);
