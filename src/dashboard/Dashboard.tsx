@@ -227,14 +227,11 @@ export const Dashboard = () => {
     }
   };
 
-  // NY LOGIK: Toggle Select All / Unselect All
   const toggleSelectAll = () => {
     const tabs = isViewingInbox
       ? inboxData?.tabs || []
       : currentWindowData?.tabs || [];
     const allUrls = tabs.map((t: any) => t.url);
-
-    // Hvis alt allerede er valgt (og listen ikke er tom), så fravælg alt.
     if (selectedUrls.length === allUrls.length && allUrls.length > 0) {
       setSelectedUrls([]);
     } else {

@@ -24,7 +24,6 @@ interface WinMapping {
   internalWindowId: string;
   workspaceName: string;
   index: number;
-  createdAt: number;
 }
 
 // State
@@ -103,8 +102,9 @@ async function updateWindowGrouping(
 
 /**
  * SYNC: Gemmer til Firestore.
+ * isRemoval flagget sikrer, at vi kun sletter vinduet, når en fane faktisk lukkes.
  */
-async function saveToFirestore(windowId: number) {
+async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
   if (lockedWindowIds.has(windowId) || activeRestorations > 0) return;
 
   try {
@@ -120,21 +120,22 @@ async function saveToFirestore(windowId: number) {
         favIconUrl: t.favIconUrl || "",
       }));
 
-    if (mapping && validTabs.length === 0) {
-      const age = Date.now() - mapping.createdAt;
-      if (age > 10000) {
-        const docRef = doc(
-          db,
-          "workspaces_data",
-          mapping.workspaceId,
-          "windows",
-          mapping.internalWindowId
-        );
-        await deleteDoc(docRef);
-        activeWindows.delete(windowId);
-        await saveActiveWindowsToStorage();
-        chrome.windows.remove(windowId);
-      }
+    // NY LOGIK: Slet kun vindue hvis det er tomt OG det er en aktiv fjernelse (isRemoval)
+    if (mapping && validTabs.length === 0 && isRemoval) {
+      console.log(
+        "[Nexus] Sidste fane lukket. Sletter vindue data og lukker vindue."
+      );
+      const docRef = doc(
+        db,
+        "workspaces_data",
+        mapping.workspaceId,
+        "windows",
+        mapping.internalWindowId
+      );
+      await deleteDoc(docRef);
+      activeWindows.delete(windowId);
+      await saveActiveWindowsToStorage();
+      chrome.windows.remove(windowId);
       return;
     }
 
@@ -189,11 +190,11 @@ async function saveToFirestore(windowId: number) {
 // --- LISTENERS ---
 chrome.tabs.onUpdated.addListener((_id, change, tab) => {
   if (change.status === "complete" && tab.windowId)
-    saveToFirestore(tab.windowId);
+    saveToFirestore(tab.windowId, false);
 });
 
 chrome.tabs.onRemoved.addListener((_id, info) => {
-  if (!info.isWindowClosing) saveToFirestore(info.windowId);
+  if (!info.isWindowClosing) saveToFirestore(info.windowId, true);
 });
 
 chrome.windows.onFocusChanged.addListener(async (winId) => {
@@ -265,7 +266,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
           internalWindowId: payload.internalWindowId,
           workspaceName: payload.name,
           index: idx,
-          createdAt: Date.now(),
         });
         saveActiveWindowsToStorage();
       });
@@ -374,7 +374,6 @@ async function handleOpenSpecificWindow(
         internalWindowId: winData.id,
         workspaceName: name,
         index,
-        createdAt: Date.now(),
       };
       activeWindows.set(winId, mapping);
       await saveActiveWindowsToStorage();
@@ -418,7 +417,6 @@ async function handleCreateNewWindowInWorkspace(
         internalWindowId: internalId,
         workspaceName: name,
         index: snap.size + 1,
-        createdAt: Date.now(),
       };
 
       activeWindows.set(winId, mapping);
@@ -458,6 +456,6 @@ async function handleForceSync(windowId: number) {
     await waitForWindowToLoad(windowId);
     lockedWindowIds.delete(windowId);
     activeRestorations--;
-    saveToFirestore(windowId);
+    saveToFirestore(windowId, false);
   }
 }
