@@ -53,7 +53,7 @@ async function loadActiveWindowsFromStorage() {
 loadActiveWindowsFromStorage();
 
 /**
- * GRUPPERING: Navngiver gruppen præcist ud fra det medsendte index.
+ * GRUPPERING: Navngiver gruppen præcist.
  */
 async function updateWindowGrouping(
   windowId: number,
@@ -100,6 +100,7 @@ async function updateWindowGrouping(
 
 /**
  * SYNC: Gemmer til Firestore.
+ * NU: Stopper ALT synkronisering hvis activeRestorations > 0.
  */
 async function saveToFirestore(windowId: number) {
   if (lockedWindowIds.has(windowId) || activeRestorations > 0) return;
@@ -240,6 +241,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
     );
   else if (type === "GET_ACTIVE_MAPPINGS")
     _sendResponse(Array.from(activeWindows.entries()));
+  else if (type === "GET_RESTORING_STATUS")
+    _sendResponse(activeRestorations > 0);
   else if (type === "FORCE_SYNC_ACTIVE_WINDOW")
     handleForceSync(payload.windowId);
   else if (type === "CREATE_NEW_WINDOW_IN_WORKSPACE")
@@ -273,19 +276,19 @@ async function handleClosePhysicalTabs(
   }
   if (chromeWinId) {
     const tabs = await chrome.tabs.query({ windowId: chromeWinId });
-    const tabIdsToClose = tabs
+    const tabIds = tabs
       .filter((t) => t.id && urls.includes(t.url || ""))
       .map((t) => t.id as number);
-    if (tabIdsToClose.length > 0) await chrome.tabs.remove(tabIdsToClose);
+    if (tabIds.length > 0) await chrome.tabs.remove(tabIds);
   } else if (internalWindowId === "global") {
     const allTabs = await chrome.tabs.query({});
-    const tabIdsToClose = allTabs
+    const tabIds = allTabs
       .filter(
         (t) =>
           t.id && urls.includes(t.url || "") && !activeWindows.has(t.windowId)
       )
       .map((t) => t.id as number);
-    if (tabIdsToClose.length > 0) await chrome.tabs.remove(tabIdsToClose);
+    if (tabIds.length > 0) await chrome.tabs.remove(tabIds);
   }
 }
 
@@ -331,7 +334,7 @@ async function handleOpenSpecificWindow(
       await saveActiveWindowsToStorage();
       await updateWindowGrouping(winId, mapping);
 
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 1500));
       lockedWindowIds.delete(winId);
     }
   } finally {

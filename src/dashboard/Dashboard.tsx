@@ -14,6 +14,7 @@ import {
   FolderPlus,
   Globe,
   Inbox as InboxIcon,
+  Loader2,
   LogOut,
   Monitor,
   PlusCircle,
@@ -45,9 +46,11 @@ export const Dashboard = () => {
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const [activeMappings, setActiveMappings] = useState<any[]>([]);
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
-  const [isUpdating, setIsUpdating] = useState(false);
 
-  // Multi-select state
+  // UI Låse-stater
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isSystemRestoring, setIsSystemRestoring] = useState(false);
+
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
 
   useEffect(() => {
@@ -81,6 +84,9 @@ export const Dashboard = () => {
       chrome.runtime.sendMessage(
         { type: "GET_ACTIVE_MAPPINGS" },
         (m) => m && setActiveMappings(m)
+      );
+      chrome.runtime.sendMessage({ type: "GET_RESTORING_STATUS" }, (res) =>
+        setIsSystemRestoring(res)
       );
     }, 1000);
     return () => clearInterval(int);
@@ -131,6 +137,7 @@ export const Dashboard = () => {
   }, [selectedWorkspace, isViewingInbox, isUpdating, selectedWindowId]);
 
   const handleMoveTab = async (index: number, direction: "left" | "right") => {
+    if (isSystemRestoring) return;
     setIsUpdating(true);
     const currentTabs = isViewingInbox
       ? [...inboxData.tabs]
@@ -165,6 +172,7 @@ export const Dashboard = () => {
 
   const deleteSelectedTabs = async () => {
     if (
+      isSystemRestoring ||
       selectedUrls.length === 0 ||
       !confirm(`Slet ${selectedUrls.length} tabs?`)
     )
@@ -176,7 +184,6 @@ export const Dashboard = () => {
     const updatedTabs = currentTabs.filter(
       (t) => !selectedUrls.includes(t.url)
     );
-
     try {
       chrome.runtime.sendMessage({
         type: "CLOSE_PHYSICAL_TABS",
@@ -206,6 +213,7 @@ export const Dashboard = () => {
 
   const deleteWindowData = async () => {
     if (
+      isSystemRestoring ||
       !selectedWindowId ||
       !selectedWorkspace ||
       !confirm("Slet ALT data for dette vindue?")
@@ -227,6 +235,7 @@ export const Dashboard = () => {
   };
 
   const toggleTabSelection = (url: string) => {
+    if (isSystemRestoring) return;
     setSelectedUrls((prev) =>
       prev.includes(url) ? prev.filter((u) => u !== url) : [...prev, url]
     );
@@ -238,7 +247,9 @@ export const Dashboard = () => {
       <div
         className={`bg-slate-900/40 p-4 rounded-2xl border ${
           isSelected ? "border-blue-500 bg-blue-500/5" : "border-slate-800"
-        } flex flex-col gap-2 hover:bg-slate-900 transition group relative`}
+        } flex flex-col gap-2 hover:bg-slate-900 transition group relative ${
+          isSystemRestoring ? "opacity-50 pointer-events-none" : ""
+        }`}
       >
         <div
           className="absolute top-2 right-2 cursor-pointer text-slate-600 hover:text-blue-400"
@@ -310,7 +321,17 @@ export const Dashboard = () => {
   );
 
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden font-sans">
+    <div className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden font-sans relative">
+      {/* RESTORE OVERLAY */}
+      {isSystemRestoring && (
+        <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center flex-col gap-4">
+          <Loader2 size={48} className="text-blue-500 animate-spin" />
+          <div className="text-xl font-bold text-white uppercase tracking-widest animate-pulse">
+            Synkroniserer Space...
+          </div>
+        </div>
+      )}
+
       <aside className="w-72 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0">
         <div className="p-6 border-b border-slate-800 flex items-center gap-3 font-black text-white text-xl uppercase tracking-tighter">
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg">
@@ -330,7 +351,11 @@ export const Dashboard = () => {
               </option>
             ))}
           </select>
-          <nav className="space-y-1">
+          <nav
+            className={`space-y-1 ${
+              isSystemRestoring ? "opacity-50 pointer-events-none" : ""
+            }`}
+          >
             <div className="flex justify-between items-center px-2 mb-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
               Dine Spaces
               <div className="flex gap-2">
@@ -363,7 +388,11 @@ export const Dashboard = () => {
                 />
               ))}
           </nav>
-          <nav className="space-y-1">
+          <nav
+            className={`space-y-1 ${
+              isSystemRestoring ? "opacity-50 pointer-events-none" : ""
+            }`}
+          >
             <label className="text-[10px] font-bold text-slate-500 uppercase px-2 mb-2 block tracking-widest">
               Opsamling
             </label>
@@ -411,7 +440,11 @@ export const Dashboard = () => {
                   )}
                 </div>
                 {!isViewingInbox && (
-                  <div className="flex gap-4 items-center">
+                  <div
+                    className={`flex gap-4 items-center ${
+                      isSystemRestoring ? "opacity-50 pointer-events-none" : ""
+                    }`}
+                  >
                     {windows.map((win, idx) => {
                       const isOpen = activeMappings.some(
                         ([_, m]: any) => m.internalWindowId === win.id
@@ -496,6 +529,7 @@ export const Dashboard = () => {
                 {selectedUrls.length > 0 && (
                   <button
                     onClick={deleteSelectedTabs}
+                    disabled={isSystemRestoring}
                     className="flex items-center gap-2 bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition"
                   >
                     <Trash2 size={16} /> Slet valgte ({selectedUrls.length})
@@ -506,7 +540,8 @@ export const Dashboard = () => {
                     <button
                       title="Slet vindue data"
                       onClick={deleteWindowData}
-                      className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl hover:text-red-500 transition"
+                      disabled={isSystemRestoring}
+                      className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl hover:text-red-500 transition disabled:opacity-30"
                     >
                       <Trash2 size={20} />
                     </button>
@@ -521,7 +556,8 @@ export const Dashboard = () => {
                           },
                         })
                       }
-                      className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition"
+                      disabled={isSystemRestoring}
+                      className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition disabled:bg-slate-800 disabled:text-slate-500"
                     >
                       Åbn Space
                     </button>
