@@ -120,7 +120,6 @@ async function saveToFirestore(windowId: number) {
         favIconUrl: t.favIconUrl || "",
       }));
 
-    // Grace period på 10 sekunder for tomme vinduer
     if (mapping && validTabs.length === 0) {
       const age = Date.now() - mapping.createdAt;
       if (age > 10000) {
@@ -321,25 +320,18 @@ async function getWorkspaceWindowIndex(
   }
 }
 
-/**
- * VENT PÅ FANER: Funktion der venter på at alle faner i et vindue er indlæst.
- */
 async function waitForWindowToLoad(windowId: number) {
   return new Promise<void>((resolve) => {
     const check = async () => {
       try {
         const tabs = await chrome.tabs.query({ windowId });
         const stillLoading = tabs.some((t) => t.status === "loading");
-        if (!stillLoading) {
-          resolve();
-        } else {
-          setTimeout(check, 500); // Tjek igen hvert halve sekund
-        }
+        if (!stillLoading) resolve();
+        else setTimeout(check, 500);
       } catch (e) {
         resolve();
       }
     };
-    // Max safety timeout på 10 sekunder hvis en side hænger
     setTimeout(resolve, 10000);
     check();
   });
@@ -387,10 +379,7 @@ async function handleOpenSpecificWindow(
       activeWindows.set(winId, mapping);
       await saveActiveWindowsToStorage();
       await updateWindowGrouping(winId, mapping);
-
-      // NYT: Vent deterministisk på at fanerne er færdige
       await waitForWindowToLoad(winId);
-
       lockedWindowIds.delete(winId);
     }
   } finally {

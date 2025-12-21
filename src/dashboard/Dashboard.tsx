@@ -11,6 +11,7 @@ import {
   CheckSquare,
   ChevronLeft,
   ChevronRight,
+  Eraser,
   FolderPlus,
   Globe,
   Inbox as InboxIcon,
@@ -89,6 +90,8 @@ export const Dashboard = () => {
     return () => clearInterval(int);
   }, [activeProfile, isUpdating]);
 
+  const currentWindowData = windows.find((w) => w.id === selectedWindowId);
+
   useEffect(() => {
     if (
       activeMappings.length > 0 &&
@@ -137,8 +140,8 @@ export const Dashboard = () => {
     if (isSystemRestoring) return;
     setIsUpdating(true);
     const currentTabs = isViewingInbox
-      ? [...inboxData.tabs]
-      : [...(windows.find((w) => w.id === selectedWindowId)?.tabs || [])];
+      ? [...(inboxData?.tabs || [])]
+      : [...(currentWindowData?.tabs || [])];
     const newIndex = direction === "left" ? index - 1 : index + 1;
     if (newIndex < 0 || newIndex >= currentTabs.length) {
       setIsUpdating(false);
@@ -176,8 +179,8 @@ export const Dashboard = () => {
       return;
     setIsUpdating(true);
     const currentTabs = isViewingInbox
-      ? [...inboxData.tabs]
-      : [...(windows.find((w) => w.id === selectedWindowId)?.tabs || [])];
+      ? [...(inboxData?.tabs || [])]
+      : [...(currentWindowData?.tabs || [])];
     const updatedTabs = currentTabs.filter(
       (t) => !selectedUrls.includes(t.url)
     );
@@ -206,6 +209,30 @@ export const Dashboard = () => {
     } finally {
       setIsUpdating(false);
     }
+  };
+
+  const emptyInbox = async () => {
+    if (!inboxData?.tabs?.length || !confirm("Vil du rydde hele din Inbox?"))
+      return;
+    setIsUpdating(true);
+    const urlsToClose = inboxData.tabs.map((t: any) => t.url);
+    try {
+      chrome.runtime.sendMessage({
+        type: "CLOSE_PHYSICAL_TABS",
+        payload: { urls: urlsToClose, internalWindowId: "global" },
+      });
+      await updateDoc(doc(db, "inbox_data", "global"), { tabs: [] });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const selectAll = () => {
+    const tabs = isViewingInbox
+      ? inboxData?.tabs || []
+      : currentWindowData?.tabs || [];
+    const urls = tabs.map((t: any) => t.url);
+    setSelectedUrls(urls);
   };
 
   const deleteWindowData = async () => {
@@ -311,7 +338,6 @@ export const Dashboard = () => {
       </div>
     );
 
-  const currentWindowData = windows.find((w) => w.id === selectedWindowId);
   const isViewingCurrent = activeMappings.some(
     ([id, m]: any) =>
       id === currentWindowId && m.internalWindowId === selectedWindowId
@@ -522,6 +548,19 @@ export const Dashboard = () => {
                 )}
               </div>
               <div className="flex gap-3 mb-1">
+                {(isViewingInbox
+                  ? inboxData?.tabs?.length ?? 0
+                  : currentWindowData?.tabs?.length ?? 0) > 0 && (
+                  <button
+                    onClick={selectAll}
+                    disabled={isSystemRestoring}
+                    className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl hover:text-blue-400 transition"
+                    title="Marker alle"
+                  >
+                    <CheckSquare size={20} />
+                  </button>
+                )}
+
                 {selectedUrls.length > 0 && (
                   <button
                     onClick={deleteSelectedTabs}
@@ -531,6 +570,17 @@ export const Dashboard = () => {
                     <Trash2 size={16} /> Slet valgte ({selectedUrls.length})
                   </button>
                 )}
+
+                {isViewingInbox && (inboxData?.tabs?.length ?? 0) > 0 && (
+                  <button
+                    onClick={emptyInbox}
+                    disabled={isSystemRestoring}
+                    className="flex items-center gap-2 bg-orange-600/20 text-orange-400 hover:bg-orange-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition"
+                  >
+                    <Eraser size={16} /> Ryd Inbox
+                  </button>
+                )}
+
                 {!isViewingInbox && (
                   <>
                     <button
