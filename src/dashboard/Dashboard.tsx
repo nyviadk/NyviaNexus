@@ -1,29 +1,31 @@
-import { useEffect, useState, useCallback } from "react";
-import { auth, db } from "../lib/firebase";
 import { onAuthStateChanged, User } from "firebase/auth";
 import {
   collection,
-  onSnapshot,
-  doc,
   deleteDoc,
+  doc,
+  onSnapshot,
   updateDoc,
 } from "firebase/firestore";
-import { LoginForm } from "../components/LoginForm";
-import { SidebarItem } from "../components/SidebarItem";
-import { CreateItemModal } from "../components/CreateItemModal";
 import {
-  LogOut,
-  Globe,
-  RotateCw,
   Activity,
-  Monitor,
-  PlusCircle,
-  FolderPlus,
-  X,
-  Inbox as InboxIcon,
+  CheckSquare,
   ChevronLeft,
   ChevronRight,
+  FolderPlus,
+  Globe,
+  Inbox as InboxIcon,
+  LogOut,
+  Monitor,
+  PlusCircle,
+  Square,
+  Trash2,
+  X,
 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { CreateItemModal } from "../components/CreateItemModal";
+import { LoginForm } from "../components/LoginForm";
+import { SidebarItem } from "../components/SidebarItem";
+import { auth, db } from "../lib/firebase";
 import { NexusItem, Profile, WorkspaceWindow } from "../types";
 
 export const Dashboard = () => {
@@ -44,6 +46,9 @@ export const Dashboard = () => {
   const [activeMappings, setActiveMappings] = useState<any[]>([]);
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+
+  // Multi-select state
+  const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
 
   useEffect(() => {
     onAuthStateChanged(auth, (u) => {
@@ -127,19 +132,22 @@ export const Dashboard = () => {
 
   const handleMoveTab = async (index: number, direction: "left" | "right") => {
     setIsUpdating(true);
-    const tabs = isViewingInbox
+    const currentTabs = isViewingInbox
       ? [...inboxData.tabs]
       : [...(windows.find((w) => w.id === selectedWindowId)?.tabs || [])];
     const newIndex = direction === "left" ? index - 1 : index + 1;
-    if (newIndex < 0 || newIndex >= tabs.length) {
+    if (newIndex < 0 || newIndex >= currentTabs.length) {
       setIsUpdating(false);
       return;
     }
-    [tabs[index], tabs[newIndex]] = [tabs[newIndex], tabs[index]];
+    [currentTabs[index], currentTabs[newIndex]] = [
+      currentTabs[newIndex],
+      currentTabs[index],
+    ];
     try {
-      if (isViewingInbox) {
-        await updateDoc(doc(db, "inbox_data", "global"), { tabs });
-      } else if (selectedWorkspace && selectedWindowId) {
+      if (isViewingInbox)
+        await updateDoc(doc(db, "inbox_data", "global"), { tabs: currentTabs });
+      else if (selectedWorkspace && selectedWindowId)
         await updateDoc(
           doc(
             db,
@@ -148,32 +156,38 @@ export const Dashboard = () => {
             "windows",
             selectedWindowId
           ),
-          { tabs }
+          { tabs: currentTabs }
         );
-      }
     } finally {
       setIsUpdating(false);
     }
   };
 
-  const handleDeleteTab = async (index: number, tabUrl: string) => {
-    if (!confirm("Vil du slette denne tab?")) return;
+  const deleteSelectedTabs = async () => {
+    if (
+      selectedUrls.length === 0 ||
+      !confirm(`Slet ${selectedUrls.length} tabs?`)
+    )
+      return;
     setIsUpdating(true);
     const currentTabs = isViewingInbox
       ? [...inboxData.tabs]
       : [...(windows.find((w) => w.id === selectedWindowId)?.tabs || [])];
-    const updatedTabs = currentTabs.filter((_, i) => i !== index);
+    const updatedTabs = currentTabs.filter(
+      (t) => !selectedUrls.includes(t.url)
+    );
+
     try {
       chrome.runtime.sendMessage({
-        type: "CLOSE_PHYSICAL_TAB",
+        type: "CLOSE_PHYSICAL_TABS",
         payload: {
-          url: tabUrl,
+          urls: selectedUrls,
           internalWindowId: isViewingInbox ? "global" : selectedWindowId,
         },
       });
-      if (isViewingInbox) {
+      if (isViewingInbox)
         await updateDoc(doc(db, "inbox_data", "global"), { tabs: updatedTabs });
-      } else if (selectedWorkspace && selectedWindowId) {
+      else if (selectedWorkspace && selectedWindowId)
         await updateDoc(
           doc(
             db,
@@ -184,55 +198,103 @@ export const Dashboard = () => {
           ),
           { tabs: updatedTabs }
         );
-      }
+      setSelectedUrls([]);
     } finally {
       setIsUpdating(false);
     }
   };
 
-  const TabCard = ({ tab, index }: { tab: any; index: number }) => (
-    <div className="bg-slate-900/40 p-4 rounded-2xl border border-slate-800 flex flex-col gap-2 hover:border-blue-500/50 hover:bg-slate-900 transition group relative">
+  const deleteWindowData = async () => {
+    if (
+      !selectedWindowId ||
+      !selectedWorkspace ||
+      !confirm("Slet ALT data for dette vindue?")
+    )
+      return;
+    setIsUpdating(true);
+    try {
+      await deleteDoc(
+        doc(
+          db,
+          `workspaces_data/${selectedWorkspace.id}/windows`,
+          selectedWindowId
+        )
+      );
+      setSelectedWindowId(null);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const toggleTabSelection = (url: string) => {
+    setSelectedUrls((prev) =>
+      prev.includes(url) ? prev.filter((u) => u !== url) : [...prev, url]
+    );
+  };
+
+  const TabCard = ({ tab, index }: { tab: any; index: number }) => {
+    const isSelected = selectedUrls.includes(tab.url);
+    return (
       <div
-        className="flex items-center gap-3 cursor-pointer"
-        onClick={() => chrome.tabs.create({ url: tab.url })}
+        className={`bg-slate-900/40 p-4 rounded-2xl border ${
+          isSelected ? "border-blue-500 bg-blue-500/5" : "border-slate-800"
+        } flex flex-col gap-2 hover:bg-slate-900 transition group relative`}
       >
-        <Globe
-          size={14}
-          className="text-slate-600 group-hover:text-blue-400 shrink-0"
-        />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-slate-200">
-            {tab.title}
-          </div>
-          <div className="truncate text-[10px] text-slate-500 italic font-mono">
-            {tab.url}
-          </div>
-        </div>
-      </div>
-      <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-800/50">
-        <div className="flex gap-1">
-          <button
-            onClick={() => handleMoveTab(index, "left")}
-            className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-white"
-          >
-            <ChevronLeft size={14} />
-          </button>
-          <button
-            onClick={() => handleMoveTab(index, "right")}
-            className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-white"
-          >
-            <ChevronRight size={14} />
-          </button>
-        </div>
-        <button
-          onClick={() => handleDeleteTab(index, tab.url)}
-          className="p-1 text-slate-600 hover:text-red-500 transition-colors"
+        <div
+          className="absolute top-2 right-2 cursor-pointer text-slate-600 hover:text-blue-400"
+          onClick={() => toggleTabSelection(tab.url)}
         >
-          <X size={14} />
-        </button>
+          {isSelected ? (
+            <CheckSquare size={16} className="text-blue-500" />
+          ) : (
+            <Square size={16} className="opacity-0 group-hover:opacity-100" />
+          )}
+        </div>
+        <div
+          className="flex items-center gap-3 cursor-pointer pr-6"
+          onClick={() => chrome.tabs.create({ url: tab.url })}
+        >
+          <Globe
+            size={14}
+            className="text-slate-600 group-hover:text-blue-400 shrink-0"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold text-slate-200">
+              {tab.title}
+            </div>
+            <div className="truncate text-[10px] text-slate-500 italic font-mono">
+              {tab.url}
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-800/50">
+          <div className="flex gap-1">
+            <button
+              onClick={() => handleMoveTab(index, "left")}
+              className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-white"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <button
+              onClick={() => handleMoveTab(index, "right")}
+              className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-white"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+          <button
+            onClick={() => {
+              setSelectedUrls([tab.url]);
+              setTimeout(deleteSelectedTabs, 10);
+            }}
+            className="p-1 text-slate-600 hover:text-red-500"
+          >
+            <X size={14} />
+          </button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   if (!user)
     return (
@@ -321,13 +383,13 @@ export const Dashboard = () => {
             </div>
           </nav>
         </div>
-        <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-3 text-sm font-medium">
+        <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-3">
           <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase tracking-tighter">
             <Activity size={12} className="animate-pulse" /> Live Sync Active
           </div>
           <button
             onClick={() => auth.signOut()}
-            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition"
+            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition text-sm font-medium"
           >
             <LogOut size={16} /> Log ud
           </button>
@@ -402,6 +464,7 @@ export const Dashboard = () => {
                                   workspaceId: selectedWorkspace?.id,
                                   windowData: win,
                                   name: selectedWorkspace?.name,
+                                  index: idx + 1,
                                 },
                               })
                             }
@@ -429,19 +492,23 @@ export const Dashboard = () => {
                   </div>
                 )}
               </div>
-              <div className="flex gap-2 mb-1">
+              <div className="flex gap-3 mb-1">
+                {selectedUrls.length > 0 && (
+                  <button
+                    onClick={deleteSelectedTabs}
+                    className="flex items-center gap-2 bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition"
+                  >
+                    <Trash2 size={16} /> Slet valgte ({selectedUrls.length})
+                  </button>
+                )}
                 {!isViewingInbox && (
                   <>
                     <button
-                      onClick={() =>
-                        chrome.runtime.sendMessage({
-                          type: "FORCE_SYNC_ACTIVE_WINDOW",
-                          payload: { windowId: currentWindowId },
-                        })
-                      }
-                      className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl hover:text-orange-400 transition"
+                      title="Slet vindue data"
+                      onClick={deleteWindowData}
+                      className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl hover:text-red-500 transition"
                     >
-                      <RotateCw size={20} />
+                      <Trash2 size={20} />
                     </button>
                     <button
                       onClick={() =>
