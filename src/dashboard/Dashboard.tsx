@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { auth, db } from "../lib/firebase";
 import { onAuthStateChanged, User } from "firebase/auth";
 import {
@@ -44,6 +44,9 @@ export const Dashboard = () => {
   const [activeMappings, setActiveMappings] = useState<any[]>([]);
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
 
+  // For at forhindre lag: Ignorer snapshots mens vi selv opdaterer
+  const [isUpdating, setIsUpdating] = useState(false);
+
   useEffect(() => {
     onAuthStateChanged(auth, (u) => {
       setUser(u);
@@ -56,7 +59,7 @@ export const Dashboard = () => {
     });
   }, []);
 
-  const setupListeners = () => {
+  const setupListeners = useCallback(() => {
     onSnapshot(collection(db, "profiles"), (snap) => {
       const pList = snap.docs.map(
         (d) => ({ id: d.id, ...d.data() } as Profile)
@@ -67,10 +70,9 @@ export const Dashboard = () => {
     onSnapshot(collection(db, "items"), (snap) =>
       setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as NexusItem)))
     );
-    onSnapshot(
-      doc(db, "inbox_data", "global"),
-      (snap) => snap.exists() && setInboxData(snap.data())
-    );
+    onSnapshot(doc(db, "inbox_data", "global"), (snap) => {
+      if (!isUpdating && snap.exists()) setInboxData(snap.data());
+    });
 
     const int = setInterval(() => {
       chrome.runtime.sendMessage(
@@ -79,7 +81,7 @@ export const Dashboard = () => {
       );
     }, 1000);
     return () => clearInterval(int);
-  };
+  }, [activeProfile, isUpdating]);
 
   useEffect(() => {
     if (
@@ -98,10 +100,16 @@ export const Dashboard = () => {
         }
       }
     }
-  }, [activeMappings, currentWindowId, items]);
+  }, [
+    activeMappings,
+    currentWindowId,
+    items,
+    isViewingInbox,
+    selectedWorkspace,
+  ]);
 
   useEffect(() => {
-    if (!selectedWorkspace || isViewingInbox) return;
+    if (!selectedWorkspace || isViewingInbox || isUpdating) return;
     return onSnapshot(
       collection(db, "workspaces_data", selectedWorkspace.id, "windows"),
       (snap) => {
@@ -117,53 +125,76 @@ export const Dashboard = () => {
         }
       }
     );
-  }, [selectedWorkspace, isViewingInbox]);
+  }, [selectedWorkspace, isViewingInbox, isUpdating, selectedWindowId]);
 
   const handleMoveTab = async (index: number, direction: "left" | "right") => {
+    setIsUpdating(true);
     const tabs = isViewingInbox
       ? [...inboxData.tabs]
-      : [...(currentWindowData?.tabs || [])];
+      : [...(windows.find((w) => w.id === selectedWindowId)?.tabs || [])];
     const newIndex = direction === "left" ? index - 1 : index + 1;
-    if (newIndex < 0 || newIndex >= tabs.length) return;
+    if (newIndex < 0 || newIndex >= tabs.length) {
+      setIsUpdating(false);
+      return;
+    }
 
     [tabs[index], tabs[newIndex]] = [tabs[newIndex], tabs[index]];
 
-    if (isViewingInbox) {
-      await updateDoc(doc(db, "inbox_data", "global"), { tabs });
-    } else if (selectedWorkspace && selectedWindowId) {
-      await updateDoc(
-        doc(
-          db,
-          "workspaces_data",
-          selectedWorkspace.id,
-          "windows",
-          selectedWindowId
-        ),
-        { tabs }
-      );
+    try {
+      if (isViewingInbox) {
+        await updateDoc(doc(db, "inbox_data", "global"), { tabs });
+      } else if (selectedWorkspace && selectedWindowId) {
+        await updateDoc(
+          doc(
+            db,
+            "workspaces_data",
+            selectedWorkspace.id,
+            "windows",
+            selectedWindowId
+          ),
+          { tabs }
+        );
+      }
+    } finally {
+      setIsUpdating(false);
     }
   };
 
-  const handleDeleteTab = async (index: number) => {
+  const handleDeleteTab = async (index: number, tabUrl: string) => {
     if (!confirm("Vil du slette denne tab?")) return;
-    const tabs = isViewingInbox
-      ? [...inboxData.tabs]
-      : [...(currentWindowData?.tabs || [])];
-    tabs.splice(index, 1);
+    setIsUpdating(true);
 
-    if (isViewingInbox) {
-      await updateDoc(doc(db, "inbox_data", "global"), { tabs });
-    } else if (selectedWorkspace && selectedWindowId) {
-      await updateDoc(
-        doc(
-          db,
-          "workspaces_data",
-          selectedWorkspace.id,
-          "windows",
-          selectedWindowId
-        ),
-        { tabs }
-      );
+    const currentTabs = isViewingInbox
+      ? [...inboxData.tabs]
+      : [...(windows.find((w) => w.id === selectedWindowId)?.tabs || [])];
+    const updatedTabs = currentTabs.filter((_, i) => i !== index);
+
+    try {
+      // PROBLEM 3: Luk den fysiske tab først
+      if (!isViewingInbox && selectedWindowId) {
+        chrome.runtime.sendMessage({
+          type: "CLOSE_PHYSICAL_TAB",
+          payload: { url: tabUrl, internalWindowId: selectedWindowId },
+        });
+      }
+
+      // Opdater database
+      if (isViewingInbox) {
+        await updateDoc(doc(db, "inbox_data", "global"), { tabs: updatedTabs });
+      } else if (selectedWorkspace && selectedWindowId) {
+        await updateDoc(
+          doc(
+            db,
+            "workspaces_data",
+            selectedWorkspace.id,
+            "windows",
+            selectedWindowId
+          ),
+          { tabs: updatedTabs }
+        );
+      }
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -203,7 +234,7 @@ export const Dashboard = () => {
           </button>
         </div>
         <button
-          onClick={() => handleDeleteTab(index)}
+          onClick={() => handleDeleteTab(index, tab.url)}
           className="p-1 text-slate-600 hover:text-red-500 transition-colors"
         >
           <X size={14} />

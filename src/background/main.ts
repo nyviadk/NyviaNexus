@@ -5,6 +5,7 @@ import {
   serverTimestamp,
   getDoc,
   updateDoc,
+  deleteDoc,
 } from "firebase/firestore";
 
 // Typer
@@ -30,7 +31,6 @@ const isDash = (url?: string) => url?.includes("dashboard.html");
 
 /**
  * GRUPPERING: Finder eller opretter ÉN gruppe.
- * Nu inklusiv logik for INBOX gruppering.
  */
 async function updateWindowGrouping(windowId: number, name: string | null) {
   if (isRestoring || lockedWindowIds.has(windowId)) return;
@@ -77,6 +77,7 @@ async function updateWindowGrouping(windowId: number, name: string | null) {
 
 /**
  * SYNC: Gemmer vinduets tilstand til Firestore.
+ * Sletter vinduet hvis det er tomt.
  */
 async function saveToFirestore(windowId: number) {
   if (lockedWindowIds.has(windowId) || isRestoring) return;
@@ -93,6 +94,22 @@ async function saveToFirestore(windowId: number) {
         url: t.url || "",
         favIconUrl: t.favIconUrl || "",
       }));
+
+    // PROBLEM 1: Hvis vinduet er tomt (undtagen dashboard), så fjern det
+    if (validTabs.length === 0 && mapping) {
+      console.log("[Nexus] Vindue tomt, sletter fra database og lukker vindue");
+      const docRef = doc(
+        db,
+        "workspaces_data",
+        mapping.workspaceId,
+        "windows",
+        mapping.internalWindowId
+      );
+      await deleteDoc(docRef);
+      activeWindows.delete(windowId);
+      chrome.windows.remove(windowId);
+      return;
+    }
 
     if (mapping) {
       await updateWindowGrouping(windowId, mapping.workspaceName);
@@ -139,7 +156,7 @@ async function saveToFirestore(windowId: number) {
       });
     }
   } catch (e) {
-    console.error("[Nexus] Save Error:", e);
+    // Vinduet kan være lukket
   }
 }
 
@@ -200,7 +217,7 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
   lockedWindowIds.delete(windowId);
 });
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
   const { type, payload } = msg;
   if (type === "OPEN_WORKSPACE")
     handleOpenWorkspace(payload.workspaceId, payload.windows, payload.name);
@@ -211,11 +228,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       payload.name
     );
   else if (type === "GET_ACTIVE_MAPPINGS")
-    sendResponse(Array.from(activeWindows.entries()));
+    _sendResponse(Array.from(activeWindows.entries()));
   else if (type === "FORCE_SYNC_ACTIVE_WINDOW")
     handleForceSync(payload.windowId);
   else if (type === "CREATE_NEW_WINDOW_IN_WORKSPACE")
     handleCreateNewWindowInWorkspace(payload.workspaceId, payload.name);
+  // PROBLEM 3: Lukker den fysiske tab i vinduet
+  else if (type === "CLOSE_PHYSICAL_TAB")
+    handleClosePhysicalTab(payload.url, payload.internalWindowId);
   else if (type === "CLAIM_WINDOW") {
     activeWindows.set(payload.windowId, {
       workspaceId: payload.workspaceId,
@@ -226,6 +246,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   return true;
 });
+
+async function handleClosePhysicalTab(url: string, internalWindowId: string) {
+  // Find det chrome vindue der mapper til dette interne ID
+  let chromeWinId: number | undefined;
+  for (const [id, map] of activeWindows.entries()) {
+    if (map.internalWindowId === internalWindowId) {
+      chromeWinId = id;
+      break;
+    }
+  }
+
+  if (chromeWinId) {
+    const tabs = await chrome.tabs.query({ windowId: chromeWinId });
+    const tabToClose = tabs.find((t) => t.url === url);
+    if (tabToClose?.id) {
+      await chrome.tabs.remove(tabToClose.id);
+    }
+  }
+}
 
 async function handleOpenSpecificWindow(
   workspaceId: string,
