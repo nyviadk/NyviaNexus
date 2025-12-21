@@ -43,8 +43,6 @@ export const Dashboard = () => {
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const [activeMappings, setActiveMappings] = useState<any[]>([]);
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
-
-  // For at forhindre lag: Ignorer snapshots mens vi selv opdaterer
   const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
@@ -137,9 +135,7 @@ export const Dashboard = () => {
       setIsUpdating(false);
       return;
     }
-
     [tabs[index], tabs[newIndex]] = [tabs[newIndex], tabs[index]];
-
     try {
       if (isViewingInbox) {
         await updateDoc(doc(db, "inbox_data", "global"), { tabs });
@@ -163,22 +159,17 @@ export const Dashboard = () => {
   const handleDeleteTab = async (index: number, tabUrl: string) => {
     if (!confirm("Vil du slette denne tab?")) return;
     setIsUpdating(true);
-
     const currentTabs = isViewingInbox
       ? [...inboxData.tabs]
       : [...(windows.find((w) => w.id === selectedWindowId)?.tabs || [])];
     const updatedTabs = currentTabs.filter((_, i) => i !== index);
-
     try {
-      // PROBLEM 3: Luk den fysiske tab først
       if (!isViewingInbox && selectedWindowId) {
         chrome.runtime.sendMessage({
           type: "CLOSE_PHYSICAL_TAB",
           payload: { url: tabUrl, internalWindowId: selectedWindowId },
         });
       }
-
-      // Opdater database
       if (isViewingInbox) {
         await updateDoc(doc(db, "inbox_data", "global"), { tabs: updatedTabs });
       } else if (selectedWorkspace && selectedWindowId) {
@@ -217,7 +208,6 @@ export const Dashboard = () => {
           </div>
         </div>
       </div>
-
       <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-800/50">
         <div className="flex gap-1">
           <button
@@ -265,7 +255,6 @@ export const Dashboard = () => {
           </div>{" "}
           NyviaNexus
         </div>
-
         <div className="p-4 flex-1 overflow-y-auto space-y-6">
           <select
             value={activeProfile}
@@ -278,7 +267,6 @@ export const Dashboard = () => {
               </option>
             ))}
           </select>
-
           <nav className="space-y-1">
             <div className="flex justify-between items-center px-2 mb-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
               Dine Spaces
@@ -312,7 +300,6 @@ export const Dashboard = () => {
                 />
               ))}
           </nav>
-
           <nav className="space-y-1">
             <label className="text-[10px] font-bold text-slate-500 uppercase px-2 mb-2 block tracking-widest">
               Opsamling
@@ -333,7 +320,6 @@ export const Dashboard = () => {
             </div>
           </nav>
         </div>
-
         <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-3">
           <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase tracking-tighter">
             <Activity size={12} className="animate-pulse" /> Live Sync Active
@@ -346,7 +332,6 @@ export const Dashboard = () => {
           </button>
         </div>
       </aside>
-
       <main className="flex-1 flex flex-col bg-slate-950 relative">
         {selectedWorkspace || isViewingInbox ? (
           <>
@@ -476,7 +461,6 @@ export const Dashboard = () => {
                 )}
               </div>
             </header>
-
             <div className="flex-1 overflow-y-auto p-8">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {(isViewingInbox
@@ -495,7 +479,6 @@ export const Dashboard = () => {
           </div>
         )}
       </main>
-
       {modalType && (
         <CreateItemModal
           type={modalType}

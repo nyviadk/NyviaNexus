@@ -77,7 +77,6 @@ async function updateWindowGrouping(windowId: number, name: string | null) {
 
 /**
  * SYNC: Gemmer vinduets tilstand til Firestore.
- * Sletter vinduet hvis det er tomt.
  */
 async function saveToFirestore(windowId: number) {
   if (lockedWindowIds.has(windowId) || isRestoring) return;
@@ -95,9 +94,8 @@ async function saveToFirestore(windowId: number) {
         favIconUrl: t.favIconUrl || "",
       }));
 
-    // PROBLEM 1: Hvis vinduet er tomt (undtagen dashboard), så fjern det
+    // Hvis vinduet er et space-vindue og er blevet tomt, luk det
     if (validTabs.length === 0 && mapping) {
-      console.log("[Nexus] Vindue tomt, sletter fra database og lukker vindue");
       const docRef = doc(
         db,
         "workspaces_data",
@@ -155,9 +153,7 @@ async function saveToFirestore(windowId: number) {
         lastUpdate: serverTimestamp(),
       });
     }
-  } catch (e) {
-    // Vinduet kan være lukket
-  }
+  } catch (e) {}
 }
 
 // --- LISTENERS ---
@@ -233,22 +229,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
     handleForceSync(payload.windowId);
   else if (type === "CREATE_NEW_WINDOW_IN_WORKSPACE")
     handleCreateNewWindowInWorkspace(payload.workspaceId, payload.name);
-  // PROBLEM 3: Lukker den fysiske tab i vinduet
   else if (type === "CLOSE_PHYSICAL_TAB")
     handleClosePhysicalTab(payload.url, payload.internalWindowId);
   else if (type === "CLAIM_WINDOW") {
-    activeWindows.set(payload.windowId, {
-      workspaceId: payload.workspaceId,
-      internalWindowId: payload.internalWindowId,
-      workspaceName: payload.name,
-    });
-    saveToFirestore(payload.windowId);
+    if (!lockedWindowIds.has(payload.windowId)) {
+      activeWindows.set(payload.windowId, {
+        workspaceId: payload.workspaceId,
+        internalWindowId: payload.internalWindowId,
+        workspaceName: payload.name,
+      });
+      saveToFirestore(payload.windowId);
+    }
   }
   return true;
 });
 
 async function handleClosePhysicalTab(url: string, internalWindowId: string) {
-  // Find det chrome vindue der mapper til dette interne ID
   let chromeWinId: number | undefined;
   for (const [id, map] of activeWindows.entries()) {
     if (map.internalWindowId === internalWindowId) {
@@ -256,53 +252,66 @@ async function handleClosePhysicalTab(url: string, internalWindowId: string) {
       break;
     }
   }
-
   if (chromeWinId) {
     const tabs = await chrome.tabs.query({ windowId: chromeWinId });
     const tabToClose = tabs.find((t) => t.url === url);
-    if (tabToClose?.id) {
-      await chrome.tabs.remove(tabToClose.id);
-    }
+    if (tabToClose?.id) await chrome.tabs.remove(tabToClose.id);
   }
 }
 
+/**
+ * ÅBN SPECIFIKT VINDUE: Tjekker om det allerede er åbent før det oprettes.
+ */
 async function handleOpenSpecificWindow(
   workspaceId: string,
   winData: any,
   name: string
 ) {
+  // 1. Tjek om vinduet allerede er åbent i Chrome
+  for (const [chromeId, map] of activeWindows.entries()) {
+    if (
+      map.workspaceId === workspaceId &&
+      map.internalWindowId === winData.id
+    ) {
+      chrome.windows.update(chromeId, { focused: true });
+      return; // Stop her, det er allerede åbent
+    }
+  }
+
   isRestoring = true;
-  const urls = winData.tabs
-    .map((t: any) => t.url)
-    .filter((u: string) => !isDash(u));
+  try {
+    const urls = winData.tabs
+      .map((t: any) => t.url)
+      .filter((u: string) => !isDash(u));
 
-  const newWin = await chrome.windows.create({
-    url: "dashboard.html",
-    incognito: winData.isIncognito || false,
-  });
-
-  if (newWin && newWin.id) {
-    const winId = newWin.id;
-    lockedWindowIds.add(winId);
-
-    const tabs = await chrome.tabs.query({ windowId: winId });
-    if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
-
-    activeWindows.set(winId, {
-      workspaceId,
-      internalWindowId: winData.id,
-      workspaceName: name,
+    const newWin = await chrome.windows.create({
+      url: "dashboard.html",
+      incognito: winData.isIncognito || false,
     });
 
-    for (const url of urls) {
-      await chrome.tabs.create({ windowId: winId, url });
-    }
+    if (newWin && newWin.id) {
+      const winId = newWin.id;
+      lockedWindowIds.add(winId);
 
-    await updateWindowGrouping(winId, name);
-    lockedWindowIds.delete(winId);
-    saveToFirestore(winId);
+      const tabs = await chrome.tabs.query({ windowId: winId });
+      if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
+
+      activeWindows.set(winId, {
+        workspaceId,
+        internalWindowId: winData.id,
+        workspaceName: name,
+      });
+
+      for (const url of urls) {
+        await chrome.tabs.create({ windowId: winId, url });
+      }
+
+      await updateWindowGrouping(winId, name);
+      lockedWindowIds.delete(winId);
+    }
+  } finally {
+    isRestoring = false;
   }
-  isRestoring = false;
 }
 
 async function handleOpenWorkspace(
@@ -311,10 +320,13 @@ async function handleOpenWorkspace(
   name: string
 ) {
   isRestoring = true;
-  for (const winData of windowsToOpen) {
-    await handleOpenSpecificWindow(workspaceId, winData, name);
+  try {
+    for (const winData of windowsToOpen) {
+      await handleOpenSpecificWindow(workspaceId, winData, name);
+    }
+  } finally {
+    isRestoring = false;
   }
-  isRestoring = false;
 }
 
 async function handleCreateNewWindowInWorkspace(
@@ -322,22 +334,23 @@ async function handleCreateNewWindowInWorkspace(
   name: string
 ) {
   isRestoring = true;
-  const newWin = await chrome.windows.create({ url: "dashboard.html" });
-  if (newWin && newWin.id) {
-    const winId = newWin.id;
-    const tabs = await chrome.tabs.query({ windowId: winId });
-    if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
+  try {
+    const newWin = await chrome.windows.create({ url: "dashboard.html" });
+    if (newWin && newWin.id) {
+      const winId = newWin.id;
+      const tabs = await chrome.tabs.query({ windowId: winId });
+      if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
 
-    activeWindows.set(winId, {
-      workspaceId,
-      internalWindowId: `win_${Date.now()}`,
-      workspaceName: name,
-    });
-
-    await updateWindowGrouping(winId, name);
-    saveToFirestore(winId);
+      activeWindows.set(winId, {
+        workspaceId,
+        internalWindowId: `win_${Date.now()}`,
+        workspaceName: name,
+      });
+      await updateWindowGrouping(winId, name);
+    }
+  } finally {
+    isRestoring = false;
   }
-  isRestoring = false;
 }
 
 async function handleForceSync(windowId: number) {
@@ -345,27 +358,27 @@ async function handleForceSync(windowId: number) {
   if (!mapping) return;
 
   lockedWindowIds.add(windowId);
-  const snap = await getDoc(
-    doc(
-      db,
-      "workspaces_data",
-      mapping.workspaceId,
-      "windows",
-      mapping.internalWindowId
-    )
-  );
-
-  if (snap.exists()) {
-    const urls = snap.data().tabs.map((t: any) => t.url);
-    const currentTabs = await chrome.tabs.query({ windowId });
-
-    for (const url of urls) await chrome.tabs.create({ windowId, url });
-    for (const tab of currentTabs) {
-      if (tab.id && !isDash(tab.url)) await chrome.tabs.remove(tab.id);
+  try {
+    const snap = await getDoc(
+      doc(
+        db,
+        "workspaces_data",
+        mapping.workspaceId,
+        "windows",
+        mapping.internalWindowId
+      )
+    );
+    if (snap.exists()) {
+      const urls = snap.data().tabs.map((t: any) => t.url);
+      const currentTabs = await chrome.tabs.query({ windowId });
+      for (const url of urls) await chrome.tabs.create({ windowId, url });
+      for (const tab of currentTabs) {
+        if (tab.id && !isDash(tab.url)) await chrome.tabs.remove(tab.id);
+      }
+      await updateWindowGrouping(windowId, mapping.workspaceName);
     }
-    await updateWindowGrouping(windowId, mapping.workspaceName);
+  } finally {
+    lockedWindowIds.delete(windowId);
+    saveToFirestore(windowId);
   }
-
-  lockedWindowIds.delete(windowId);
-  saveToFirestore(windowId);
 }
