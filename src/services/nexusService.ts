@@ -22,8 +22,8 @@ export const NexusService = {
     findChildren(item.id);
     for (const id of itemsToDelete) {
       batch.delete(doc(db, "items", id));
-      const currentItem = allItems.find((i) => i.id === id) || item;
-      if (currentItem.type === "workspace") {
+      const currentItem = allItems.find((i) => i.id === id);
+      if (currentItem?.type === "workspace") {
         const winSnap = await getDocs(
           collection(db, "workspaces_data", id, "windows")
         );
@@ -119,7 +119,7 @@ export const NexusService = {
     batch.set(doc(db, "items", data.id), {
       id: data.id,
       name: data.name,
-      type: "workspace" as const, // FIXED: Explicit type
+      type: "workspace" as const, // FIXED: Explicit string literal type
       parentId: data.parentId,
       profileId: data.profileId,
       createdAt: Date.now(),

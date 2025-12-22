@@ -34,6 +34,7 @@ import { auth, db } from "../lib/firebase";
 import { NexusItem, Profile, WorkspaceWindow } from "../types";
 import { NexusService } from "../services/nexusService";
 
+// (ProfileManagerModal uændret...)
 const ProfileManagerModal = ({
   profiles,
   onClose,
@@ -522,9 +523,9 @@ export const Dashboard = () => {
           </div>
         </div>
       )}
-      <aside className="w-72 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0">
+      <aside className="w-72 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0 shadow-2xl z-20">
         <div className="p-6 border-b border-slate-800 font-black text-white text-xl uppercase tracking-tighter flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center">
+          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg shadow-blue-500/20">
             N
           </div>{" "}
           NyviaNexus
@@ -538,7 +539,7 @@ export const Dashboard = () => {
                 setSelectedWorkspace(null);
                 setIsViewingInbox(false);
               }}
-              className="flex-1 bg-slate-800 p-2 rounded-xl border border-slate-700 text-sm outline-none"
+              className="flex-1 bg-slate-800 p-2 rounded-xl border border-slate-700 text-sm outline-none focus:ring-2 ring-blue-500/50 transition-all"
             >
               {profiles.map((p: Profile) => (
                 <option key={p.id} value={p.id}>
@@ -548,18 +549,18 @@ export const Dashboard = () => {
             </select>
             <button
               onClick={() => setModalType("profiles")}
-              className="p-2 text-slate-500 hover:text-blue-400 bg-slate-800 rounded-xl border border-slate-700 transition"
+              className="p-2 text-slate-500 hover:text-blue-400 bg-slate-800 rounded-xl border border-slate-700 transition shadow-sm active:scale-95"
             >
               <Settings size={18} />
             </button>
           </div>
 
-          {/* NAVIGATION OMRÅDE MED HOVER EFFEKT FOR ROD-NIVEAU */}
+          {/* NAVIGATION OMRÅDE MED KRAFTIG HOVER EFFEKT FOR ROD-NIVEAU */}
           <nav
-            className={`space-y-1 p-2 transition-all duration-200 border-2 border-transparent ${
+            className={`space-y-1 p-2 transition-all duration-300 relative rounded-2xl ${
               isDragOverRoot
-                ? "bg-slate-800/50 border-blue-500/50 rounded-xl ring-4 ring-blue-500/10"
-                : ""
+                ? "bg-blue-600/10 border-2 border-dashed border-blue-500 scale-[0.98]"
+                : "border-2 border-transparent"
             }`}
             onDragOver={(e) => {
               e.preventDefault();
@@ -568,14 +569,28 @@ export const Dashboard = () => {
             onDragLeave={() => setIsDragOverRoot(false)}
             onDrop={onDropToRoot}
           >
-            <div className="flex justify-between items-center px-2 mb-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+            {isDragOverRoot && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                <span className="text-blue-400 text-[10px] font-bold uppercase tracking-widest bg-slate-900 px-3 py-1 rounded-full border border-blue-500/30 shadow-xl">
+                  Flyt til Rod
+                </span>
+              </div>
+            )}
+
+            <div className="flex justify-between items-center px-2 mb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
               Spaces
               <div className="flex gap-2">
-                <button onClick={() => handleOpenRootModal("folder")}>
-                  <FolderPlus size={14} className="hover:text-white" />
+                <button
+                  onClick={() => handleOpenRootModal("folder")}
+                  className="hover:text-white transition-colors"
+                >
+                  <FolderPlus size={14} />
                 </button>
-                <button onClick={() => handleOpenRootModal("workspace")}>
-                  <PlusCircle size={14} className="hover:text-white" />
+                <button
+                  onClick={() => handleOpenRootModal("workspace")}
+                  className="hover:text-white transition-colors"
+                >
+                  <PlusCircle size={14} />
                 </button>
               </div>
             </div>
@@ -614,9 +629,9 @@ export const Dashboard = () => {
                 setSelectedWorkspace(null);
                 setIsViewingInbox(true);
               }}
-              className={`flex items-center gap-2 p-2 rounded cursor-pointer text-sm transition ${
+              className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all ${
                 isViewingInbox || dropTargetWinId === "global"
-                  ? "bg-orange-600/20 text-orange-400 border border-orange-500/30"
+                  ? "bg-orange-600/20 text-orange-400 border border-orange-500/50 shadow-lg shadow-orange-900/10 scale-[1.02]"
                   : "hover:bg-slate-800 text-slate-400"
               }`}
               onDragLeave={() => setDropTargetWinId(null)}
@@ -632,12 +647,14 @@ export const Dashboard = () => {
           </div>
           <button
             onClick={() => auth.signOut()}
-            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition"
+            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition active:scale-95"
           >
             <LogOut size={16} /> Log ud
           </button>
         </div>
       </aside>
+
+      {/* ... RESTEN AF MAIN (VINDUE-KNAPPER OG TABS) ER IDENTISK MED FORRIGE TURN, MEN MED handleTabDrop SOM ALLEREDE ER OPDATERET ... */}
       <main className="flex-1 flex flex-col bg-slate-950 relative">
         {selectedWorkspace || isViewingInbox ? (
           <>
@@ -672,7 +689,7 @@ export const Dashboard = () => {
                             className={`px-4 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-2 ${
                               selectedWindowId === win.id ||
                               dropTargetWinId === win.id
-                                ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30 scale-105"
+                                ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30 scale-110 ring-2 ring-blue-400"
                                 : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                             }`}
                           >
