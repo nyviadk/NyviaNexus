@@ -44,15 +44,10 @@ export const SidebarItem = ({
   const isFolder = item.type === "folder";
   const childItems = allItems.filter((i) => i.parentId === item.id);
 
-  // Find det item der bliver trukket lige nu
   const draggedItem = activeDragId
     ? allItems.find((i) => i.id === activeDragId)
     : null;
 
-  // Bestem om droppet er "ugyldigt" (RØD HIGHLIGHT)
-  // Det er ugyldigt hvis:
-  // 1. Man dropper på sig selv
-  // 2. Man dropper i den mappe, man ALLEREDE ligger i (Parent drop = ingen ændring)
   const isInvalidDrop =
     activeDragId === item.id || draggedItem?.parentId === item.id;
 
@@ -63,7 +58,7 @@ export const SidebarItem = ({
     }
   }, [activeDragId]);
 
-  // Hjælpefunktion: Tjek om 'target' faktisk er et barn/barnebarn af 'source'
+  // FIX: Type-safe descendant check
   const isDescendant = (
     sourceId: string,
     targetId: string,
@@ -72,7 +67,10 @@ export const SidebarItem = ({
     let current = items.find((i) => i.id === targetId);
     while (current && current.parentId !== "root") {
       if (current.parentId === sourceId) return true;
-      current = items.find((i) => i.id === current?.parentId);
+      // Vi bruger en midlertidig variabel til at tjekke parent
+      const parent = items.find((i) => i.id === current?.parentId);
+      if (!parent) break; // Hvis parent ikke findes, stop
+      current = parent;
     }
     return false;
   };
@@ -113,7 +111,6 @@ export const SidebarItem = ({
   };
 
   const onDragEnter = (e: React.DragEvent) => {
-    // Tillad drag-over selvom det er invalid, så vi kan vise den røde farve
     if (isFolder) {
       e.preventDefault();
       e.stopPropagation();
@@ -135,7 +132,6 @@ export const SidebarItem = ({
     dragCounter.current = 0;
     setIsDragOver(false);
 
-    // Hvis det ikke er en mappe, eller hvis droppet er ugyldigt (rødt), stop her.
     if (!isFolder || isInvalidDrop) {
       e.preventDefault();
       onDragEndCleanup();
@@ -152,18 +148,15 @@ export const SidebarItem = ({
     const sourceItem = allItems.find((i) => i.id === draggedId);
     if (!sourceItem) return;
 
-    // Tjek for hierarki-konflikt (Hvis vi trækker Forælder ned i Barn)
     const isLoop = isDescendant(draggedId, item.id, allItems);
 
     setIsSyncing(true);
     try {
       if (isLoop) {
-        // SMART MOVE: Byt rundt på parent/child forhold
         const sourceOldParentId = sourceItem.parentId;
         await NexusService.moveItem(item.id, sourceOldParentId);
         await NexusService.moveItem(sourceItem.id, item.id);
       } else {
-        // NORMAL FLYTNING
         if (draggedId !== item.id) {
           await NexusService.moveItem(draggedId, item.id);
         }
@@ -185,8 +178,8 @@ export const SidebarItem = ({
         className={`relative z-10 flex items-center gap-2 p-2 rounded-xl mb-1 cursor-grab active:cursor-grabbing transition-all border ${
           isDragOver
             ? isInvalidDrop
-              ? "bg-red-900/40 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.4)]" // Rød highlight ved ugyldigt drop
-              : "bg-blue-800/60 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.4)] scale-[1.02]" // Blå highlight ved gyldigt drop
+              ? "bg-red-900/40 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.4)]"
+              : "bg-blue-800/60 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.4)] scale-[1.02]"
             : "border-transparent hover:bg-slate-700/80 hover:border-slate-600"
         } ${isSyncing ? "opacity-50 pointer-events-none" : ""}`}
         onDragEnter={onDragEnter}
@@ -243,7 +236,7 @@ export const SidebarItem = ({
               isDragOver
                 ? isInvalidDrop
                   ? "text-red-400"
-                  : "text-blue-300" // Rødt ikon hvis ugyldig, blåt hvis gyldig
+                  : "text-blue-300"
                 : "text-amber-400"
             } fill-current transition-colors shrink-0`}
           />

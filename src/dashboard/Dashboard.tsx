@@ -28,6 +28,7 @@ import {
   Settings,
   ArrowUpCircle,
   LifeBuoy,
+  ExternalLink,
 } from "lucide-react";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { CreateItemModal } from "../components/CreateItemModal";
@@ -37,6 +38,7 @@ import { auth, db } from "../lib/firebase";
 import { NexusItem, Profile, WorkspaceWindow } from "../types";
 import { NexusService } from "../services/nexusService";
 
+// --- Profile Manager Modal (NU MED DIALOG) ---
 const ProfileManagerModal = ({
   profiles,
   onClose,
@@ -46,11 +48,21 @@ const ProfileManagerModal = ({
   const [newProfileName, setNewProfileName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
-  const addProfile = async () => {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    if (dialogRef.current && !dialogRef.current.open) {
+      dialogRef.current.showModal();
+    }
+  }, []);
+
+  const addProfile = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!newProfileName.trim()) return;
     await addDoc(collection(db, "profiles"), { name: newProfileName });
     setNewProfileName("");
   };
+
   const saveEdit = async (id: string) => {
     if (!id) return;
     await updateDoc(doc(db, "profiles", id), { name: editName });
@@ -67,17 +79,26 @@ const ProfileManagerModal = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
+    <dialog
+      ref={dialogRef}
+      onCancel={onClose}
+      onClick={(e) => e.target === dialogRef.current && onClose()}
+      className="bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm open:animate-in open:fade-in open:zoom-in-95"
+    >
       <div className="bg-slate-800 border border-slate-600 w-full max-w-md rounded-3xl p-8 shadow-2xl space-y-6">
         <div className="flex justify-between items-center">
           <h3 className="text-xl font-bold text-white uppercase tracking-tight">
             Profiler
           </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-white outline-none focus:ring-2 ring-blue-500 rounded"
+          >
             <X size={20} />
           </button>
         </div>
-        <div className="flex gap-2">
+
+        <form onSubmit={addProfile} className="flex gap-2">
           <input
             value={newProfileName}
             onChange={(e) => setNewProfileName(e.target.value)}
@@ -85,12 +106,13 @@ const ProfileManagerModal = ({
             className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 ring-blue-500/50 text-white"
           />
           <button
-            onClick={addProfile}
-            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl transition"
+            type="submit"
+            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl transition outline-none focus:ring-2 ring-blue-400"
           >
             <PlusCircle size={20} />
           </button>
-        </div>
+        </form>
+
         <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
           {profiles.map((p: Profile) => (
             <div
@@ -103,6 +125,7 @@ const ProfileManagerModal = ({
                     autoFocus
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && saveEdit(p.id)}
                     className="flex-1 bg-slate-600 border-none rounded px-2 py-1 text-sm outline-none text-white"
                   />
                   <button
@@ -138,7 +161,7 @@ const ProfileManagerModal = ({
           ))}
         </div>
       </div>
-    </div>
+    </dialog>
   );
 };
 
@@ -169,13 +192,51 @@ export const Dashboard = () => {
 
   const isPerformingAction = useRef(false);
   const rootDragCounter = useRef(0);
+  const hasLoadedPersistence = useRef(false);
+
+  // --- PERSISTENCE LOGIC ---
+  useEffect(() => {
+    const lastProfile = localStorage.getItem("lastActiveProfileId");
+    if (lastProfile) setActiveProfile(lastProfile);
+  }, []);
+
+  useEffect(() => {
+    if (hasLoadedPersistence.current || items.length === 0 || !activeProfile)
+      return;
+
+    const lastWorkspaceId = localStorage.getItem("lastActiveWorkspaceId");
+    if (lastWorkspaceId) {
+      const ws = items.find((i) => i.id === lastWorkspaceId);
+      if (ws && ws.profileId === activeProfile) {
+        setSelectedWorkspace(ws);
+      }
+    }
+    hasLoadedPersistence.current = true;
+  }, [items, activeProfile]);
+
+  useEffect(() => {
+    if (activeProfile)
+      localStorage.setItem("lastActiveProfileId", activeProfile);
+  }, [activeProfile]);
+
+  useEffect(() => {
+    if (selectedWorkspace) {
+      localStorage.setItem("lastActiveWorkspaceId", selectedWorkspace.id);
+    } else if (isViewingInbox) {
+      localStorage.removeItem("lastActiveWorkspaceId");
+    }
+  }, [selectedWorkspace, isViewingInbox]);
 
   const applyState = useCallback(
     (state: any) => {
       if (isPerformingAction.current) return;
       if (state.profiles) {
         setProfiles(state.profiles);
-        if (state.profiles.length > 0 && !activeProfile)
+        if (
+          state.profiles.length > 0 &&
+          !activeProfile &&
+          !localStorage.getItem("lastActiveProfileId")
+        )
           setActiveProfile(state.profiles[0].id);
       }
       if (state.items) setItems(state.items);
@@ -228,7 +289,6 @@ export const Dashboard = () => {
       });
   }, [selectedWorkspace]);
 
-  // NØD REPARATION AF HIERARKI
   const emergencyRepairHierarchy = async () => {
     if (
       !confirm(
@@ -453,6 +513,32 @@ export const Dashboard = () => {
       >
         <X size={12} />
       </button>
+
+      {/* Select Box - Flyttet til venstre top */}
+      <div
+        className="absolute top-2 left-2 cursor-pointer z-20 text-slate-500 hover:text-blue-400"
+        onClick={(e) => {
+          e.stopPropagation();
+          setSelectedUrls((prev) =>
+            prev.includes(tab.url)
+              ? prev.filter((u) => u !== tab.url)
+              : [...prev, tab.url]
+          );
+        }}
+      >
+        {selectedUrls.includes(tab.url) ? (
+          <CheckSquare
+            size={16}
+            className="text-blue-500 bg-slate-900 rounded"
+          />
+        ) : (
+          <Square
+            size={16}
+            className="opacity-0 group-hover:opacity-100 bg-slate-900/50 rounded"
+          />
+        )}
+      </div>
+
       <div
         draggable
         onDragStart={() =>
@@ -462,27 +548,11 @@ export const Dashboard = () => {
           selectedUrls.includes(tab.url)
             ? "border-blue-500 bg-blue-500/10"
             : "border-slate-700 hover:border-slate-500"
-        } flex flex-col gap-2 hover:bg-slate-800 transition group shadow-md`}
+        } flex flex-col gap-2 hover:bg-slate-800 transition group shadow-md pl-8`}
+        /* Added pl-8 to make room for checkbox */
       >
         <div
-          className="absolute top-2 right-2 cursor-pointer text-slate-500 hover:text-blue-400"
-          onClick={(e) => {
-            e.stopPropagation();
-            setSelectedUrls((prev) =>
-              prev.includes(tab.url)
-                ? prev.filter((u) => u !== tab.url)
-                : [...prev, tab.url]
-            );
-          }}
-        >
-          {selectedUrls.includes(tab.url) ? (
-            <CheckSquare size={16} className="text-blue-500" />
-          ) : (
-            <Square size={16} className="opacity-0 group-hover:opacity-100" />
-          )}
-        </div>
-        <div
-          className="flex items-center gap-3 cursor-pointer pr-6"
+          className="flex items-center gap-3 cursor-pointer"
           onClick={() => chrome.tabs.create({ url: tab.url })}
         >
           <Globe
@@ -535,7 +605,6 @@ export const Dashboard = () => {
           </div>
         </div>
       )}
-      {/* ÆNDRING: Bredde ændret fra w-80 til w-96 */}
       <aside className="w-96 border-r border-slate-700 bg-slate-800 flex flex-col shrink-0 shadow-2xl z-20 transition-all">
         <div className="p-6 border-b border-slate-700 font-black text-white text-xl uppercase tracking-tighter flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg shadow-blue-500/20">
@@ -745,40 +814,83 @@ export const Dashboard = () => {
                         onDrop={() => handleTabDrop(win.id)}
                         onDragLeave={() => setDropTargetWinId(null)}
                       >
-                        <div className="relative group">
-                          <button
-                            onClick={() => setSelectedWindowId(win.id)}
-                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-2 ${
-                              selectedWindowId === win.id ||
-                              dropTargetWinId === win.id
-                                ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30 scale-110 ring-2 ring-blue-400"
-                                : "bg-slate-700 text-slate-400 hover:bg-slate-600"
-                            }`}
-                          >
-                            Vindue {idx + 1}{" "}
-                            {activeMappings.some(
-                              ([_, m]: any) => m.internalWindowId === win.id
-                            ) && (
-                              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                            )}
-                          </button>
-                        </div>
-                        <button
+                        {/* Redesignet Vindue Card - NU MED TOGGLE LOGIK */}
+                        <div
                           onClick={() =>
-                            chrome.runtime.sendMessage({
-                              type: "OPEN_SPECIFIC_WINDOW",
-                              payload: {
-                                workspaceId: selectedWorkspace?.id,
-                                windowData: win,
-                                name: selectedWorkspace?.name,
-                                index: idx + 1,
-                              },
-                            })
+                            setSelectedWindowId(
+                              selectedWindowId === win.id ? null : win.id
+                            )
                           }
-                          className="text-[9px] text-slate-500 hover:text-blue-400 font-bold uppercase"
+                          className={`relative group px-4 py-3 rounded-xl border transition-all flex items-center gap-3 cursor-pointer ${
+                            selectedWindowId === win.id ||
+                            dropTargetWinId === win.id
+                              ? "bg-blue-600/10 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.2)]"
+                              : "bg-slate-800 border-slate-700 hover:border-slate-500 hover:bg-slate-800/80"
+                          }`}
                         >
-                          Åbn dette
-                        </button>
+                          <div className="flex flex-col">
+                            <span className="text-xs font-bold text-slate-300 group-hover:text-white uppercase tracking-wider">
+                              Vindue {idx + 1}
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              {win.tabs.length} tabs
+                            </span>
+                          </div>
+
+                          <div className="w-px h-6 bg-slate-700 mx-1"></div>
+
+                          <div
+                            className="flex gap-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              title="Åbn i nyt vindue"
+                              onClick={() =>
+                                chrome.runtime.sendMessage({
+                                  type: "OPEN_SPECIFIC_WINDOW",
+                                  payload: {
+                                    workspaceId: selectedWorkspace?.id,
+                                    windowData: win,
+                                    name: selectedWorkspace?.name,
+                                    index: idx + 1,
+                                  },
+                                })
+                              }
+                              className="p-1.5 hover:bg-blue-500/20 rounded-lg text-slate-400 hover:text-blue-400 transition"
+                            >
+                              <ExternalLink size={20} />
+                            </button>
+                          </div>
+
+                          {/* Trash Icon moved to top right absolute, visible on hover */}
+                          <button
+                            title="Slet vindue"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (
+                                confirm("Slet dette vindue fra gemt space?")
+                              ) {
+                                await deleteDoc(
+                                  doc(
+                                    db,
+                                    `workspaces_data/${selectedWorkspace?.id}/windows`,
+                                    win.id
+                                  )
+                                );
+                              }
+                            }}
+                            className="absolute -top-2 -right-2 p-1.5 bg-slate-800 border border-slate-600 rounded-full text-slate-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition shadow-sm z-10"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+
+                          {/* Active Indicator */}
+                          {activeMappings.some(
+                            ([_, m]: any) => m.internalWindowId === win.id
+                          ) && (
+                            <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-slate-900 z-10" />
+                          )}
+                        </div>
                       </div>
                     ))}
                     <button
@@ -791,9 +903,10 @@ export const Dashboard = () => {
                           },
                         })
                       }
-                      className="p-1 hover:text-blue-400 text-slate-500 transition mt-1"
+                      className="h-14 w-14 flex items-center justify-center rounded-xl border border-dashed border-slate-700 hover:border-blue-500/50 hover:bg-slate-800 text-slate-500 hover:text-blue-400 transition"
+                      title="Tilføj tomt vindue"
                     >
-                      <PlusCircle size={20} />
+                      <PlusCircle size={24} />
                     </button>
                   </div>
                 )}
@@ -833,34 +946,6 @@ export const Dashboard = () => {
                 )}
                 {!isViewingInbox && (
                   <>
-                    <button
-                      title="Slet vindue data"
-                      onClick={async () => {
-                        if (
-                          isSystemRestoring ||
-                          !selectedWindowId ||
-                          !selectedWorkspace ||
-                          !confirm("Slet ALT data?")
-                        )
-                          return;
-                        isPerformingAction.current = true;
-                        try {
-                          await deleteDoc(
-                            doc(
-                              db,
-                              `workspaces_data/${selectedWorkspace.id}/windows`,
-                              selectedWindowId
-                            )
-                          );
-                          setSelectedWindowId(null);
-                        } finally {
-                          isPerformingAction.current = false;
-                        }
-                      }}
-                      className="p-2.5 bg-slate-800 border border-slate-700 rounded-xl hover:text-red-500 transition text-slate-400"
-                    >
-                      <Trash2 size={20} />
-                    </button>
                     <button
                       onClick={() =>
                         chrome.runtime.sendMessage({
