@@ -96,7 +96,7 @@ export default function App() {
             onChange={(e) => setActiveProfile(e.target.value)}
             className="bg-slate-800 text-sm p-1 rounded border border-slate-700 outline-none"
           >
-            {profiles.map((p) => (
+            {profiles.map((p: Profile) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
@@ -177,6 +177,7 @@ export default function App() {
                   item={item}
                   allItems={items}
                   onRefresh={() => {}}
+                  onDragStateChange={() => {}}
                 />
               ))}
           </div>

@@ -25,6 +25,7 @@ import {
   Trash2,
   X,
   Settings,
+  ArrowUpCircle,
 } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { CreateItemModal } from "../components/CreateItemModal";
@@ -34,7 +35,6 @@ import { auth, db } from "../lib/firebase";
 import { NexusItem, Profile, WorkspaceWindow } from "../types";
 import { NexusService } from "../services/nexusService";
 
-// (ProfileManagerModal uændret...)
 const ProfileManagerModal = ({
   profiles,
   onClose,
@@ -159,6 +159,7 @@ export const Dashboard = () => {
   const [isSystemRestoring, setIsSystemRestoring] = useState(false);
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
+  const [isDraggingItem, setIsDraggingItem] = useState(false);
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
 
   const applyState = useCallback(
@@ -225,7 +226,7 @@ export const Dashboard = () => {
     ) {
       const mapping = activeMappings.find(([id]) => id === currentWindowId);
       if (mapping) {
-        const ws = items.find((i) => i.id === mapping[1].workspaceId);
+        const ws = items.find((i: any) => i.id === mapping[1].workspaceId);
         if (ws) {
           setSelectedWorkspace(ws);
           setSelectedWindowId(mapping[1].internalWindowId);
@@ -260,6 +261,7 @@ export const Dashboard = () => {
   const onDropToRoot = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOverRoot(false);
+    setIsDraggingItem(false);
     const draggedId = e.dataTransfer.getData("itemId");
     if (draggedId) {
       await NexusService.moveItem(draggedId, "root");
@@ -352,7 +354,7 @@ export const Dashboard = () => {
     const tabs = isViewingInbox
       ? [...(inboxData?.tabs || [])]
       : [...(currentWindowData?.tabs || [])];
-    const filtered = tabs.filter((t) => !selectedUrls.includes(t.url));
+    const filtered = tabs.filter((t: any) => !selectedUrls.includes(t.url));
     try {
       chrome.runtime.sendMessage({
         type: "CLOSE_PHYSICAL_TABS",
@@ -523,7 +525,9 @@ export const Dashboard = () => {
           </div>
         </div>
       )}
-      <aside className="w-72 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0 shadow-2xl z-20">
+
+      {/* SIDEBAR BREDDE: w-80 (Standard Tailwind) */}
+      <aside className="w-80 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0 shadow-2xl z-20">
         <div className="p-6 border-b border-slate-800 font-black text-white text-xl uppercase tracking-tighter flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg shadow-blue-500/20">
             N
@@ -555,62 +559,76 @@ export const Dashboard = () => {
             </button>
           </div>
 
-          {/* NAVIGATION OMRÅDE MED KRAFTIG HOVER EFFEKT FOR ROD-NIVEAU */}
-          <nav
-            className={`space-y-1 p-2 transition-all duration-300 relative rounded-2xl ${
-              isDragOverRoot
-                ? "bg-blue-600/10 border-2 border-dashed border-blue-500 scale-[0.98]"
-                : "border-2 border-transparent"
-            }`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setIsDragOverRoot(true);
-            }}
-            onDragLeave={() => setIsDragOverRoot(false)}
-            onDrop={onDropToRoot}
-          >
-            {isDragOverRoot && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-                <span className="text-blue-400 text-[10px] font-bold uppercase tracking-widest bg-slate-900 px-3 py-1 rounded-full border border-blue-500/30 shadow-xl">
-                  Flyt til Rod
+          <nav className="space-y-4">
+            {isDraggingItem && (
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragOverRoot(true);
+                }}
+                onDragLeave={() => setIsDragOverRoot(false)}
+                onDrop={onDropToRoot}
+                className={`p-4 border-2 border-dashed rounded-2xl flex items-center justify-center gap-3 transition-all duration-300 ${
+                  isDragOverRoot
+                    ? "bg-blue-600/20 border-blue-400 scale-[1.02] shadow-lg shadow-blue-500/10 text-blue-400"
+                    : "bg-slate-800/40 border-slate-700 text-slate-500"
+                }`}
+              >
+                <ArrowUpCircle
+                  size={20}
+                  className={`${isDragOverRoot ? "animate-bounce" : ""}`}
+                />
+                <span className="text-xs font-bold uppercase tracking-widest">
+                  Flyt til rod
                 </span>
               </div>
             )}
 
-            <div className="flex justify-between items-center px-2 mb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-              Spaces
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleOpenRootModal("folder")}
-                  className="hover:text-white transition-colors"
-                >
-                  <FolderPlus size={14} />
-                </button>
-                <button
-                  onClick={() => handleOpenRootModal("workspace")}
-                  className="hover:text-white transition-colors"
-                >
-                  <PlusCircle size={14} />
-                </button>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center px-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                Spaces
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleOpenRootModal("folder")}
+                    title="Ny Mappe"
+                    className="hover:text-white transition-colors"
+                  >
+                    <FolderPlus size={14} />
+                  </button>
+                  <button
+                    onClick={() => handleOpenRootModal("workspace")}
+                    title="Nyt Space"
+                    className="hover:text-white transition-colors"
+                  >
+                    <PlusCircle size={14} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-0.5">
+                {items
+                  .filter(
+                    (i) =>
+                      i.profileId === activeProfile && i.parentId === "root"
+                  )
+                  .map((item) => (
+                    <SidebarItem
+                      key={item.id}
+                      item={item}
+                      allItems={items}
+                      onRefresh={() => {}}
+                      onSelect={(it: NexusItem) => {
+                        setIsViewingInbox(false);
+                        setSelectedWorkspace(it);
+                      }}
+                      onAddChild={handleAddChild}
+                      onDragStateChange={(dragging) =>
+                        setIsDraggingItem(dragging)
+                      }
+                    />
+                  ))}
               </div>
             </div>
-            {items
-              .filter(
-                (i) => i.profileId === activeProfile && i.parentId === "root"
-              )
-              .map((item) => (
-                <SidebarItem
-                  key={item.id}
-                  item={item}
-                  allItems={items}
-                  onRefresh={() => {}}
-                  onSelect={(it: NexusItem) => {
-                    setIsViewingInbox(false);
-                    setSelectedWorkspace(it);
-                  }}
-                  onAddChild={handleAddChild}
-                />
-              ))}
           </nav>
 
           <nav
@@ -654,7 +672,6 @@ export const Dashboard = () => {
         </div>
       </aside>
 
-      {/* ... RESTEN AF MAIN (VINDUE-KNAPPER OG TABS) ER IDENTISK MED FORRIGE TURN, MEN MED handleTabDrop SOM ALLEREDE ER OPDATERET ... */}
       <main className="flex-1 flex flex-col bg-slate-950 relative">
         {selectedWorkspace || isViewingInbox ? (
           <>
@@ -704,7 +721,7 @@ export const Dashboard = () => {
                             ([_, m]: any) => m.internalWindowId === win.id
                           ) && (
                             <button
-                              onClick={async (e) => {
+                              onClick={async (e: any) => {
                                 e.stopPropagation();
                                 if (confirm("Slet data?"))
                                   await deleteDoc(
