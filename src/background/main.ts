@@ -48,18 +48,28 @@ function broadcast(type: string, payload: any) {
 }
 
 function startFirebaseListeners() {
+  // PROFILER: Her sikrer vi at id bliver tilføjet dokumentet
   onSnapshot(collection(db, "profiles"), (snap) => {
-    globalState.profiles = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    globalState.profiles = snap.docs.map((d) => ({
+      id: d.id,
+      ...(d.data() as object),
+    }));
     broadcast("STATE_UPDATED", { profiles: globalState.profiles });
   });
 
+  // ITEMS: Her sikrer vi at id bliver tilføjet dokumentet
   onSnapshot(collection(db, "items"), (snap) => {
-    globalState.items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    globalState.items = snap.docs.map((d) => ({
+      id: d.id,
+      ...(d.data() as object),
+    }));
     broadcast("STATE_UPDATED", { items: globalState.items });
   });
 
   onSnapshot(doc(db, "inbox_data", "global"), (snap) => {
-    globalState.inbox = snap.exists() ? snap.data() : { tabs: [] };
+    globalState.inbox = snap.exists()
+      ? { id: snap.id, ...snap.data() }
+      : { tabs: [] };
     broadcast("STATE_UPDATED", { inbox: globalState.inbox });
   });
 }
@@ -73,19 +83,16 @@ async function saveActiveWindowsToStorage() {
   await chrome.storage.local.set({ nexus_active_windows: data });
 }
 
-// NY FUNKTION: Rydder op i vinduer der ikke findes i Chrome mere
 async function loadAndVerifyWindows() {
   const data = await chrome.storage.local.get("nexus_active_windows");
   if (data?.nexus_active_windows && Array.isArray(data.nexus_active_windows)) {
     const rawMappings = data.nexus_active_windows as [number, WinMapping][];
     activeWindows.clear();
-
     for (const [winId, mapping] of rawMappings) {
       try {
         await chrome.windows.get(winId);
         activeWindows.set(winId, mapping);
       } catch (e) {
-        // Vinduet findes ikke mere - vi markerer det som inaktivt i Firebase
         const docRef = doc(
           db,
           "workspaces_data",
@@ -114,7 +121,6 @@ async function updateWindowGrouping(
     const tabIds = tabs
       .filter((t) => !t.pinned && t.id && !isDash(t.url))
       .map((t) => t.id as number);
-
     if (tabIds.length === 0) {
       for (const g of groups) {
         const gTabs = await chrome.tabs.query({ windowId, groupId: g.id });
@@ -124,7 +130,6 @@ async function updateWindowGrouping(
       }
       return;
     }
-
     const existingGroup = groups[0];
     if (!existingGroup || existingGroup.title !== groupName) {
       const groupId = await (chrome.tabs.group({
@@ -156,7 +161,6 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
         url: t.url || "",
         favIconUrl: t.favIconUrl || "",
       }));
-
     if (mapping && validTabs.length === 0 && isRemoval) {
       const docRef = doc(
         db,
@@ -171,7 +175,6 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       chrome.windows.remove(windowId);
       return;
     }
-
     if (mapping) {
       await updateWindowGrouping(windowId, mapping);
       const docRef = doc(
@@ -268,7 +271,6 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const { type, payload } = msg;
-
   if (type === "GET_LATEST_STATE") {
     sendResponse(globalState);
   } else if (type === "WATCH_WORKSPACE") {
@@ -350,7 +352,6 @@ async function handleOpenSpecificWindow(
   name: string,
   index: number
 ) {
-  // Verificer om vinduet i vores Map rent faktisk eksisterer i Chrome
   for (const [chromeId, map] of activeWindows.entries()) {
     if (
       map.workspaceId === workspaceId &&
@@ -360,13 +361,11 @@ async function handleOpenSpecificWindow(
         await chrome.windows.update(chromeId, { focused: true });
         return;
       } catch (e) {
-        // Vinduet findes ikke, selvom vi troede det. Slet mappet og fortsæt til at åbne det.
         activeWindows.delete(chromeId);
         await saveActiveWindowsToStorage();
       }
     }
   }
-
   activeRestorations++;
   try {
     const safeTabs = winData.tabs || [];

@@ -33,6 +33,7 @@ import { SidebarItem } from "../components/SidebarItem";
 import { auth, db } from "../lib/firebase";
 import { NexusItem, Profile, WorkspaceWindow } from "../types";
 
+// MODAL KOMPONENT (Flyttet ud for at bevare fokus på input)
 const ProfileManagerModal = ({
   profiles,
   onClose,
@@ -55,11 +56,13 @@ const ProfileManagerModal = ({
   };
 
   const saveEdit = async (id: string) => {
+    if (!id) return;
     await updateDoc(doc(db, "profiles", id), { name: editName });
     setEditingId(null);
   };
 
   const removeProfile = async (id: string) => {
+    if (!id) return;
     if (profiles.length <= 1) return alert("Du skal have mindst én profil.");
     if (confirm("Slet profil og alt tilhørende data?")) {
       await deleteDoc(doc(db, "profiles", id));
@@ -167,8 +170,9 @@ export const Dashboard = () => {
     (state: any) => {
       if (state.profiles) {
         setProfiles(state.profiles);
-        if (state.profiles.length > 0 && !activeProfile)
+        if (state.profiles.length > 0 && !activeProfile) {
           setActiveProfile(state.profiles[0].id);
+        }
       }
       if (state.items) setItems(state.items);
       if (state.inbox) setInboxData(state.inbox);
@@ -188,11 +192,14 @@ export const Dashboard = () => {
         });
       }
     });
+
     const messageListener = (msg: any) => {
       if (msg.type === "STATE_UPDATED") applyState(msg.payload);
-      if (msg.type === "WORKSPACE_WINDOWS_UPDATED" && !isUpdating)
+      if (msg.type === "WORKSPACE_WINDOWS_UPDATED" && !isUpdating) {
         setWindows(msg.payload.windows);
+      }
     };
+
     chrome.runtime.onMessage.addListener(messageListener);
     const int = setInterval(() => {
       chrome.runtime.sendMessage(
@@ -203,6 +210,7 @@ export const Dashboard = () => {
         setIsSystemRestoring(res)
       );
     }, 1000);
+
     return () => {
       chrome.runtime.onMessage.removeListener(messageListener);
       clearInterval(int);
@@ -210,11 +218,12 @@ export const Dashboard = () => {
   }, [applyState, isUpdating]);
 
   useEffect(() => {
-    if (selectedWorkspace)
+    if (selectedWorkspace) {
       chrome.runtime.sendMessage({
         type: "WATCH_WORKSPACE",
         payload: selectedWorkspace.id,
       });
+    }
   }, [selectedWorkspace]);
 
   useEffect(() => {
@@ -246,8 +255,9 @@ export const Dashboard = () => {
     if (
       windows.length > 0 &&
       (!selectedWindowId || !windows.some((w) => w.id === selectedWindowId))
-    )
+    ) {
       setSelectedWindowId(windows[0].id);
+    }
   }, [windows, selectedWindowId]);
 
   const currentWindowData = windows.find((w) => w.id === selectedWindowId);
@@ -478,9 +488,8 @@ export const Dashboard = () => {
             <select
               value={activeProfile}
               onChange={(e) => {
-                // NY LOGIK: Nulstil view når profil skifter
                 setActiveProfile(e.target.value);
-                setSelectedWorkspace(null);
+                setSelectedWorkspace(null); // Nulstil valgt space ved skift
                 setIsViewingInbox(false);
               }}
               className="flex-1 bg-slate-800 p-2 rounded-xl border border-slate-700 text-sm outline-none"
@@ -742,7 +751,7 @@ export const Dashboard = () => {
           </div>
         )}
       </main>
-      {modalType === "folder" || modalType === "workspace" ? (
+      {(modalType === "folder" || modalType === "workspace") && (
         <CreateItemModal
           type={modalType}
           activeProfile={activeProfile}
@@ -750,7 +759,7 @@ export const Dashboard = () => {
           onClose={() => setModalType(null)}
           onSuccess={() => setModalType(null)}
         />
-      ) : null}
+      )}
       {modalType === "profiles" && (
         <ProfileManagerModal
           profiles={profiles}
