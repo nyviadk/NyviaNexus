@@ -1,10 +1,18 @@
 import { onAuthStateChanged } from "firebase/auth";
-import { deleteDoc, doc, updateDoc } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  updateDoc,
+} from "firebase/firestore";
 import {
   Activity,
   CheckSquare,
+  Check,
   ChevronLeft,
   ChevronRight,
+  Edit2,
   Eraser,
   FolderPlus,
   Globe,
@@ -16,6 +24,7 @@ import {
   Square,
   Trash2,
   X,
+  Settings,
 } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { CreateItemModal } from "../components/CreateItemModal";
@@ -23,6 +32,115 @@ import { LoginForm } from "../components/LoginForm";
 import { SidebarItem } from "../components/SidebarItem";
 import { auth, db } from "../lib/firebase";
 import { NexusItem, Profile, WorkspaceWindow } from "../types";
+
+const ProfileManagerModal = ({
+  profiles,
+  onClose,
+  activeProfile,
+  setActiveProfile,
+}: {
+  profiles: Profile[];
+  onClose: () => void;
+  activeProfile: string;
+  setActiveProfile: (id: string) => void;
+}) => {
+  const [newProfileName, setNewProfileName] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+
+  const addProfile = async () => {
+    if (!newProfileName.trim()) return;
+    await addDoc(collection(db, "profiles"), { name: newProfileName });
+    setNewProfileName("");
+  };
+
+  const saveEdit = async (id: string) => {
+    await updateDoc(doc(db, "profiles", id), { name: editName });
+    setEditingId(null);
+  };
+
+  const removeProfile = async (id: string) => {
+    if (profiles.length <= 1) return alert("Du skal have mindst én profil.");
+    if (confirm("Slet profil og alt tilhørende data?")) {
+      await deleteDoc(doc(db, "profiles", id));
+      if (activeProfile === id)
+        setActiveProfile(profiles.find((p) => p.id !== id)?.id || "");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-3xl p-8 shadow-2xl space-y-6">
+        <div className="flex justify-between items-center">
+          <h3 className="text-xl font-bold text-white uppercase tracking-tight">
+            Administrer Profiler
+          </h3>
+          <button onClick={onClose} className="text-slate-500 hover:text-white">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="flex gap-2">
+          <input
+            value={newProfileName}
+            onChange={(e) => setNewProfileName(e.target.value)}
+            placeholder="Ny profil navn..."
+            className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none focus:border-blue-500 transition"
+          />
+          <button
+            onClick={addProfile}
+            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl transition"
+          >
+            <PlusCircle size={20} />
+          </button>
+        </div>
+        <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
+          {profiles.map((p) => (
+            <div
+              key={p.id}
+              className="flex items-center gap-2 p-3 bg-slate-800/50 rounded-2xl border border-slate-800 group"
+            >
+              {editingId === p.id ? (
+                <>
+                  <input
+                    autoFocus
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="flex-1 bg-slate-700 border-none rounded px-2 py-1 text-sm outline-none"
+                  />
+                  <button
+                    onClick={() => saveEdit(p.id)}
+                    className="text-green-500"
+                  >
+                    <Check size={18} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 text-sm font-medium">{p.name}</span>
+                  <button
+                    onClick={() => {
+                      setEditingId(p.id);
+                      setEditName(p.name);
+                    }}
+                    className="text-slate-500 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition"
+                  >
+                    <Edit2 size={16} />
+                  </button>
+                  <button
+                    onClick={() => removeProfile(p.id)}
+                    className="text-slate-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const Dashboard = () => {
   const [user, setUser] = useState<any>(null);
@@ -32,9 +150,9 @@ export const Dashboard = () => {
   const [selectedWorkspace, setSelectedWorkspace] = useState<NexusItem | null>(
     null
   );
-  const [modalType, setModalType] = useState<"folder" | "workspace" | null>(
-    null
-  );
+  const [modalType, setModalType] = useState<
+    "folder" | "workspace" | "profiles" | null
+  >(null);
   const [inboxData, setInboxData] = useState<any>(null);
   const [isViewingInbox, setIsViewingInbox] = useState(false);
   const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
@@ -49,10 +167,8 @@ export const Dashboard = () => {
     (state: any) => {
       if (state.profiles) {
         setProfiles(state.profiles);
-        // Sæt profil hvis den mangler
-        if (state.profiles.length > 0 && !activeProfile) {
+        if (state.profiles.length > 0 && !activeProfile)
           setActiveProfile(state.profiles[0].id);
-        }
       }
       if (state.items) setItems(state.items);
       if (state.inbox) setInboxData(state.inbox);
@@ -72,24 +188,21 @@ export const Dashboard = () => {
         });
       }
     });
-
     const messageListener = (msg: any) => {
       if (msg.type === "STATE_UPDATED") applyState(msg.payload);
-      if (msg.type === "WORKSPACE_WINDOWS_UPDATED" && !isUpdating) {
+      if (msg.type === "WORKSPACE_WINDOWS_UPDATED" && !isUpdating)
         setWindows(msg.payload.windows);
-      }
     };
-
     chrome.runtime.onMessage.addListener(messageListener);
     const int = setInterval(() => {
-      chrome.runtime.sendMessage({ type: "GET_ACTIVE_MAPPINGS" }, (m) => {
-        if (m) setActiveMappings(m);
-      });
+      chrome.runtime.sendMessage(
+        { type: "GET_ACTIVE_MAPPINGS" },
+        (m) => m && setActiveMappings(m)
+      );
       chrome.runtime.sendMessage({ type: "GET_RESTORING_STATUS" }, (res) =>
         setIsSystemRestoring(res)
       );
     }, 1000);
-
     return () => {
       chrome.runtime.onMessage.removeListener(messageListener);
       clearInterval(int);
@@ -97,12 +210,11 @@ export const Dashboard = () => {
   }, [applyState, isUpdating]);
 
   useEffect(() => {
-    if (selectedWorkspace) {
+    if (selectedWorkspace)
       chrome.runtime.sendMessage({
         type: "WATCH_WORKSPACE",
         payload: selectedWorkspace.id,
       });
-    }
   }, [selectedWorkspace]);
 
   useEffect(() => {
@@ -134,9 +246,8 @@ export const Dashboard = () => {
     if (
       windows.length > 0 &&
       (!selectedWindowId || !windows.some((w) => w.id === selectedWindowId))
-    ) {
+    )
       setSelectedWindowId(windows[0].id);
-    }
   }, [windows, selectedWindowId]);
 
   const currentWindowData = windows.find((w) => w.id === selectedWindowId);
@@ -363,17 +474,30 @@ export const Dashboard = () => {
           NyviaNexus
         </div>
         <div className="p-4 flex-1 overflow-y-auto space-y-6">
-          <select
-            value={activeProfile}
-            onChange={(e) => setActiveProfile(e.target.value)}
-            className="w-full bg-slate-800 p-2 rounded border border-slate-700 text-sm outline-none"
-          >
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-2">
+            <select
+              value={activeProfile}
+              onChange={(e) => {
+                // NY LOGIK: Nulstil view når profil skifter
+                setActiveProfile(e.target.value);
+                setSelectedWorkspace(null);
+                setIsViewingInbox(false);
+              }}
+              className="flex-1 bg-slate-800 p-2 rounded-xl border border-slate-700 text-sm outline-none"
+            >
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => setModalType("profiles")}
+              className="p-2 text-slate-500 hover:text-blue-400 bg-slate-800 rounded-xl border border-slate-700 transition"
+            >
+              <Settings size={18} />
+            </button>
+          </div>
           <nav className="space-y-1">
             <div className="flex justify-between items-center px-2 mb-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
               Spaces
@@ -618,13 +742,21 @@ export const Dashboard = () => {
           </div>
         )}
       </main>
-      {modalType && (
+      {modalType === "folder" || modalType === "workspace" ? (
         <CreateItemModal
           type={modalType}
           activeProfile={activeProfile}
           parentId="root"
           onClose={() => setModalType(null)}
           onSuccess={() => setModalType(null)}
+        />
+      ) : null}
+      {modalType === "profiles" && (
+        <ProfileManagerModal
+          profiles={profiles}
+          onClose={() => setModalType(null)}
+          activeProfile={activeProfile}
+          setActiveProfile={setActiveProfile}
         />
       )}
     </div>
