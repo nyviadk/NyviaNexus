@@ -44,8 +44,17 @@ export const SidebarItem = ({
   const isFolder = item.type === "folder";
   const childItems = allItems.filter((i) => i.parentId === item.id);
 
-  // Vi tillader drop, selv hvis det er "farligt", fordi vi håndterer logikken i onDrop
-  const isSelfDrop = activeDragId === item.id;
+  // Find det item der bliver trukket lige nu
+  const draggedItem = activeDragId
+    ? allItems.find((i) => i.id === activeDragId)
+    : null;
+
+  // Bestem om droppet er "ugyldigt" (RØD HIGHLIGHT)
+  // Det er ugyldigt hvis:
+  // 1. Man dropper på sig selv
+  // 2. Man dropper i den mappe, man ALLEREDE ligger i (Parent drop = ingen ændring)
+  const isInvalidDrop =
+    activeDragId === item.id || draggedItem?.parentId === item.id;
 
   useEffect(() => {
     if (!activeDragId) {
@@ -104,7 +113,8 @@ export const SidebarItem = ({
   };
 
   const onDragEnter = (e: React.DragEvent) => {
-    if (isFolder && !isSelfDrop) {
+    // Tillad drag-over selvom det er invalid, så vi kan vise den røde farve
+    if (isFolder) {
       e.preventDefault();
       e.stopPropagation();
       dragCounter.current++;
@@ -125,8 +135,8 @@ export const SidebarItem = ({
     dragCounter.current = 0;
     setIsDragOver(false);
 
-    // Hvis ikke mappe eller man dropper på sig selv
-    if (!isFolder || isSelfDrop) {
+    // Hvis det ikke er en mappe, eller hvis droppet er ugyldigt (rødt), stop her.
+    if (!isFolder || isInvalidDrop) {
       e.preventDefault();
       onDragEndCleanup();
       return;
@@ -148,16 +158,9 @@ export const SidebarItem = ({
     setIsSyncing(true);
     try {
       if (isLoop) {
-        // SMART MOVE LOGIK:
-        // 1. "Target" (barnet man dropper på) skal overtage "Source"s plads (den gamle forælder)
-        // 2. "Source" skal blive barn af "Target"
-
+        // SMART MOVE: Byt rundt på parent/child forhold
         const sourceOldParentId = sourceItem.parentId;
-
-        // Flyt barnet OP til roden/gammel forælder først for at bryde loopet
         await NexusService.moveItem(item.id, sourceOldParentId);
-
-        // Flyt derefter den gamle forælder IND i barnet
         await NexusService.moveItem(sourceItem.id, item.id);
       } else {
         // NORMAL FLYTNING
@@ -166,7 +169,6 @@ export const SidebarItem = ({
         }
       }
 
-      // Vent lidt for UX
       await new Promise((resolve) => setTimeout(resolve, 500));
     } catch (error) {
       console.error("Fejl ved flytning:", error);
@@ -182,7 +184,9 @@ export const SidebarItem = ({
       <div
         className={`relative z-10 flex items-center gap-2 p-2 rounded-xl mb-1 cursor-grab active:cursor-grabbing transition-all border ${
           isDragOver
-            ? "bg-blue-800/60 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.4)] scale-[1.02]"
+            ? isInvalidDrop
+              ? "bg-red-900/40 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.4)]" // Rød highlight ved ugyldigt drop
+              : "bg-blue-800/60 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.4)] scale-[1.02]" // Blå highlight ved gyldigt drop
             : "border-transparent hover:bg-slate-700/80 hover:border-slate-600"
         } ${isSyncing ? "opacity-50 pointer-events-none" : ""}`}
         onDragEnter={onDragEnter}
@@ -236,7 +240,11 @@ export const SidebarItem = ({
           <Folder
             size={16}
             className={`${
-              isDragOver ? "text-blue-300" : "text-amber-400"
+              isDragOver
+                ? isInvalidDrop
+                  ? "text-red-400"
+                  : "text-blue-300" // Rødt ikon hvis ugyldig, blåt hvis gyldig
+                : "text-amber-400"
             } fill-current transition-colors shrink-0`}
           />
         )}
