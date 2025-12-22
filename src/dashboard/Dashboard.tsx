@@ -258,17 +258,28 @@ export const Dashboard = () => {
 
   const onDropToRoot = async (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+
+    // Nulstil visuel feedback med det samme
+    setIsDragOverRoot(false);
+    setIsDraggingItem(false);
+
     const draggedId = e.dataTransfer.getData("itemId");
     if (draggedId) {
       isPerformingAction.current = true;
+      // Optimistic Update
       setItems((prev) =>
         prev.map((i) => (i.id === draggedId ? { ...i, parentId: "root" } : i))
       );
-      await NexusService.moveItem(draggedId, "root");
-      isPerformingAction.current = false;
+
+      try {
+        await NexusService.moveItem(draggedId, "root");
+        // Satisfying delay for rod-flytning også
+        await new Promise((r) => setTimeout(r, 800));
+      } finally {
+        isPerformingAction.current = false;
+      }
     }
-    setIsDragOverRoot(false);
-    setIsDraggingItem(false);
   };
 
   const handleTabDrop = async (targetWinId: string) => {
@@ -590,7 +601,7 @@ export const Dashboard = () => {
                 onDrop={onDropToRoot}
                 className={`p-4 border-2 border-dashed rounded-2xl flex items-center justify-center gap-3 transition-all duration-300 ${
                   isDragOverRoot
-                    ? "bg-blue-600/20 border-blue-400 scale-[1.02] text-blue-400 shadow-lg"
+                    ? "bg-blue-600/20 border-blue-400 scale-[1.02] text-blue-400 shadow-lg shadow-blue-900/20"
                     : "bg-slate-800/40 border-slate-700 text-slate-500"
                 }`}
               >
@@ -599,7 +610,7 @@ export const Dashboard = () => {
                   className={`${isDragOverRoot ? "animate-bounce" : ""}`}
                 />
                 <span className="text-xs font-bold uppercase tracking-widest">
-                  Flyt til rod
+                  Slip for at flytte til rod
                 </span>
               </div>
             )}
