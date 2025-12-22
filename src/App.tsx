@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { auth, db } from "./lib/firebase";
-import { onAuthStateChanged, User } from "firebase/auth";
-import { collection, onSnapshot } from "firebase/firestore";
+import { auth } from "./lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 import { LoginForm } from "./components/LoginForm";
 import { SidebarItem } from "./components/SidebarItem";
 import { Inbox } from "./components/Inbox";
@@ -17,7 +16,7 @@ import {
 import { NexusItem, Profile } from "./types";
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<any>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfile, setActiveProfile] = useState<string>("");
   const [items, setItems] = useState<NexusItem[]>([]);
@@ -31,40 +30,53 @@ export default function App() {
     onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (u) {
-        setupListeners();
         chrome.windows.getCurrent(
           (win) => win.id && setCurrentWindowId(win.id)
         );
+        chrome.runtime.sendMessage({ type: "GET_LATEST_STATE" }, (state) => {
+          if (state) {
+            setProfiles(state.profiles);
+            setItems(state.items);
+            if (state.profiles.length > 0 && !activeProfile) {
+              setActiveProfile(state.profiles[0].id);
+            }
+          }
+        });
       }
     });
-  }, []);
 
-  const setupListeners = () => {
-    onSnapshot(collection(db, "profiles"), (snap) => {
-      const pList = snap.docs.map(
-        (d) => ({ id: d.id, ...d.data() } as Profile)
-      );
-      setProfiles(pList);
-      if (pList.length > 0 && !activeProfile) setActiveProfile(pList[0].id);
-    });
-    onSnapshot(collection(db, "items"), (snap) =>
-      setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as NexusItem)))
-    );
+    const listener = (msg: any) => {
+      if (msg.type === "STATE_UPDATED") {
+        if (msg.payload.profiles) {
+          setProfiles(msg.payload.profiles);
+          if (msg.payload.profiles.length > 0 && !activeProfile) {
+            setActiveProfile(msg.payload.profiles[0].id);
+          }
+        }
+        if (msg.payload.items) setItems(msg.payload.items);
+      }
+    };
 
+    chrome.runtime.onMessage.addListener(listener);
     const fetchMappings = () => {
       chrome.runtime.sendMessage({ type: "GET_ACTIVE_MAPPINGS" }, (m) => {
         if (m)
           setActiveMappings(
-            m.map(([winId, map]: any) => ({ windowId: winId, ...map }))
+            m.map(([id, map]: any) => ({ windowId: id, ...map }))
           );
       });
     };
     fetchMappings();
     const interval = setInterval(fetchMappings, 2000);
-    return () => clearInterval(interval);
-  };
+
+    return () => {
+      chrome.runtime.onMessage.removeListener(listener);
+      clearInterval(interval);
+    };
+  }, [activeProfile]);
 
   if (!user) return <LoginForm />;
+
   const currentMapping = activeMappings.find(
     (m) => m.windowId === currentWindowId
   );
