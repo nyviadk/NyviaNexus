@@ -30,7 +30,6 @@ export const SidebarItem = ({
 }: Props) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
-
   const isFolder = item.type === "folder";
   const childItems = allItems.filter((i) => i.parentId === item.id);
 
@@ -60,11 +59,9 @@ export const SidebarItem = ({
   };
 
   const handleClick = async () => {
-    if (isFolder) {
-      setIsOpen(!isOpen);
-    } else if (onSelect) {
-      onSelect(item);
-    } else {
+    if (isFolder) setIsOpen(!isOpen);
+    else if (onSelect) onSelect(item);
+    else {
       const winSnap = await getDocs(
         collection(db, "workspaces_data", item.id, "windows")
       );
@@ -76,18 +73,14 @@ export const SidebarItem = ({
     }
   };
 
-  // --- DRAG AND DROP LOGIK MED LOGS ---
   const onDragStart = (e: React.DragEvent) => {
-    console.log("[Sidebar] Starter drag af:", item.name, "ID:", item.id);
     e.dataTransfer.setData("itemId", item.id);
-    // Gør det tydeligt for browseren at det er en flytte-handling
     e.dataTransfer.effectAllowed = "move";
   };
 
   const onDragOver = (e: React.DragEvent) => {
-    // VIGTIGT: Vi tillader kun drop hvis målet er en mappe
     if (isFolder) {
-      e.preventDefault(); // Dette tillader drop!
+      e.preventDefault();
       e.dataTransfer.dropEffect = "move";
       if (!isDragOver) setIsDragOver(true);
     }
@@ -95,33 +88,20 @@ export const SidebarItem = ({
 
   const onDrop = async (e: React.DragEvent) => {
     if (!isFolder) return;
-
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
-
     const draggedId = e.dataTransfer.getData("itemId");
-    console.log("[Sidebar] Dropped ID:", draggedId, "ned i mappe:", item.name);
-
     if (draggedId && draggedId !== item.id) {
-      try {
-        await NexusService.moveItem(draggedId, item.id);
-        console.log("[Sidebar] Flytning gennemført i DB");
-        onRefresh();
-      } catch (err) {
-        console.error("[Sidebar] Fejl under flytning:", err);
-      }
-    } else {
-      console.warn(
-        "[Sidebar] Flytning ignoreret: Enten mangler ID, eller du droppede i sig selv."
-      );
+      await NexusService.moveItem(draggedId, item.id);
+      onRefresh();
     }
   };
 
   return (
     <div
-      className={`select-none transition-colors ${
-        isDragOver ? "bg-blue-600/30 rounded-lg" : ""
+      className={`select-none transition-all duration-200 ${
+        isDragOver ? "bg-blue-600/30 rounded-lg ring-2 ring-blue-500/50" : ""
       }`}
       onDragOver={onDragOver}
       onDragLeave={() => setIsDragOver(false)}
@@ -146,12 +126,11 @@ export const SidebarItem = ({
           <Folder size={16} className="text-yellow-500 fill-yellow-500/20" />
         )}
         <span className="flex-1 truncate">{item.name}</span>
-
         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
           {isFolder && (
             <button
               onClick={(e) => handleAdd(e, "workspace")}
-              title="Nyt Space i mappe"
+              title="Nyt Space"
               className="p-1 hover:text-blue-400"
             >
               <Plus size={14} />
@@ -165,7 +144,6 @@ export const SidebarItem = ({
           </button>
         </div>
       </div>
-
       {isFolder && isOpen && (
         <div className="ml-4 border-l border-slate-800 pl-1 mt-1">
           {childItems.length > 0 ? (

@@ -59,7 +59,7 @@ const ProfileManagerModal = ({
     if (confirm("Slet profil?")) {
       await deleteDoc(doc(db, "profiles", id));
       if (activeProfile === id)
-        setActiveProfile(profiles.find((p: Profile) => p.id !== id)?.id || ""); // FIXED: p type
+        setActiveProfile(profiles.find((p: Profile) => p.id !== id)?.id || "");
     }
   };
   return (
@@ -158,6 +158,7 @@ export const Dashboard = () => {
   const [isSystemRestoring, setIsSystemRestoring] = useState(false);
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
+  const [isDragOverRoot, setIsDragOverRoot] = useState(false);
 
   const applyState = useCallback(
     (state: any) => {
@@ -254,14 +255,16 @@ export const Dashboard = () => {
     setModalParentId("root");
     setModalType(type);
   };
+
   const onDropToRoot = async (e: React.DragEvent) => {
     e.preventDefault();
+    setIsDragOverRoot(false);
     const draggedId = e.dataTransfer.getData("itemId");
-    if (draggedId)
-      await updateDoc(doc(db, "items", draggedId), { parentId: "root" });
+    if (draggedId) {
+      await NexusService.moveItem(draggedId, "root");
+    }
   };
 
-  // --- TAB DRAG & DROP LOGIK ---
   const handleTabDrop = async (targetWinId: string) => {
     setDropTargetWinId(null);
     const tabJson = window.sessionStorage.getItem("draggedTab");
@@ -272,26 +275,21 @@ export const Dashboard = () => {
 
     setIsUpdating(true);
     try {
-      // 1. Find ud af om kilde-vinduet er åbent i Chrome
       const sourceMapping = activeMappings.find(
         ([_, m]) => m.internalWindowId === sourceWinId
       );
       const targetMapping = activeMappings.find(
         ([_, m]) => m.internalWindowId === targetWinId
       );
-
-      // 2. Hvis begge er åbne, flyt fanen fysisk først (Dette trigger auto-sync i baggrunden)
       if (sourceMapping && targetMapping) {
         const tabs = await chrome.tabs.query({ windowId: sourceMapping[0] });
         const targetTab = tabs.find((t) => t.url === tab.url);
-        if (targetTab?.id) {
+        if (targetTab?.id)
           await chrome.tabs.move(targetTab.id, {
             windowId: targetMapping[0],
             index: -1,
           });
-        }
       } else {
-        // 3. Hvis et af vinduerne er lukket, flyt kun data i Firestore
         await NexusService.moveTabBetweenWindows(
           tab,
           selectedWorkspace?.id || "global",
@@ -299,14 +297,11 @@ export const Dashboard = () => {
           selectedWorkspace?.id || "global",
           targetWinId
         );
-
-        // Hvis kun kilde var åben, luk fanen fysisk
-        if (sourceMapping) {
+        if (sourceMapping)
           chrome.runtime.sendMessage({
             type: "CLOSE_PHYSICAL_TABS",
             payload: { urls: [tab.url], internalWindowId: sourceWinId },
           });
-        }
       }
     } finally {
       window.sessionStorage.removeItem("draggedTab");
@@ -558,9 +553,19 @@ export const Dashboard = () => {
               <Settings size={18} />
             </button>
           </div>
+
+          {/* NAVIGATION OMRÅDE MED HOVER EFFEKT FOR ROD-NIVEAU */}
           <nav
-            className="space-y-1"
-            onDragOver={(e) => e.preventDefault()}
+            className={`space-y-1 p-2 transition-all duration-200 border-2 border-transparent ${
+              isDragOverRoot
+                ? "bg-slate-800/50 border-blue-500/50 rounded-xl ring-4 ring-blue-500/10"
+                : ""
+            }`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragOverRoot(true);
+            }}
+            onDragLeave={() => setIsDragOverRoot(false)}
             onDrop={onDropToRoot}
           >
             <div className="flex justify-between items-center px-2 mb-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
@@ -592,6 +597,7 @@ export const Dashboard = () => {
                 />
               ))}
           </nav>
+
           <nav
             className="space-y-1"
             onDragOver={(e) => {
