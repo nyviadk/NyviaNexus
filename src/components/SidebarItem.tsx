@@ -32,7 +32,6 @@ export const SidebarItem = ({
   onAddChild,
   onDragStateChange,
 }: Props) => {
-  // FIXED: Mapper er åbne som standard
   const [isOpen, setIsOpen] = useState(true);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -45,7 +44,7 @@ export const SidebarItem = ({
     if (confirm(`Slet "${item.name}"?`)) {
       setIsSyncing(true);
       await NexusService.deleteItem(item, allItems);
-      await new Promise((r) => setTimeout(r, 500)); // Justeret satisfying delay
+      await new Promise((r) => setTimeout(r, 500));
       setIsSyncing(false);
       onRefresh();
     }
@@ -70,11 +69,9 @@ export const SidebarItem = ({
   };
 
   const handleClick = async () => {
-    if (isFolder) {
-      setIsOpen(!isOpen);
-    } else if (onSelect) {
-      onSelect(item);
-    } else {
+    if (isFolder) setIsOpen(!isOpen);
+    else if (onSelect) onSelect(item);
+    else {
       const winSnap = await getDocs(
         collection(db, "workspaces_data", item.id, "windows")
       );
@@ -93,6 +90,7 @@ export const SidebarItem = ({
   };
 
   const onDragEnd = () => {
+    setIsDragOver(false);
     if (onDragStateChange) onDragStateChange(false);
   };
 
@@ -115,7 +113,7 @@ export const SidebarItem = ({
       if (onDragStateChange) onDragStateChange(false);
       try {
         await NexusService.moveItem(draggedId, item.id);
-        await new Promise((resolve) => setTimeout(resolve, 500)); // Justeret til 500ms
+        await new Promise((resolve) => setTimeout(resolve, 500));
       } finally {
         setIsSyncing(false);
         onRefresh();
@@ -158,13 +156,7 @@ export const SidebarItem = ({
             className="text-yellow-500 fill-current opacity-90 shrink-0"
           />
         )}
-        <span
-          className={`flex-1 truncate text-sm font-medium ${
-            isSyncing ? "italic text-slate-500" : ""
-          }`}
-        >
-          {item.name}
-        </span>
+        <span className="flex-1 truncate text-sm font-medium">{item.name}</span>
 
         {!isSyncing && (
           <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -211,7 +203,7 @@ export const SidebarItem = ({
               <SidebarItem
                 key={child.id}
                 item={child}
-                allItems={allItems}
+                allItems={allItems} // FIXED: items -> allItems
                 onRefresh={onRefresh}
                 onSelect={onSelect}
                 onAddChild={onAddChild}

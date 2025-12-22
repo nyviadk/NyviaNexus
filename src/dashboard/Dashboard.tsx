@@ -35,6 +35,7 @@ import { auth, db } from "../lib/firebase";
 import { NexusItem, Profile, WorkspaceWindow } from "../types";
 import { NexusService } from "../services/nexusService";
 
+// FIXED: Defineret komponenten så Dashboard kan finde den
 const ProfileManagerModal = ({
   profiles,
   onClose,
@@ -44,27 +45,29 @@ const ProfileManagerModal = ({
   const [newProfileName, setNewProfileName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+
   const addProfile = async () => {
     if (!newProfileName.trim()) return;
     await addDoc(collection(db, "profiles"), { name: newProfileName });
     setNewProfileName("");
   };
+
   const saveEdit = async (id: string) => {
     if (!id) return;
     await updateDoc(doc(db, "profiles", id), { name: editName });
     setEditingId(null);
   };
+
   const removeProfile = async (id: string) => {
     if (!id) return;
     if (profiles.length <= 1) return alert("Mindst én profil.");
     if (confirm("Slet profil?")) {
       await deleteDoc(doc(db, "profiles", id));
-      if (activeProfile === id) {
-        const next = profiles.find((p: Profile) => p.id !== id);
-        setActiveProfile(next?.id || "");
-      }
+      if (activeProfile === id)
+        setActiveProfile(profiles.find((p: Profile) => p.id !== id)?.id || "");
     }
   };
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
       <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-3xl p-8 shadow-2xl space-y-6">
@@ -164,7 +167,6 @@ export const Dashboard = () => {
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
   const [isSyncingRoot, setIsSyncingRoot] = useState(false);
 
-  // Ref til stabilitet uden re-renders
   const isPerformingAction = useRef(false);
 
   const applyState = useCallback(
@@ -260,6 +262,10 @@ export const Dashboard = () => {
 
   const onDropToRoot = async (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+    setIsDragOverRoot(false);
+    setIsDraggingItem(false);
+
     const draggedId = e.dataTransfer.getData("itemId");
     if (draggedId) {
       isPerformingAction.current = true;
@@ -273,8 +279,6 @@ export const Dashboard = () => {
       } finally {
         isPerformingAction.current = false;
         setIsSyncingRoot(false);
-        setIsDraggingItem(false);
-        setIsDragOverRoot(false);
       }
     }
   };
