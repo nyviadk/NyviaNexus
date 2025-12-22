@@ -177,7 +177,8 @@ export default function App() {
                   item={item}
                   allItems={items}
                   onRefresh={() => {}}
-                  onDragStateChange={() => {}}
+                  onDragStateChange={() => {}} // FIXED
+                  onDragEndCleanup={() => {}} // FIXED
                 />
               ))}
           </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Folder,
   ChevronRight,
@@ -21,7 +21,8 @@ interface Props {
   onRefresh: () => void;
   onSelect?: (item: NexusItem) => void;
   onAddChild?: (parentId: string, type: "folder" | "workspace") => void;
-  onDragStateChange?: (isDragging: boolean) => void;
+  onDragStateChange: (isDragging: boolean) => void;
+  onDragEndCleanup: () => void;
 }
 
 export const SidebarItem = ({
@@ -31,11 +32,13 @@ export const SidebarItem = ({
   onSelect,
   onAddChild,
   onDragStateChange,
+  onDragEndCleanup,
 }: Props) => {
   const [isOpen, setIsOpen] = useState(true);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
+  const dragCounter = useRef(0);
   const isFolder = item.type === "folder";
   const childItems = allItems.filter((i) => i.parentId === item.id);
 
@@ -68,10 +71,14 @@ export const SidebarItem = ({
     if (onAddChild) onAddChild(item.id, type);
   };
 
-  const handleClick = async () => {
-    if (isFolder) setIsOpen(!isOpen);
-    else if (onSelect) onSelect(item);
-    else {
+  const handleClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isFolder) {
+      setIsOpen(!isOpen);
+    } else if (onSelect) {
+      onSelect(item);
+    } else {
+      // Logik til Popup-vinduet (bruger db, collection, getDocs)
       const winSnap = await getDocs(
         collection(db, "workspaces_data", item.id, "windows")
       );
@@ -86,18 +93,30 @@ export const SidebarItem = ({
   const onDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("itemId", item.id);
     e.dataTransfer.effectAllowed = "move";
-    if (onDragStateChange) setTimeout(() => onDragStateChange(true), 50);
+    setTimeout(() => onDragStateChange(true), 50);
   };
 
   const onDragEnd = () => {
+    dragCounter.current = 0;
     setIsDragOver(false);
-    if (onDragStateChange) onDragStateChange(false);
+    onDragEndCleanup();
   };
 
-  const onDragOver = (e: React.DragEvent) => {
+  const onDragEnter = (e: React.DragEvent) => {
     if (isFolder) {
       e.preventDefault();
-      if (!isDragOver) setIsDragOver(true);
+      e.stopPropagation();
+      dragCounter.current++;
+      setIsDragOver(true);
+    }
+  };
+
+  const onDragLeave = (e: React.DragEvent) => {
+    if (isFolder) {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter.current--;
+      if (dragCounter.current === 0) setIsDragOver(false);
     }
   };
 
@@ -105,12 +124,14 @@ export const SidebarItem = ({
     if (!isFolder) return;
     e.preventDefault();
     e.stopPropagation();
+
+    dragCounter.current = 0;
     setIsDragOver(false);
+    onDragEndCleanup();
 
     const draggedId = e.dataTransfer.getData("itemId");
     if (draggedId && draggedId !== item.id) {
       setIsSyncing(true);
-      if (onDragStateChange) onDragStateChange(false);
       try {
         await NexusService.moveItem(draggedId, item.id);
         await new Promise((resolve) => setTimeout(resolve, 500));
@@ -128,8 +149,12 @@ export const SidebarItem = ({
           ? "bg-blue-600/30 ring-2 ring-blue-500 scale-[1.02] shadow-xl z-10"
           : ""
       } ${isSyncing ? "opacity-50 pointer-events-none" : ""}`}
-      onDragOver={onDragOver}
-      onDragLeave={() => setIsDragOver(false)}
+      onDragEnter={onDragEnter}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
       <div
@@ -150,13 +175,20 @@ export const SidebarItem = ({
         ) : (
           <Layout size={16} className="text-blue-400 shrink-0 shadow-sm" />
         )}
+
         {isFolder && !isSyncing && (
           <Folder
             size={16}
             className="text-yellow-500 fill-current opacity-90 shrink-0"
           />
         )}
-        <span className="flex-1 truncate text-sm font-medium">{item.name}</span>
+        <span
+          className={`flex-1 truncate text-sm font-medium ${
+            isSyncing ? "italic text-slate-500" : ""
+          }`}
+        >
+          {item.name}
+        </span>
 
         {!isSyncing && (
           <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -203,11 +235,12 @@ export const SidebarItem = ({
               <SidebarItem
                 key={child.id}
                 item={child}
-                allItems={allItems} // FIXED: items -> allItems
+                allItems={allItems}
                 onRefresh={onRefresh}
                 onSelect={onSelect}
                 onAddChild={onAddChild}
                 onDragStateChange={onDragStateChange}
+                onDragEndCleanup={onDragEndCleanup}
               />
             ))
           ) : (

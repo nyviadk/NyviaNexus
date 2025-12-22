@@ -35,7 +35,6 @@ import { auth, db } from "../lib/firebase";
 import { NexusItem, Profile, WorkspaceWindow } from "../types";
 import { NexusService } from "../services/nexusService";
 
-// FIXED: Defineret komponenten så Dashboard kan finde den
 const ProfileManagerModal = ({
   profiles,
   onClose,
@@ -45,22 +44,19 @@ const ProfileManagerModal = ({
   const [newProfileName, setNewProfileName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
-
   const addProfile = async () => {
     if (!newProfileName.trim()) return;
     await addDoc(collection(db, "profiles"), { name: newProfileName });
     setNewProfileName("");
   };
-
   const saveEdit = async (id: string) => {
     if (!id) return;
     await updateDoc(doc(db, "profiles", id), { name: editName });
     setEditingId(null);
   };
-
   const removeProfile = async (id: string) => {
     if (!id) return;
-    if (profiles.length <= 1) return alert("Mindst én profil.");
+    if (profiles.length <= 1) return alert("Mindst én profil påkrævet.");
     if (confirm("Slet profil?")) {
       await deleteDoc(doc(db, "profiles", id));
       if (activeProfile === id)
@@ -84,7 +80,7 @@ const ProfileManagerModal = ({
             value={newProfileName}
             onChange={(e) => setNewProfileName(e.target.value)}
             placeholder="Navn..."
-            className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none focus:border-blue-500 transition"
+            className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 ring-blue-500/50"
           />
           <button
             onClick={addProfile}
@@ -168,6 +164,7 @@ export const Dashboard = () => {
   const [isSyncingRoot, setIsSyncingRoot] = useState(false);
 
   const isPerformingAction = useRef(false);
+  const rootDragCounter = useRef(0);
 
   const applyState = useCallback(
     (state: any) => {
@@ -264,8 +261,7 @@ export const Dashboard = () => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOverRoot(false);
-    setIsDraggingItem(false);
-
+    rootDragCounter.current = 0;
     const draggedId = e.dataTransfer.getData("itemId");
     if (draggedId) {
       isPerformingAction.current = true;
@@ -279,6 +275,7 @@ export const Dashboard = () => {
       } finally {
         isPerformingAction.current = false;
         setIsSyncingRoot(false);
+        setIsDraggingItem(false);
       }
     }
   };
@@ -455,6 +452,8 @@ export const Dashboard = () => {
     isPerformingAction.current = false;
   };
 
+  const currentWindowData = windows.find((w) => w.id === selectedWindowId);
+
   const TabCard = ({ tab, index }: { tab: any; index: number }) => (
     <div
       draggable
@@ -586,11 +585,17 @@ export const Dashboard = () => {
           <nav className="space-y-4">
             {isDraggingItem && (
               <div
-                onDragOver={(e) => {
+                onDragOver={(e) => e.preventDefault()}
+                onDragEnter={(e) => {
                   e.preventDefault();
+                  rootDragCounter.current++;
                   setIsDragOverRoot(true);
                 }}
-                onDragLeave={() => setIsDragOverRoot(false)}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  rootDragCounter.current--;
+                  if (rootDragCounter.current === 0) setIsDragOverRoot(false);
+                }}
                 onDrop={onDropToRoot}
                 className={`p-4 border-2 border-dashed rounded-2xl flex items-center justify-center gap-3 transition-all duration-300 ${
                   isDragOverRoot
@@ -665,6 +670,11 @@ export const Dashboard = () => {
                       onDragStateChange={(dragging) =>
                         setIsDraggingItem(dragging)
                       }
+                      onDragEndCleanup={() => {
+                        setIsDraggingItem(false);
+                        setIsDragOverRoot(false);
+                        rootDragCounter.current = 0;
+                      }}
                     />
                   ))}
               </div>
@@ -796,8 +806,7 @@ export const Dashboard = () => {
               <div className="flex gap-3 mb-1">
                 {(isViewingInbox
                   ? inboxData?.tabs?.length ?? 0
-                  : windows.find((w) => w.id === selectedWindowId)?.tabs
-                      ?.length ?? 0) > 0 && (
+                  : currentWindowData?.tabs?.length ?? 0) > 0 && (
                   <button
                     onClick={toggleSelectAll}
                     className={`p-2.5 bg-slate-900 border rounded-xl transition ${
@@ -858,7 +867,7 @@ export const Dashboard = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {(isViewingInbox
                   ? inboxData?.tabs || []
-                  : windows.find((w) => w.id === selectedWindowId)?.tabs || []
+                  : currentWindowData?.tabs || []
                 ).map((tab: any, i: number) => (
                   <TabCard key={i} tab={tab} index={i} />
                 ))}
