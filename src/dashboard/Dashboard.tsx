@@ -240,7 +240,6 @@ export const Dashboard = () => {
     setIsSyncingRoot(true);
     try {
       const batch = writeBatch(db);
-      // Tag alle items der hører til profilen
       const profileItems = items.filter((i) => i.profileId === activeProfile);
 
       profileItems.forEach((item) => {
@@ -536,7 +535,8 @@ export const Dashboard = () => {
           </div>
         </div>
       )}
-      <aside className="w-80 border-r border-slate-700 bg-slate-800 flex flex-col shrink-0 shadow-2xl z-20 transition-all">
+      {/* ÆNDRING: Bredde ændret fra w-80 til w-96 */}
+      <aside className="w-96 border-r border-slate-700 bg-slate-800 flex flex-col shrink-0 shadow-2xl z-20 transition-all">
         <div className="p-6 border-b border-slate-700 font-black text-white text-xl uppercase tracking-tighter flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg shadow-blue-500/20">
             N
