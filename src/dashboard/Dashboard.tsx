@@ -159,7 +159,7 @@ export const Dashboard = () => {
   const [isSystemRestoring, setIsSystemRestoring] = useState(false);
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
-  const [isDraggingItem, setIsDraggingItem] = useState(false);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
   const [isSyncingRoot, setIsSyncingRoot] = useState(false);
 
@@ -224,39 +224,6 @@ export const Dashboard = () => {
       });
   }, [selectedWorkspace]);
 
-  useEffect(() => {
-    if (
-      activeMappings.length > 0 &&
-      currentWindowId &&
-      items.length > 0 &&
-      !selectedWorkspace &&
-      !isViewingInbox
-    ) {
-      const mapping = activeMappings.find(([id]) => id === currentWindowId);
-      if (mapping) {
-        const ws = items.find((i: any) => i.id === mapping[1].workspaceId);
-        if (ws) {
-          setSelectedWorkspace(ws);
-          setSelectedWindowId(mapping[1].internalWindowId);
-        }
-      }
-    }
-  }, [
-    activeMappings,
-    currentWindowId,
-    items,
-    isViewingInbox,
-    selectedWorkspace,
-  ]);
-
-  useEffect(() => {
-    if (
-      windows.length > 0 &&
-      (!selectedWindowId || !windows.some((w) => w.id === selectedWindowId))
-    )
-      setSelectedWindowId(windows[0].id);
-  }, [windows, selectedWindowId]);
-
   const onDropToRoot = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -275,7 +242,7 @@ export const Dashboard = () => {
       } finally {
         isPerformingAction.current = false;
         setIsSyncingRoot(false);
-        setIsDraggingItem(false);
+        setActiveDragId(null);
       }
     }
   };
@@ -287,7 +254,6 @@ export const Dashboard = () => {
     const tab = JSON.parse(tabJson);
     const sourceWinId = isViewingInbox ? "global" : selectedWindowId;
     if (!sourceWinId || sourceWinId === targetWinId) return;
-
     isPerformingAction.current = true;
     try {
       const sourceMapping = activeMappings.find(
@@ -396,35 +362,13 @@ export const Dashboard = () => {
     }
   };
 
-  const deleteWindowData = async () => {
-    if (
-      isSystemRestoring ||
-      !selectedWindowId ||
-      !selectedWorkspace ||
-      !confirm("Slet ALT data?")
-    )
-      return;
-    isPerformingAction.current = true;
-    try {
-      await deleteDoc(
-        doc(
-          db,
-          `workspaces_data/${selectedWorkspace.id}/windows`,
-          selectedWindowId
-        )
-      );
-      setSelectedWindowId(null);
-    } finally {
-      isPerformingAction.current = false;
-    }
-  };
-
   const handleMoveTab = async (index: number, direction: "left" | "right") => {
     if (isSystemRestoring) return;
     isPerformingAction.current = true;
-    const tabs = isViewingInbox
-      ? [...(inboxData?.tabs || [])]
-      : [...(windows.find((w) => w.id === selectedWindowId)?.tabs || [])];
+    const currentTabs = isViewingInbox
+      ? inboxData?.tabs || []
+      : windows.find((w) => w.id === selectedWindowId)?.tabs || [];
+    const tabs = [...currentTabs];
     const newIdx = direction === "left" ? index - 1 : index + 1;
     if (newIdx < 0 || newIdx >= tabs.length) {
       isPerformingAction.current = false;
@@ -452,78 +396,90 @@ export const Dashboard = () => {
     isPerformingAction.current = false;
   };
 
-  const currentWindowData = windows.find((w) => w.id === selectedWindowId);
+  const isViewingCurrent = activeMappings.some(
+    ([id, m]: any) =>
+      id === currentWindowId && m.internalWindowId === selectedWindowId
+  );
 
+  // GENINDSAT: TabCard komponenten
   const TabCard = ({ tab, index }: { tab: any; index: number }) => (
-    <div
-      draggable
-      onDragStart={() =>
-        window.sessionStorage.setItem("draggedTab", JSON.stringify(tab))
-      }
-      className={`bg-slate-900/40 p-4 rounded-2xl border cursor-grab active:cursor-grabbing ${
-        selectedUrls.includes(tab.url)
-          ? "border-blue-500 bg-blue-500/5"
-          : "border-slate-800"
-      } flex flex-col gap-2 hover:bg-slate-900 transition group relative`}
-    >
-      <div
-        className="absolute top-2 right-2 cursor-pointer text-slate-600 hover:text-blue-400"
-        onClick={(e) => {
-          e.stopPropagation();
-          setSelectedUrls((prev) =>
-            prev.includes(tab.url)
-              ? prev.filter((u) => u !== tab.url)
-              : [...prev, tab.url]
+    <div className="group relative">
+      <button
+        onClick={async () => {
+          const sourceWinId = isViewingInbox ? "global" : selectedWindowId!;
+          await NexusService.moveTabBetweenWindows(
+            tab,
+            selectedWorkspace?.id || "global",
+            sourceWinId,
+            "",
+            "global"
           );
         }}
+        className="absolute -top-2 -right-2 z-30 bg-slate-800 border border-slate-700 text-slate-400 hover:text-red-400 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition shadow-xl"
       >
-        {selectedUrls.includes(tab.url) ? (
-          <CheckSquare size={16} className="text-blue-500" />
-        ) : (
-          <Square size={16} className="opacity-0 group-hover:opacity-100" />
-        )}
-      </div>
+        <X size={12} />
+      </button>
       <div
-        className="flex items-center gap-3 cursor-pointer pr-6"
-        onClick={() => chrome.tabs.create({ url: tab.url })}
+        draggable
+        onDragStart={() =>
+          window.sessionStorage.setItem("draggedTab", JSON.stringify(tab))
+        }
+        className={`bg-slate-900/40 p-4 rounded-2xl border cursor-grab active:cursor-grabbing ${
+          selectedUrls.includes(tab.url)
+            ? "border-blue-500 bg-blue-500/5"
+            : "border-slate-800"
+        } flex flex-col gap-2 hover:bg-slate-900 transition group`}
       >
-        <Globe
-          size={14}
-          className="text-slate-600 group-hover:text-blue-400 shrink-0"
-        />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-slate-200">
-            {tab.title}
-          </div>
-          <div className="truncate text-[10px] text-slate-500 italic font-mono">
-            {tab.url}
-          </div>
-        </div>
-      </div>
-      <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-800/50">
-        <div className="flex gap-1">
-          <button
-            onClick={() => handleMoveTab(index, "left")}
-            className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-white"
-          >
-            <ChevronLeft size={14} />
-          </button>
-          <button
-            onClick={() => handleMoveTab(index, "right")}
-            className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-white"
-          >
-            <ChevronRight size={14} />
-          </button>
-        </div>
-        <button
-          onClick={() => {
-            setSelectedUrls([tab.url]);
-            deleteSelectedTabs();
+        <div
+          className="absolute top-2 right-2 cursor-pointer text-slate-600 hover:text-blue-400"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedUrls((prev) =>
+              prev.includes(tab.url)
+                ? prev.filter((u) => u !== tab.url)
+                : [...prev, tab.url]
+            );
           }}
-          className="p-1 text-slate-600 hover:text-red-500"
         >
-          <X size={14} />
-        </button>
+          {selectedUrls.includes(tab.url) ? (
+            <CheckSquare size={16} className="text-blue-500" />
+          ) : (
+            <Square size={16} className="opacity-0 group-hover:opacity-100" />
+          )}
+        </div>
+        <div
+          className="flex items-center gap-3 cursor-pointer pr-6"
+          onClick={() => chrome.tabs.create({ url: tab.url })}
+        >
+          <Globe
+            size={14}
+            className="text-slate-600 group-hover:text-blue-400 shrink-0"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold text-slate-200">
+              {tab.title}
+            </div>
+            <div className="truncate text-[10px] text-slate-500 italic font-mono">
+              {tab.url}
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-800/50">
+          <div className="flex gap-1">
+            <button
+              onClick={() => handleMoveTab(index, "left")}
+              className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-white"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <button
+              onClick={() => handleMoveTab(index, "right")}
+              className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-white"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -534,10 +490,6 @@ export const Dashboard = () => {
         <LoginForm />
       </div>
     );
-  const isViewingCurrent = activeMappings.some(
-    ([id, m]: any) =>
-      id === currentWindowId && m.internalWindowId === selectedWindowId
-  );
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden font-sans relative">
@@ -549,8 +501,7 @@ export const Dashboard = () => {
           </div>
         </div>
       )}
-
-      <aside className="w-80 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0 shadow-2xl z-20">
+      <aside className="w-80 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0 shadow-2xl z-20 transition-all">
         <div className="p-6 border-b border-slate-800 font-black text-white text-xl uppercase tracking-tighter flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg shadow-blue-500/20">
             N
@@ -581,25 +532,29 @@ export const Dashboard = () => {
               <Settings size={18} />
             </button>
           </div>
-
           <nav className="space-y-4">
-            {isDraggingItem && (
+            {activeDragId && (
               <div
-                onDragOver={(e) => e.preventDefault()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
                 onDragEnter={(e) => {
                   e.preventDefault();
+                  e.stopPropagation();
                   rootDragCounter.current++;
                   setIsDragOverRoot(true);
                 }}
                 onDragLeave={(e) => {
                   e.preventDefault();
+                  e.stopPropagation();
                   rootDragCounter.current--;
                   if (rootDragCounter.current === 0) setIsDragOverRoot(false);
                 }}
                 onDrop={onDropToRoot}
                 className={`p-4 border-2 border-dashed rounded-2xl flex items-center justify-center gap-3 transition-all duration-300 ${
                   isDragOverRoot
-                    ? "bg-blue-600/20 border-blue-400 scale-[1.02] text-blue-400 shadow-lg"
+                    ? "bg-blue-600/20 border-blue-400 scale-[1.02] text-blue-400 shadow-lg ring-4 ring-blue-500/10"
                     : "bg-slate-800/40 border-slate-700 text-slate-500"
                 }`}
               >
@@ -616,7 +571,6 @@ export const Dashboard = () => {
                 </span>
               </div>
             )}
-
             <div className="space-y-2">
               <div className="flex justify-between items-center px-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
                 Spaces
@@ -667,24 +621,23 @@ export const Dashboard = () => {
                         setModalParentId(pid);
                         setModalType(type);
                       }}
-                      onDragStateChange={(dragging) =>
-                        setIsDraggingItem(dragging)
-                      }
+                      onDragStateChange={(id) => setActiveDragId(id)}
                       onDragEndCleanup={() => {
-                        setIsDraggingItem(false);
+                        setActiveDragId(null);
                         setIsDragOverRoot(false);
                         rootDragCounter.current = 0;
                       }}
+                      activeDragId={activeDragId}
                     />
                   ))}
               </div>
             </div>
           </nav>
-
           <nav
             className="space-y-1"
             onDragOver={(e) => {
               e.preventDefault();
+              e.stopPropagation();
               setDropTargetWinId("global");
             }}
             onDrop={() => handleTabDrop("global")}
@@ -721,7 +674,6 @@ export const Dashboard = () => {
           </button>
         </div>
       </aside>
-
       <main className="flex-1 flex flex-col bg-slate-950 relative">
         {selectedWorkspace || isViewingInbox ? (
           <>
@@ -745,6 +697,7 @@ export const Dashboard = () => {
                         className="flex flex-col gap-1 items-center"
                         onDragOver={(e) => {
                           e.preventDefault();
+                          e.stopPropagation();
                           setDropTargetWinId(win.id);
                         }}
                         onDrop={() => handleTabDrop(win.id)}
@@ -806,7 +759,8 @@ export const Dashboard = () => {
               <div className="flex gap-3 mb-1">
                 {(isViewingInbox
                   ? inboxData?.tabs?.length ?? 0
-                  : currentWindowData?.tabs?.length ?? 0) > 0 && (
+                  : windows.find((w) => w.id === selectedWindowId)?.tabs
+                      ?.length ?? 0) > 0 && (
                   <button
                     onClick={toggleSelectAll}
                     className={`p-2.5 bg-slate-900 border rounded-xl transition ${
@@ -839,7 +793,28 @@ export const Dashboard = () => {
                   <>
                     <button
                       title="Slet vindue data"
-                      onClick={deleteWindowData}
+                      onClick={async () => {
+                        if (
+                          isSystemRestoring ||
+                          !selectedWindowId ||
+                          !selectedWorkspace ||
+                          !confirm("Slet ALT data?")
+                        )
+                          return;
+                        isPerformingAction.current = true;
+                        try {
+                          await deleteDoc(
+                            doc(
+                              db,
+                              `workspaces_data/${selectedWorkspace.id}/windows`,
+                              selectedWindowId
+                            )
+                          );
+                          setSelectedWindowId(null);
+                        } finally {
+                          isPerformingAction.current = false;
+                        }
+                      }}
                       className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl hover:text-red-500 transition"
                     >
                       <Trash2 size={20} />
@@ -867,7 +842,7 @@ export const Dashboard = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {(isViewingInbox
                   ? inboxData?.tabs || []
-                  : currentWindowData?.tabs || []
+                  : windows.find((w) => w.id === selectedWindowId)?.tabs || []
                 ).map((tab: any, i: number) => (
                   <TabCard key={i} tab={tab} index={i} />
                 ))}

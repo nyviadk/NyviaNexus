@@ -76,7 +76,6 @@ export default function App() {
   }, [activeProfile]);
 
   if (!user) return <LoginForm />;
-
   const currentMapping = activeMappings.find(
     (m) => m.windowId === currentWindowId
   );
@@ -131,7 +130,6 @@ export default function App() {
           </button>
         </div>
       </header>
-
       <main className="flex-1 overflow-y-auto p-2 space-y-4">
         {currentMapping && (
           <div className="px-2 py-1 bg-blue-600/10 border border-blue-500/20 rounded text-[10px] text-blue-400 flex justify-between items-center">
@@ -145,7 +143,6 @@ export default function App() {
             <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-pulse"></span>
           </div>
         )}
-
         <section>
           <div className="flex justify-between items-center px-2 mb-2">
             <h2 className="text-xs font-bold uppercase text-slate-500">
@@ -177,20 +174,19 @@ export default function App() {
                   item={item}
                   allItems={items}
                   onRefresh={() => {}}
-                  onDragStateChange={() => {}} // FIXED
-                  onDragEndCleanup={() => {}} // FIXED
+                  onDragStateChange={() => {}}
+                  onDragEndCleanup={() => {}}
+                  activeDragId={null}
                 />
               ))}
           </div>
         </section>
-
         <Inbox
           activeProfile={activeProfile}
           items={items}
           onRefresh={() => {}}
         />
       </main>
-
       {modalType && (
         <CreateItemModal
           type={modalType}
