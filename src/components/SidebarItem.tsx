@@ -32,7 +32,8 @@ export const SidebarItem = ({
   onAddChild,
   onDragStateChange,
 }: Props) => {
-  const [isOpen, setIsOpen] = useState(false);
+  // FIXED: Mapper er åbne som standard
+  const [isOpen, setIsOpen] = useState(true);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -44,8 +45,7 @@ export const SidebarItem = ({
     if (confirm(`Slet "${item.name}"?`)) {
       setIsSyncing(true);
       await NexusService.deleteItem(item, allItems);
-      // Tilføjer også lidt delay her for konsistens
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 500)); // Justeret satisfying delay
       setIsSyncing(false);
       onRefresh();
     }
@@ -57,7 +57,7 @@ export const SidebarItem = ({
     if (newName && newName !== item.name) {
       setIsSyncing(true);
       await NexusService.renameItem(item.id, newName);
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 500));
       setIsSyncing(false);
       onRefresh();
     }
@@ -70,9 +70,11 @@ export const SidebarItem = ({
   };
 
   const handleClick = async () => {
-    if (isFolder) setIsOpen(!isOpen);
-    else if (onSelect) onSelect(item);
-    else {
+    if (isFolder) {
+      setIsOpen(!isOpen);
+    } else if (onSelect) {
+      onSelect(item);
+    } else {
       const winSnap = await getDocs(
         collection(db, "workspaces_data", item.id, "windows")
       );
@@ -84,7 +86,6 @@ export const SidebarItem = ({
     }
   };
 
-  // --- DRAG & DROP ---
   const onDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("itemId", item.id);
     e.dataTransfer.effectAllowed = "move";
@@ -92,7 +93,6 @@ export const SidebarItem = ({
   };
 
   const onDragEnd = () => {
-    setIsDragOver(false); // Sikkerhedsnulstilling
     if (onDragStateChange) onDragStateChange(false);
   };
 
@@ -107,19 +107,15 @@ export const SidebarItem = ({
     if (!isFolder) return;
     e.preventDefault();
     e.stopPropagation();
-
-    // Nulstil hover-effekt med det samme
     setIsDragOver(false);
 
     const draggedId = e.dataTransfer.getData("itemId");
     if (draggedId && draggedId !== item.id) {
       setIsSyncing(true);
       if (onDragStateChange) onDragStateChange(false);
-
       try {
         await NexusService.moveItem(draggedId, item.id);
-        // "Satisfying Delay" - Vi tvinger den til at tænke i 800ms
-        await new Promise((resolve) => setTimeout(resolve, 800));
+        await new Promise((resolve) => setTimeout(resolve, 500)); // Justeret til 500ms
       } finally {
         setIsSyncing(false);
         onRefresh();
@@ -156,14 +152,12 @@ export const SidebarItem = ({
         ) : (
           <Layout size={16} className="text-blue-400 shrink-0 shadow-sm" />
         )}
-
         {isFolder && !isSyncing && (
           <Folder
             size={16}
             className="text-yellow-500 fill-current opacity-90 shrink-0"
           />
         )}
-
         <span
           className={`flex-1 truncate text-sm font-medium ${
             isSyncing ? "italic text-slate-500" : ""

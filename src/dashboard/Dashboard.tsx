@@ -162,7 +162,9 @@ export const Dashboard = () => {
   const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
   const [isDraggingItem, setIsDraggingItem] = useState(false);
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
+  const [isSyncingRoot, setIsSyncingRoot] = useState(false);
 
+  // Ref til stabilitet uden re-renders
   const isPerformingAction = useRef(false);
 
   const applyState = useCallback(
@@ -258,26 +260,21 @@ export const Dashboard = () => {
 
   const onDropToRoot = async (e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-
-    // Nulstil visuel feedback med det samme
-    setIsDragOverRoot(false);
-    setIsDraggingItem(false);
-
     const draggedId = e.dataTransfer.getData("itemId");
     if (draggedId) {
       isPerformingAction.current = true;
-      // Optimistic Update
+      setIsSyncingRoot(true);
       setItems((prev) =>
         prev.map((i) => (i.id === draggedId ? { ...i, parentId: "root" } : i))
       );
-
       try {
         await NexusService.moveItem(draggedId, "root");
-        // Satisfying delay for rod-flytning også
-        await new Promise((r) => setTimeout(r, 800));
+        await new Promise((r) => setTimeout(r, 500));
       } finally {
         isPerformingAction.current = false;
+        setIsSyncingRoot(false);
+        setIsDraggingItem(false);
+        setIsDragOverRoot(false);
       }
     }
   };
@@ -320,13 +317,13 @@ export const Dashboard = () => {
             payload: { urls: [tab.url], internalWindowId: sourceWinId },
           });
       }
+      await new Promise((r) => setTimeout(r, 500));
     } finally {
       window.sessionStorage.removeItem("draggedTab");
       isPerformingAction.current = false;
     }
   };
 
-  // --- TAB MANAGEMENT FUNKTIONER ---
   const toggleSelectAll = () => {
     const list = isViewingInbox
       ? inboxData?.tabs || []
@@ -343,21 +340,16 @@ export const Dashboard = () => {
     )
       return;
     isPerformingAction.current = true;
-
     const sourceWinId = isViewingInbox ? "global" : selectedWindowId;
-    const currentTabs = isViewingInbox
+    const list = isViewingInbox
       ? [...(inboxData?.tabs || [])]
       : [...(windows.find((w) => w.id === selectedWindowId)?.tabs || [])];
-    const filtered = currentTabs.filter(
-      (t: any) => !selectedUrls.includes(t.url)
-    );
-
+    const filtered = list.filter((t: any) => !selectedUrls.includes(t.url));
     try {
       chrome.runtime.sendMessage({
         type: "CLOSE_PHYSICAL_TABS",
         payload: { urls: selectedUrls, internalWindowId: sourceWinId },
       });
-
       if (isViewingInbox) {
         setInboxData({ ...inboxData, tabs: filtered });
         await updateDoc(doc(db, "inbox_data", "global"), { tabs: filtered });
@@ -384,29 +376,6 @@ export const Dashboard = () => {
     }
   };
 
-  const deleteWindowData = async () => {
-    if (
-      isSystemRestoring ||
-      !selectedWindowId ||
-      !selectedWorkspace ||
-      !confirm("Slet ALT data for dette vindue?")
-    )
-      return;
-    isPerformingAction.current = true;
-    try {
-      await deleteDoc(
-        doc(
-          db,
-          `workspaces_data/${selectedWorkspace.id}/windows`,
-          selectedWindowId
-        )
-      );
-      setSelectedWindowId(null);
-    } finally {
-      isPerformingAction.current = false;
-    }
-  };
-
   const emptyInbox = async () => {
     if (!inboxData?.tabs?.length || !confirm("Vil du rydde hele din Inbox?"))
       return;
@@ -426,26 +395,46 @@ export const Dashboard = () => {
     }
   };
 
-  const currentWindowData = windows.find((w) => w.id === selectedWindowId);
+  const deleteWindowData = async () => {
+    if (
+      isSystemRestoring ||
+      !selectedWindowId ||
+      !selectedWorkspace ||
+      !confirm("Slet ALT data?")
+    )
+      return;
+    isPerformingAction.current = true;
+    try {
+      await deleteDoc(
+        doc(
+          db,
+          `workspaces_data/${selectedWorkspace.id}/windows`,
+          selectedWindowId
+        )
+      );
+      setSelectedWindowId(null);
+    } finally {
+      isPerformingAction.current = false;
+    }
+  };
+
   const handleMoveTab = async (index: number, direction: "left" | "right") => {
     if (isSystemRestoring) return;
     isPerformingAction.current = true;
     const tabs = isViewingInbox
       ? [...(inboxData?.tabs || [])]
-      : [...(currentWindowData?.tabs || [])];
+      : [...(windows.find((w) => w.id === selectedWindowId)?.tabs || [])];
     const newIdx = direction === "left" ? index - 1 : index + 1;
     if (newIdx < 0 || newIdx >= tabs.length) {
       isPerformingAction.current = false;
       return;
     }
     [tabs[index], tabs[newIdx]] = [tabs[newIdx], tabs[index]];
-
     if (isViewingInbox) setInboxData({ ...inboxData, tabs });
     else
       setWindows((prev) =>
         prev.map((w) => (w.id === selectedWindowId ? { ...w, tabs } : w))
       );
-
     if (isViewingInbox)
       await updateDoc(doc(db, "inbox_data", "global"), { tabs });
     else if (selectedWorkspace && selectedWindowId)
@@ -601,16 +590,20 @@ export const Dashboard = () => {
                 onDrop={onDropToRoot}
                 className={`p-4 border-2 border-dashed rounded-2xl flex items-center justify-center gap-3 transition-all duration-300 ${
                   isDragOverRoot
-                    ? "bg-blue-600/20 border-blue-400 scale-[1.02] text-blue-400 shadow-lg shadow-blue-900/20"
+                    ? "bg-blue-600/20 border-blue-400 scale-[1.02] text-blue-400 shadow-lg"
                     : "bg-slate-800/40 border-slate-700 text-slate-500"
                 }`}
               >
-                <ArrowUpCircle
-                  size={20}
-                  className={`${isDragOverRoot ? "animate-bounce" : ""}`}
-                />
+                {isSyncingRoot ? (
+                  <Loader2 size={20} className="animate-spin text-blue-400" />
+                ) : (
+                  <ArrowUpCircle
+                    size={20}
+                    className={`${isDragOverRoot ? "animate-bounce" : ""}`}
+                  />
+                )}
                 <span className="text-xs font-bold uppercase tracking-widest">
-                  Slip for at flytte til rod
+                  {isSyncingRoot ? "Flytter..." : "Flyt til rod"}
                 </span>
               </div>
             )}
@@ -645,7 +638,6 @@ export const Dashboard = () => {
                   </button>
                 </div>
               </div>
-
               <div className="space-y-0.5">
                 {items
                   .filter(
@@ -800,15 +792,12 @@ export const Dashboard = () => {
               <div className="flex gap-3 mb-1">
                 {(isViewingInbox
                   ? inboxData?.tabs?.length ?? 0
-                  : currentWindowData?.tabs?.length ?? 0) > 0 && (
+                  : windows.find((w) => w.id === selectedWindowId)?.tabs
+                      ?.length ?? 0) > 0 && (
                   <button
                     onClick={toggleSelectAll}
                     className={`p-2.5 bg-slate-900 border rounded-xl transition ${
-                      selectedUrls.length > 0 &&
-                      selectedUrls.length ===
-                        (isViewingInbox
-                          ? inboxData?.tabs?.length ?? 0
-                          : currentWindowData?.tabs?.length ?? 0)
+                      selectedUrls.length > 0
                         ? "border-blue-500 text-blue-400"
                         : "border-slate-800 hover:text-blue-400"
                     }`}
@@ -865,7 +854,7 @@ export const Dashboard = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {(isViewingInbox
                   ? inboxData?.tabs || []
-                  : currentWindowData?.tabs || []
+                  : windows.find((w) => w.id === selectedWindowId)?.tabs || []
                 ).map((tab: any, i: number) => (
                   <TabCard key={i} tab={tab} index={i} />
                 ))}

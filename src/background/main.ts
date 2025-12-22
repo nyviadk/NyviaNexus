@@ -18,7 +18,6 @@ interface TabData {
   url: string;
   favIconUrl: string;
 }
-
 interface WinMapping {
   workspaceId: string;
   internalWindowId: string;
@@ -37,12 +36,10 @@ let globalState = {
   inbox: null as any,
   workspaceWindows: {} as Record<string, any[]>,
 };
-
 let activeWindowsUnsubscribe: (() => void) | null = null;
 let currentWatchedWorkspaceId: string | null = null;
 
 const isDash = (url?: string) => url?.includes("dashboard.html");
-
 function broadcast(type: string, payload: any) {
   chrome.runtime.sendMessage({ type, payload }).catch(() => {});
 }
@@ -52,12 +49,10 @@ function startFirebaseListeners() {
     globalState.profiles = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     broadcast("STATE_UPDATED", { profiles: globalState.profiles });
   });
-
   onSnapshot(collection(db, "items"), (snap) => {
     globalState.items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     broadcast("STATE_UPDATED", { items: globalState.items });
   });
-
   onSnapshot(doc(db, "inbox_data", "global"), (snap) => {
     globalState.inbox = snap.exists()
       ? { id: snap.id, ...snap.data() }
@@ -153,7 +148,6 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
         url: t.url || "",
         favIconUrl: t.favIconUrl || "",
       }));
-
     if (mapping && validTabs.length === 0 && isRemoval) {
       const docRef = doc(
         db,
@@ -168,7 +162,6 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       chrome.windows.remove(windowId);
       return;
     }
-
     if (mapping) {
       await updateWindowGrouping(windowId, mapping);
       const docRef = doc(
