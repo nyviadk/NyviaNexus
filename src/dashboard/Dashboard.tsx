@@ -5,6 +5,7 @@ import {
   deleteDoc,
   doc,
   updateDoc,
+  writeBatch,
 } from "firebase/firestore";
 import {
   Activity,
@@ -26,6 +27,7 @@ import {
   X,
   Settings,
   ArrowUpCircle,
+  LifeBuoy,
 } from "lucide-react";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { CreateItemModal } from "../components/CreateItemModal";
@@ -65,13 +67,13 @@ const ProfileManagerModal = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-3xl p-8 shadow-2xl space-y-6">
+    <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="bg-slate-800 border border-slate-600 w-full max-w-md rounded-3xl p-8 shadow-2xl space-y-6">
         <div className="flex justify-between items-center">
           <h3 className="text-xl font-bold text-white uppercase tracking-tight">
             Profiler
           </h3>
-          <button onClick={onClose} className="text-slate-500 hover:text-white">
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
             <X size={20} />
           </button>
         </div>
@@ -80,7 +82,7 @@ const ProfileManagerModal = ({
             value={newProfileName}
             onChange={(e) => setNewProfileName(e.target.value)}
             placeholder="Navn..."
-            className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 ring-blue-500/50"
+            className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 ring-blue-500/50 text-white"
           />
           <button
             onClick={addProfile}
@@ -93,7 +95,7 @@ const ProfileManagerModal = ({
           {profiles.map((p: Profile) => (
             <div
               key={p.id}
-              className="flex items-center gap-2 p-3 bg-slate-800/50 rounded-2xl border border-slate-800 group"
+              className="flex items-center gap-2 p-3 bg-slate-700/50 rounded-2xl border border-slate-600 group"
             >
               {editingId === p.id ? (
                 <>
@@ -101,7 +103,7 @@ const ProfileManagerModal = ({
                     autoFocus
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
-                    className="flex-1 bg-slate-700 border-none rounded px-2 py-1 text-sm outline-none"
+                    className="flex-1 bg-slate-600 border-none rounded px-2 py-1 text-sm outline-none text-white"
                   />
                   <button
                     onClick={() => saveEdit(p.id)}
@@ -112,19 +114,21 @@ const ProfileManagerModal = ({
                 </>
               ) : (
                 <>
-                  <span className="flex-1 text-sm font-medium">{p.name}</span>
+                  <span className="flex-1 text-sm font-medium text-slate-200">
+                    {p.name}
+                  </span>
                   <button
                     onClick={() => {
                       setEditingId(p.id);
                       setEditName(p.name);
                     }}
-                    className="text-slate-500 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition"
+                    className="text-slate-400 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition"
                   >
                     <Edit2 size={16} />
                   </button>
                   <button
                     onClick={() => removeProfile(p.id)}
-                    className="text-slate-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
+                    className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
                   >
                     <Trash2 size={16} />
                   </button>
@@ -223,6 +227,38 @@ export const Dashboard = () => {
         payload: selectedWorkspace.id,
       });
   }, [selectedWorkspace]);
+
+  // NØD REPARATION AF HIERARKI
+  const emergencyRepairHierarchy = async () => {
+    if (
+      !confirm(
+        "ADVARSEL: Dette vil flytte ALLE elementer ud til hovedmappen (Root) for at fikse ødelagte mapper/loops. Vil du fortsætte?"
+      )
+    )
+      return;
+
+    setIsSyncingRoot(true);
+    try {
+      const batch = writeBatch(db);
+      // Tag alle items der hører til profilen
+      const profileItems = items.filter((i) => i.profileId === activeProfile);
+
+      profileItems.forEach((item) => {
+        if (item.parentId !== "root") {
+          const ref = doc(db, "items", item.id);
+          batch.update(ref, { parentId: "root" });
+        }
+      });
+
+      await batch.commit();
+      alert("Hierarki nulstillet. Alle elementer ligger nu i roden.");
+    } catch (e) {
+      console.error(e);
+      alert("Fejl under reparation.");
+    } finally {
+      setIsSyncingRoot(false);
+    }
+  };
 
   const onDropToRoot = async (e: React.DragEvent) => {
     e.preventDefault();
@@ -401,7 +437,6 @@ export const Dashboard = () => {
       id === currentWindowId && m.internalWindowId === selectedWindowId
   );
 
-  // GENINDSAT: TabCard komponenten
   const TabCard = ({ tab, index }: { tab: any; index: number }) => (
     <div className="group relative">
       <button
@@ -415,7 +450,7 @@ export const Dashboard = () => {
             "global"
           );
         }}
-        className="absolute -top-2 -right-2 z-30 bg-slate-800 border border-slate-700 text-slate-400 hover:text-red-400 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition shadow-xl"
+        className="absolute -top-2 -right-2 z-30 bg-slate-700 border border-slate-600 text-slate-300 hover:text-red-400 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition shadow-xl"
       >
         <X size={12} />
       </button>
@@ -424,14 +459,14 @@ export const Dashboard = () => {
         onDragStart={() =>
           window.sessionStorage.setItem("draggedTab", JSON.stringify(tab))
         }
-        className={`bg-slate-900/40 p-4 rounded-2xl border cursor-grab active:cursor-grabbing ${
+        className={`bg-slate-800/60 p-4 rounded-2xl border cursor-grab active:cursor-grabbing ${
           selectedUrls.includes(tab.url)
-            ? "border-blue-500 bg-blue-500/5"
-            : "border-slate-800"
-        } flex flex-col gap-2 hover:bg-slate-900 transition group`}
+            ? "border-blue-500 bg-blue-500/10"
+            : "border-slate-700 hover:border-slate-500"
+        } flex flex-col gap-2 hover:bg-slate-800 transition group shadow-md`}
       >
         <div
-          className="absolute top-2 right-2 cursor-pointer text-slate-600 hover:text-blue-400"
+          className="absolute top-2 right-2 cursor-pointer text-slate-500 hover:text-blue-400"
           onClick={(e) => {
             e.stopPropagation();
             setSelectedUrls((prev) =>
@@ -453,7 +488,7 @@ export const Dashboard = () => {
         >
           <Globe
             size={14}
-            className="text-slate-600 group-hover:text-blue-400 shrink-0"
+            className="text-slate-500 group-hover:text-blue-400 shrink-0"
           />
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold text-slate-200">
@@ -464,17 +499,17 @@ export const Dashboard = () => {
             </div>
           </div>
         </div>
-        <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-800/50">
+        <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-700/50">
           <div className="flex gap-1">
             <button
               onClick={() => handleMoveTab(index, "left")}
-              className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-white"
+              className="p-1 hover:bg-slate-700 rounded text-slate-500 hover:text-white"
             >
               <ChevronLeft size={14} />
             </button>
             <button
               onClick={() => handleMoveTab(index, "right")}
-              className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-white"
+              className="p-1 hover:bg-slate-700 rounded text-slate-500 hover:text-white"
             >
               <ChevronRight size={14} />
             </button>
@@ -486,23 +521,23 @@ export const Dashboard = () => {
 
   if (!user)
     return (
-      <div className="h-screen flex items-center justify-center bg-slate-950">
+      <div className="h-screen flex items-center justify-center bg-slate-900">
         <LoginForm />
       </div>
     );
 
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden font-sans relative">
+    <div className="flex h-screen bg-slate-900 text-slate-200 overflow-hidden font-sans relative">
       {isSystemRestoring && (
-        <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center flex-col gap-4">
+        <div className="absolute inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center flex-col gap-4">
           <Loader2 size={48} className="text-blue-500 animate-spin" />
           <div className="text-xl font-bold text-white animate-pulse">
             Synkroniserer...
           </div>
         </div>
       )}
-      <aside className="w-80 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0 shadow-2xl z-20 transition-all">
-        <div className="p-6 border-b border-slate-800 font-black text-white text-xl uppercase tracking-tighter flex items-center gap-3">
+      <aside className="w-80 border-r border-slate-700 bg-slate-800 flex flex-col shrink-0 shadow-2xl z-20 transition-all">
+        <div className="p-6 border-b border-slate-700 font-black text-white text-xl uppercase tracking-tighter flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg shadow-blue-500/20">
             N
           </div>{" "}
@@ -517,7 +552,7 @@ export const Dashboard = () => {
                 setSelectedWorkspace(null);
                 setIsViewingInbox(false);
               }}
-              className="flex-1 bg-slate-800 p-2 rounded-xl border border-slate-700 text-sm outline-none focus:ring-2 ring-blue-500/50 transition-all"
+              className="flex-1 bg-slate-700 p-2 rounded-xl border border-slate-600 text-sm outline-none focus:ring-2 ring-blue-500/50 transition-all text-white"
             >
               {profiles.map((p: Profile) => (
                 <option key={p.id} value={p.id}>
@@ -527,7 +562,7 @@ export const Dashboard = () => {
             </select>
             <button
               onClick={() => setModalType("profiles")}
-              className="p-2 text-slate-500 hover:text-blue-400 bg-slate-800 rounded-xl border border-slate-700 transition shadow-sm active:scale-95"
+              className="p-2 text-slate-400 hover:text-blue-400 bg-slate-700 rounded-xl border border-slate-600 transition shadow-sm active:scale-95"
             >
               <Settings size={18} />
             </button>
@@ -555,7 +590,7 @@ export const Dashboard = () => {
                 className={`p-4 border-2 border-dashed rounded-2xl flex items-center justify-center gap-3 transition-all duration-300 ${
                   isDragOverRoot
                     ? "bg-blue-600/20 border-blue-400 scale-[1.02] text-blue-400 shadow-lg ring-4 ring-blue-500/10"
-                    : "bg-slate-800/40 border-slate-700 text-slate-500"
+                    : "bg-slate-700/40 border-slate-600 text-slate-500"
                 }`}
               >
                 {isSyncingRoot ? (
@@ -572,9 +607,16 @@ export const Dashboard = () => {
               </div>
             )}
             <div className="space-y-2">
-              <div className="flex justify-between items-center px-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+              <div className="flex justify-between items-center px-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                 Spaces
                 <div className="flex gap-2">
+                  <button
+                    onClick={emergencyRepairHierarchy}
+                    title="NØD REPARATION: Flyt alt til rod"
+                    className="hover:text-red-400 text-slate-600 transition-colors mr-2"
+                  >
+                    <LifeBuoy size={14} />
+                  </button>
                   <button
                     onClick={() => {
                       setModalParentId("root");
@@ -642,7 +684,7 @@ export const Dashboard = () => {
             }}
             onDrop={() => handleTabDrop("global")}
           >
-            <label className="text-[10px] font-bold text-slate-500 uppercase px-2 mb-2 block tracking-widest">
+            <label className="text-[10px] font-bold text-slate-400 uppercase px-2 mb-2 block tracking-widest">
               Opsamling
             </label>
             <div
@@ -653,7 +695,7 @@ export const Dashboard = () => {
               className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all ${
                 isViewingInbox || dropTargetWinId === "global"
                   ? "bg-orange-600/20 text-orange-400 border border-orange-500/50 shadow-lg"
-                  : "hover:bg-slate-800 text-slate-400"
+                  : "hover:bg-slate-700 text-slate-400"
               }`}
               onDragLeave={() => setDropTargetWinId(null)}
             >
@@ -662,7 +704,7 @@ export const Dashboard = () => {
             </div>
           </nav>
         </div>
-        <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-3 text-sm font-medium">
+        <div className="p-4 border-t border-slate-700 bg-slate-800/50 flex flex-col gap-3 text-sm font-medium">
           <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase tracking-tighter">
             <Activity size={12} className="animate-pulse" /> Live Sync Active
           </div>
@@ -674,10 +716,10 @@ export const Dashboard = () => {
           </button>
         </div>
       </aside>
-      <main className="flex-1 flex flex-col bg-slate-950 relative">
+      <main className="flex-1 flex flex-col bg-slate-900 relative">
         {selectedWorkspace || isViewingInbox ? (
           <>
-            <header className="p-8 pb-4 flex justify-between items-end border-b border-slate-900 bg-slate-900/10">
+            <header className="p-8 pb-4 flex justify-between items-end border-b border-slate-800 bg-slate-800/30">
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
                   <h2 className="text-4xl font-bold text-white tracking-tight">
@@ -710,7 +752,7 @@ export const Dashboard = () => {
                               selectedWindowId === win.id ||
                               dropTargetWinId === win.id
                                 ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30 scale-110 ring-2 ring-blue-400"
-                                : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                                : "bg-slate-700 text-slate-400 hover:bg-slate-600"
                             }`}
                           >
                             Vindue {idx + 1}{" "}
@@ -763,10 +805,10 @@ export const Dashboard = () => {
                       ?.length ?? 0) > 0 && (
                   <button
                     onClick={toggleSelectAll}
-                    className={`p-2.5 bg-slate-900 border rounded-xl transition ${
+                    className={`p-2.5 bg-slate-800 border rounded-xl transition ${
                       selectedUrls.length > 0
                         ? "border-blue-500 text-blue-400"
-                        : "border-slate-800 hover:text-blue-400"
+                        : "border-slate-700 hover:text-blue-400"
                     }`}
                     title="Marker alle"
                   >
@@ -815,7 +857,7 @@ export const Dashboard = () => {
                           isPerformingAction.current = false;
                         }
                       }}
-                      className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl hover:text-red-500 transition"
+                      className="p-2.5 bg-slate-800 border border-slate-700 rounded-xl hover:text-red-500 transition text-slate-400"
                     >
                       <Trash2 size={20} />
                     </button>
@@ -830,7 +872,7 @@ export const Dashboard = () => {
                           },
                         })
                       }
-                      className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition"
+                      className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition text-white"
                     >
                       Åbn Space
                     </button>
@@ -850,8 +892,8 @@ export const Dashboard = () => {
             </div>
           </>
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-slate-700 gap-4">
-            <Monitor size={48} className="opacity-10" />
+          <div className="h-full flex flex-col items-center justify-center text-slate-600 gap-4">
+            <Monitor size={48} className="opacity-20" />
             <p className="text-lg font-medium">Vælg et space i sidebaren</p>
           </div>
         )}

@@ -44,13 +44,9 @@ export const SidebarItem = ({
   const isFolder = item.type === "folder";
   const childItems = allItems.filter((i) => i.parentId === item.id);
 
-  // Tjek om droppet er ugyldigt (f.eks. drop i sig selv eller i egne børn)
-  const isInvalidDrop =
-    activeDragId === item.id ||
-    (activeDragId &&
-      allItems.find((i) => i.id === activeDragId)?.parentId === item.id);
+  // Vi tillader drop, selv hvis det er "farligt", fordi vi håndterer logikken i onDrop
+  const isSelfDrop = activeDragId === item.id;
 
-  // Sikkerhedsnet: Hvis der ikke dragges noget globalt, så slå hover fra lokalt
   useEffect(() => {
     if (!activeDragId) {
       setIsDragOver(false);
@@ -58,12 +54,25 @@ export const SidebarItem = ({
     }
   }, [activeDragId]);
 
+  // Hjælpefunktion: Tjek om 'target' faktisk er et barn/barnebarn af 'source'
+  const isDescendant = (
+    sourceId: string,
+    targetId: string,
+    items: NexusItem[]
+  ) => {
+    let current = items.find((i) => i.id === targetId);
+    while (current && current.parentId !== "root") {
+      if (current.parentId === sourceId) return true;
+      current = items.find((i) => i.id === current?.parentId);
+    }
+    return false;
+  };
+
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm(`Slet "${item.name}"?`)) {
       setIsSyncing(true);
       await NexusService.deleteItem(item, allItems);
-      // Lille kunstig pause for UX feel
       await new Promise((r) => setTimeout(r, 500));
       setIsSyncing(false);
       onRefresh();
@@ -85,7 +94,6 @@ export const SidebarItem = ({
   const onDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("itemId", item.id);
     e.dataTransfer.effectAllowed = "move";
-    // Forsinkelse for at undgå at drag-elementet visuelt forsvinder med det samme
     setTimeout(() => onDragStateChange(item.id), 50);
   };
 
@@ -96,7 +104,7 @@ export const SidebarItem = ({
   };
 
   const onDragEnter = (e: React.DragEvent) => {
-    if (isFolder) {
+    if (isFolder && !isSelfDrop) {
       e.preventDefault();
       e.stopPropagation();
       dragCounter.current++;
@@ -114,11 +122,11 @@ export const SidebarItem = ({
   };
 
   const onDrop = async (e: React.DragEvent) => {
-    // 1. Reset visuelle states med det samme
     dragCounter.current = 0;
     setIsDragOver(false);
 
-    if (!isFolder || isInvalidDrop) {
+    // Hvis ikke mappe eller man dropper på sig selv
+    if (!isFolder || isSelfDrop) {
       e.preventDefault();
       onDragEndCleanup();
       return;
@@ -129,28 +137,53 @@ export const SidebarItem = ({
     onDragEndCleanup();
 
     const draggedId = e.dataTransfer.getData("itemId");
-    if (draggedId && draggedId !== item.id) {
-      setIsSyncing(true);
-      try {
-        await NexusService.moveItem(draggedId, item.id);
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      } finally {
-        setIsSyncing(false);
-        onRefresh();
+    if (!draggedId) return;
+
+    const sourceItem = allItems.find((i) => i.id === draggedId);
+    if (!sourceItem) return;
+
+    // Tjek for hierarki-konflikt (Hvis vi trækker Forælder ned i Barn)
+    const isLoop = isDescendant(draggedId, item.id, allItems);
+
+    setIsSyncing(true);
+    try {
+      if (isLoop) {
+        // SMART MOVE LOGIK:
+        // 1. "Target" (barnet man dropper på) skal overtage "Source"s plads (den gamle forælder)
+        // 2. "Source" skal blive barn af "Target"
+
+        const sourceOldParentId = sourceItem.parentId;
+
+        // Flyt barnet OP til roden/gammel forælder først for at bryde loopet
+        await NexusService.moveItem(item.id, sourceOldParentId);
+
+        // Flyt derefter den gamle forælder IND i barnet
+        await NexusService.moveItem(sourceItem.id, item.id);
+      } else {
+        // NORMAL FLYTNING
+        if (draggedId !== item.id) {
+          await NexusService.moveItem(draggedId, item.id);
+        }
       }
+
+      // Vent lidt for UX
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } catch (error) {
+      console.error("Fejl ved flytning:", error);
+      alert("Der skete en fejl ved flytning af mappen.");
+    } finally {
+      setIsSyncing(false);
+      onRefresh();
     }
   };
 
   return (
     <div className="relative select-none transition-all duration-200">
-      {/* Selve item rækken */}
       <div
-        className={`relative z-10 flex items-center gap-2 p-2 rounded-xl mb-1 cursor-grab active:cursor-grabbing transition-all border border-transparent ${
+        className={`relative z-10 flex items-center gap-2 p-2 rounded-xl mb-1 cursor-grab active:cursor-grabbing transition-all border ${
           isDragOver
-            ? isInvalidDrop
-              ? "bg-red-900/20 border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.2)]"
-              : "bg-blue-900/20 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.2)] scale-[1.02]"
-            : "hover:bg-slate-800/80 hover:border-slate-700/50"
+            ? "bg-blue-800/60 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.4)] scale-[1.02]"
+            : "border-transparent hover:bg-slate-700/80 hover:border-slate-600"
         } ${isSyncing ? "opacity-50 pointer-events-none" : ""}`}
         onDragEnter={onDragEnter}
         onDragOver={(e) => {
@@ -164,7 +197,6 @@ export const SidebarItem = ({
           if (isFolder) setIsOpen(!isOpen);
           else if (onSelect) onSelect(item);
           else {
-            // Hvis det er et workspace og vi ikke har onSelect (f.eks. i popup)
             const winSnap = await getDocs(
               collection(db, "workspaces_data", item.id, "windows")
             );
@@ -183,32 +215,28 @@ export const SidebarItem = ({
         onDragEnd={onDragEnd}
       >
         {isSyncing ? (
-          <Loader2 size={14} className="animate-spin text-blue-400" />
+          <Loader2 size={14} className="animate-spin text-blue-300" />
         ) : isFolder ? (
           isOpen ? (
             <ChevronDown
               size={14}
-              className="text-slate-500 transition-transform"
+              className="text-slate-400 transition-transform"
             />
           ) : (
             <ChevronRight
               size={14}
-              className="text-slate-500 transition-transform"
+              className="text-slate-400 transition-transform"
             />
           )
         ) : (
-          <Layout size={16} className="text-blue-400 shrink-0 shadow-sm" />
+          <Layout size={16} className="text-blue-300 shrink-0 shadow-sm" />
         )}
 
         {isFolder && !isSyncing && (
           <Folder
             size={16}
             className={`${
-              isDragOver
-                ? isInvalidDrop
-                  ? "text-red-400"
-                  : "text-blue-400"
-                : "text-yellow-500/90"
+              isDragOver ? "text-blue-300" : "text-amber-400"
             } fill-current transition-colors shrink-0`}
           />
         )}
@@ -216,15 +244,15 @@ export const SidebarItem = ({
         <span
           className={`flex-1 truncate text-sm font-medium ${
             isSyncing
-              ? "italic text-slate-500"
-              : "text-slate-300 group-hover:text-slate-200"
+              ? "italic text-slate-400"
+              : "text-slate-200 group-hover:text-white"
           }`}
         >
           {item.name}
         </span>
 
         {!isSyncing && (
-          <div className="flex gap-0.5 opacity-0 hover:opacity-100 transition-opacity">
+          <div className="flex gap-1 opacity-0 hover:opacity-100 transition-opacity bg-slate-800/50 rounded-lg px-1">
             {isFolder && (
               <>
                 <button
@@ -234,7 +262,7 @@ export const SidebarItem = ({
                     onAddChild?.(item.id, "folder");
                   }}
                   title="Ny mappe"
-                  className="p-1 hover:bg-slate-700 rounded text-slate-500 hover:text-blue-400"
+                  className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-blue-300"
                 >
                   <FolderPlus size={14} />
                 </button>
@@ -245,7 +273,7 @@ export const SidebarItem = ({
                     onAddChild?.(item.id, "workspace");
                   }}
                   title="Nyt space"
-                  className="p-1 hover:bg-slate-700 rounded text-slate-500 hover:text-blue-400"
+                  className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-blue-300"
                 >
                   <Plus size={14} />
                 </button>
@@ -254,14 +282,14 @@ export const SidebarItem = ({
             <button
               onClick={handleRename}
               title="Omdøb"
-              className="p-1 hover:bg-slate-700 rounded text-slate-500 hover:text-blue-400"
+              className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-blue-300"
             >
               <Edit3 size={14} />
             </button>
             <button
               onClick={handleDelete}
               title="Slet"
-              className="p-1 hover:bg-slate-700 rounded text-slate-500 hover:text-red-500"
+              className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-red-400"
             >
               <Trash2 size={14} />
             </button>
@@ -269,29 +297,21 @@ export const SidebarItem = ({
         )}
       </div>
 
-      {/* Børn Container (Recursive) */}
       {isFolder && isOpen && (
         <div className="ml-5">
-          {" "}
-          {/* Indrykning */}
           {childItems.length > 0 ? (
             childItems.map((child, index) => {
               const isLastChild = index === childItems.length - 1;
               return (
                 <div key={child.id} className="relative pl-4">
-                  {" "}
-                  {/* Plads til linjerne */}
-                  {/* Lodret linje */}
                   <div
-                    className="absolute left-0 top-0 w-px bg-slate-800"
+                    className="absolute left-0 top-0 w-px bg-slate-600"
                     style={{
-                      // Hvis det er sidste barn, stop linjen halvvejs nede (ca 20px nede passer til midt på rækken)
-                      // Hvis det IKKE er sidste barn, kør linjen hele vejen ned (100%)
                       height: isLastChild ? "20px" : "100%",
                     }}
                   />
-                  {/* Vandret linje (Connector) */}
-                  <div className="absolute left-0 top-5 w-4 h-px bg-slate-800" />
+                  <div className="absolute left-0 top-5 w-4 h-px bg-slate-600" />
+
                   <SidebarItem
                     item={child}
                     allItems={allItems}
@@ -306,11 +326,10 @@ export const SidebarItem = ({
               );
             })
           ) : (
-            // Tom mappe indikator (med "L" linje for at lukke mappen af visuelt)
             <div className="relative pl-4 pt-1">
-              <div className="absolute left-0 top-0 w-px h-3.5 bg-slate-800" />
-              <div className="absolute left-0 top-3.5 w-3 h-px bg-slate-800" />
-              <div className="text-[10px] text-slate-600 pl-2 italic font-light tracking-wide select-none">
+              <div className="absolute left-0 top-0 w-px h-3.5 bg-slate-600" />
+              <div className="absolute left-0 top-3.5 w-3 h-px bg-slate-600" />
+              <div className="text-[10px] text-slate-500 pl-2 italic font-light tracking-wide select-none">
                 Tom
               </div>
             </div>
