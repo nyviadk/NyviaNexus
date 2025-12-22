@@ -9,34 +9,32 @@ import {
 } from "firebase/firestore";
 import {
   Activity,
-  CheckSquare,
+  ArrowUpCircle,
   Check,
-  ChevronLeft,
-  ChevronRight,
+  CheckSquare,
   Edit2,
   Eraser,
+  ExternalLink,
   FolderPlus,
   Globe,
   Inbox as InboxIcon,
+  LifeBuoy,
   Loader2,
   LogOut,
   Monitor,
   PlusCircle,
+  Settings,
   Square,
   Trash2,
   X,
-  Settings,
-  ArrowUpCircle,
-  LifeBuoy,
-  ExternalLink,
 } from "lucide-react";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CreateItemModal } from "../components/CreateItemModal";
 import { LoginForm } from "../components/LoginForm";
 import { SidebarItem } from "../components/SidebarItem";
 import { auth, db } from "../lib/firebase";
-import { NexusItem, Profile, WorkspaceWindow } from "../types";
 import { NexusService } from "../services/nexusService";
+import { NexusItem, Profile, WorkspaceWindow } from "../types";
 
 // --- Profile Manager Modal (NU MED DIALOG) ---
 const ProfileManagerModal = ({
@@ -457,49 +455,18 @@ export const Dashboard = () => {
     }
   };
 
-  const handleMoveTab = async (index: number, direction: "left" | "right") => {
-    if (isSystemRestoring) return;
-    isPerformingAction.current = true;
-    const currentTabs = isViewingInbox
-      ? inboxData?.tabs || []
-      : windows.find((w) => w.id === selectedWindowId)?.tabs || [];
-    const tabs = [...currentTabs];
-    const newIdx = direction === "left" ? index - 1 : index + 1;
-    if (newIdx < 0 || newIdx >= tabs.length) {
-      isPerformingAction.current = false;
-      return;
-    }
-    [tabs[index], tabs[newIdx]] = [tabs[newIdx], tabs[index]];
-    if (isViewingInbox) setInboxData({ ...inboxData, tabs });
-    else
-      setWindows((prev) =>
-        prev.map((w) => (w.id === selectedWindowId ? { ...w, tabs } : w))
-      );
-    if (isViewingInbox)
-      await updateDoc(doc(db, "inbox_data", "global"), { tabs });
-    else if (selectedWorkspace && selectedWindowId)
-      await updateDoc(
-        doc(
-          db,
-          "workspaces_data",
-          selectedWorkspace.id,
-          "windows",
-          selectedWindowId
-        ),
-        { tabs }
-      );
-    isPerformingAction.current = false;
-  };
-
   const isViewingCurrent = activeMappings.some(
     ([id, m]: any) =>
       id === currentWindowId && m.internalWindowId === selectedWindowId
   );
 
-  const TabCard = ({ tab, index }: { tab: any; index: number }) => (
+  const TabCard = ({ tab }: { tab: any; index: number }) => (
     <div className="group relative">
       <button
         onClick={async () => {
+          // ALERT TILFØJET HER
+          if (!confirm("Slet denne tab?")) return;
+
           const sourceWinId = isViewingInbox ? "global" : selectedWindowId!;
           await NexusService.moveTabBetweenWindows(
             tab,
@@ -514,7 +481,7 @@ export const Dashboard = () => {
         <X size={12} />
       </button>
 
-      {/* Select Box - Flyttet til venstre top */}
+      {/* Select Box - Venstre top */}
       <div
         className="absolute top-2 left-2 cursor-pointer z-20 text-slate-500 hover:text-blue-400"
         onClick={(e) => {
@@ -549,7 +516,6 @@ export const Dashboard = () => {
             ? "border-blue-500 bg-blue-500/10"
             : "border-slate-700 hover:border-slate-500"
         } flex flex-col gap-2 hover:bg-slate-800 transition group shadow-md pl-8`}
-        /* Added pl-8 to make room for checkbox */
       >
         <div
           className="flex items-center gap-3 cursor-pointer"
@@ -568,22 +534,7 @@ export const Dashboard = () => {
             </div>
           </div>
         </div>
-        <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-700/50">
-          <div className="flex gap-1">
-            <button
-              onClick={() => handleMoveTab(index, "left")}
-              className="p-1 hover:bg-slate-700 rounded text-slate-500 hover:text-white"
-            >
-              <ChevronLeft size={14} />
-            </button>
-            <button
-              onClick={() => handleMoveTab(index, "right")}
-              className="p-1 hover:bg-slate-700 rounded text-slate-500 hover:text-white"
-            >
-              <ChevronRight size={14} />
-            </button>
-          </div>
-        </div>
+        {/* Footer med pile er fjernet */}
       </div>
     </div>
   );
@@ -814,7 +765,7 @@ export const Dashboard = () => {
                         onDrop={() => handleTabDrop(win.id)}
                         onDragLeave={() => setDropTargetWinId(null)}
                       >
-                        {/* Redesignet Vindue Card - NU MED TOGGLE LOGIK */}
+                        {/* Redesignet Vindue Card */}
                         <div
                           onClick={() =>
                             setSelectedWindowId(
