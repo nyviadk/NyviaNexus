@@ -8,6 +8,7 @@ import {
   Edit3,
   Plus,
   FolderPlus,
+  Loader2,
 } from "lucide-react";
 import { NexusItem } from "../types";
 import { db } from "../lib/firebase";
@@ -33,6 +34,7 @@ export const SidebarItem = ({
 }: Props) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const isFolder = item.type === "folder";
   const childItems = allItems.filter((i) => i.parentId === item.id);
@@ -40,7 +42,9 @@ export const SidebarItem = ({
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm(`Slet "${item.name}"?`)) {
+      setIsSyncing(true);
       await NexusService.deleteItem(item, allItems);
+      setIsSyncing(false);
       onRefresh();
     }
   };
@@ -49,7 +53,9 @@ export const SidebarItem = ({
     e.stopPropagation();
     const newName = prompt("Nyt navn:", item.name);
     if (newName && newName !== item.name) {
+      setIsSyncing(true);
       await NexusService.renameItem(item.id, newName);
+      setIsSyncing(false);
       onRefresh();
     }
   };
@@ -61,11 +67,9 @@ export const SidebarItem = ({
   };
 
   const handleClick = async () => {
-    if (isFolder) {
-      setIsOpen(!isOpen);
-    } else if (onSelect) {
-      onSelect(item);
-    } else {
+    if (isFolder) setIsOpen(!isOpen);
+    else if (onSelect) onSelect(item);
+    else {
       const winSnap = await getDocs(
         collection(db, "workspaces_data", item.id, "windows")
       );
@@ -80,9 +84,7 @@ export const SidebarItem = ({
   const onDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("itemId", item.id);
     e.dataTransfer.effectAllowed = "move";
-    if (onDragStateChange) {
-      setTimeout(() => onDragStateChange(true), 50);
-    }
+    if (onDragStateChange) setTimeout(() => onDragStateChange(true), 50);
   };
 
   const onDragEnd = () => {
@@ -104,14 +106,16 @@ export const SidebarItem = ({
     if (onDragStateChange) onDragStateChange(false);
     const draggedId = e.dataTransfer.getData("itemId");
     if (draggedId && draggedId !== item.id) {
+      setIsSyncing(true);
       await NexusService.moveItem(draggedId, item.id);
+      setIsSyncing(false);
       onRefresh();
     }
   };
 
   return (
     <div
-      className={`select-none transition-all duration-200 rounded-xl mb-0.5 ${
+      className={`select-none transition-all duration-200 rounded-xl mb-0.5 relative ${
         isDragOver
           ? "bg-blue-600/30 ring-2 ring-blue-500 scale-[1.02] shadow-xl z-10"
           : ""
@@ -122,12 +126,14 @@ export const SidebarItem = ({
     >
       <div
         onClick={handleClick}
-        draggable
+        draggable={!isSyncing}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
         className="group flex items-center gap-2 p-2 rounded-xl cursor-grab active:cursor-grabbing transition-colors hover:bg-slate-800/80 text-slate-300 hover:text-white"
       >
-        {isFolder ? (
+        {isSyncing ? (
+          <Loader2 size={14} className="animate-spin text-blue-400" />
+        ) : isFolder ? (
           isOpen ? (
             <ChevronDown size={14} className="text-slate-500" />
           ) : (
@@ -136,51 +142,50 @@ export const SidebarItem = ({
         ) : (
           <Layout size={16} className="text-blue-400 shrink-0 shadow-sm" />
         )}
-
-        {isFolder && (
+        {isFolder && !isSyncing && (
           <Folder
             size={16}
             className="text-yellow-500 fill-current opacity-90 shrink-0"
           />
         )}
-
         <span className="flex-1 truncate text-sm font-medium">{item.name}</span>
 
-        {/* Ikon-container der dukker op ved hover */}
-        <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          {isFolder && (
-            <>
-              <button
-                onClick={(e) => handleAdd(e, "folder")}
-                title="Ny undermappe"
-                className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-blue-400"
-              >
-                <FolderPlus size={14} />
-              </button>
-              <button
-                onClick={(e) => handleAdd(e, "workspace")}
-                title="Nyt space heri"
-                className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-blue-400"
-              >
-                <Plus size={14} />
-              </button>
-            </>
-          )}
-          <button
-            onClick={handleRename}
-            title="Omdøb"
-            className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-blue-400"
-          >
-            <Edit3 size={14} />
-          </button>
-          <button
-            onClick={handleDelete}
-            title="Slet"
-            className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-red-500"
-          >
-            <Trash2 size={14} />
-          </button>
-        </div>
+        {!isSyncing && (
+          <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            {isFolder && (
+              <>
+                <button
+                  onClick={(e) => handleAdd(e, "folder")}
+                  title="Ny mappe"
+                  className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-blue-400"
+                >
+                  <FolderPlus size={14} />
+                </button>
+                <button
+                  onClick={(e) => handleAdd(e, "workspace")}
+                  title="Nyt space"
+                  className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-blue-400"
+                >
+                  <Plus size={14} />
+                </button>
+              </>
+            )}
+            <button
+              onClick={handleRename}
+              title="Omdøb"
+              className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-blue-400"
+            >
+              <Edit3 size={14} />
+            </button>
+            <button
+              onClick={handleDelete}
+              title="Slet"
+              className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-red-500"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        )}
       </div>
 
       {isFolder && isOpen && (

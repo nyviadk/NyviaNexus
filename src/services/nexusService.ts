@@ -32,7 +32,7 @@ export const NexusService = {
         });
       }
     }
-    await batch.commit();
+    return await batch.commit();
   },
 
   async createItem(data: {
@@ -64,12 +64,12 @@ export const NexusService = {
   },
 
   async renameItem(id: string, newName: string) {
-    await updateDoc(doc(db, "items", id), { name: newName });
+    return await updateDoc(doc(db, "items", id), { name: newName });
   },
 
   async moveItem(itemId: string, newParentId: string) {
-    if (itemId === newParentId) return;
-    await updateDoc(doc(db, "items", itemId), { parentId: newParentId });
+    if (!itemId || itemId === newParentId) return Promise.resolve();
+    return await updateDoc(doc(db, "items", itemId), { parentId: newParentId });
   },
 
   async moveTabBetweenWindows(
@@ -104,7 +104,7 @@ export const NexusService = {
     const batch = writeBatch(db);
     batch.update(sourceRef, { tabs: arrayRemove(tab) });
     batch.update(targetRef, { tabs: arrayUnion(tab) });
-    await batch.commit();
+    return await batch.commit();
   },
 
   async createWorkspace(data: {
@@ -119,7 +119,7 @@ export const NexusService = {
     batch.set(doc(db, "items", data.id), {
       id: data.id,
       name: data.name,
-      type: "workspace" as const, // FIXED: Explicit string literal type
+      type: "workspace" as const,
       parentId: data.parentId,
       profileId: data.profileId,
       createdAt: Date.now(),
@@ -132,6 +132,6 @@ export const NexusService = {
         isActive: true,
       }
     );
-    await batch.commit();
+    return await batch.commit();
   },
 };

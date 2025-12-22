@@ -27,7 +27,7 @@ import {
   Settings,
   ArrowUpCircle,
 } from "lucide-react";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { CreateItemModal } from "../components/CreateItemModal";
 import { LoginForm } from "../components/LoginForm";
 import { SidebarItem } from "../components/SidebarItem";
@@ -59,8 +59,10 @@ const ProfileManagerModal = ({
     if (profiles.length <= 1) return alert("Mindst én profil.");
     if (confirm("Slet profil?")) {
       await deleteDoc(doc(db, "profiles", id));
-      if (activeProfile === id)
-        setActiveProfile(profiles.find((p: Profile) => p.id !== id)?.id || "");
+      if (activeProfile === id) {
+        const next = profiles.find((p: Profile) => p.id !== id);
+        setActiveProfile(next?.id || "");
+      }
     }
   };
   return (
@@ -155,15 +157,17 @@ export const Dashboard = () => {
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const [activeMappings, setActiveMappings] = useState<any[]>([]);
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
-  const [isUpdating, setIsUpdating] = useState(false);
   const [isSystemRestoring, setIsSystemRestoring] = useState(false);
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
   const [isDraggingItem, setIsDraggingItem] = useState(false);
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
 
+  const isPerformingAction = useRef(false);
+
   const applyState = useCallback(
     (state: any) => {
+      if (isPerformingAction.current) return;
       if (state.profiles) {
         setProfiles(state.profiles);
         if (state.profiles.length > 0 && !activeProfile)
@@ -189,7 +193,10 @@ export const Dashboard = () => {
     });
     const messageListener = (msg: any) => {
       if (msg.type === "STATE_UPDATED") applyState(msg.payload);
-      if (msg.type === "WORKSPACE_WINDOWS_UPDATED" && !isUpdating)
+      if (
+        msg.type === "WORKSPACE_WINDOWS_UPDATED" &&
+        !isPerformingAction.current
+      )
         setWindows(msg.payload.windows);
     };
     chrome.runtime.onMessage.addListener(messageListener);
@@ -206,7 +213,7 @@ export const Dashboard = () => {
       chrome.runtime.onMessage.removeListener(messageListener);
       clearInterval(int);
     };
-  }, [applyState, isUpdating]);
+  }, [applyState]);
 
   useEffect(() => {
     if (selectedWorkspace)
@@ -249,23 +256,19 @@ export const Dashboard = () => {
       setSelectedWindowId(windows[0].id);
   }, [windows, selectedWindowId]);
 
-  const handleAddChild = (parentId: string, type: "folder" | "workspace") => {
-    setModalParentId(parentId);
-    setModalType(type);
-  };
-  const handleOpenRootModal = (type: "folder" | "workspace") => {
-    setModalParentId("root");
-    setModalType(type);
-  };
-
   const onDropToRoot = async (e: React.DragEvent) => {
     e.preventDefault();
-    setIsDragOverRoot(false);
-    setIsDraggingItem(false);
     const draggedId = e.dataTransfer.getData("itemId");
     if (draggedId) {
+      isPerformingAction.current = true;
+      setItems((prev) =>
+        prev.map((i) => (i.id === draggedId ? { ...i, parentId: "root" } : i))
+      );
       await NexusService.moveItem(draggedId, "root");
+      isPerformingAction.current = false;
     }
+    setIsDragOverRoot(false);
+    setIsDraggingItem(false);
   };
 
   const handleTabDrop = async (targetWinId: string) => {
@@ -276,7 +279,7 @@ export const Dashboard = () => {
     const sourceWinId = isViewingInbox ? "global" : selectedWindowId;
     if (!sourceWinId || sourceWinId === targetWinId) return;
 
-    setIsUpdating(true);
+    isPerformingAction.current = true;
     try {
       const sourceMapping = activeMappings.find(
         ([_, m]) => m.internalWindowId === sourceWinId
@@ -308,64 +311,51 @@ export const Dashboard = () => {
       }
     } finally {
       window.sessionStorage.removeItem("draggedTab");
-      setTimeout(() => setIsUpdating(false), 1000);
+      isPerformingAction.current = false;
     }
   };
 
-  const currentWindowData = windows.find((w) => w.id === selectedWindowId);
-  const handleMoveTab = async (index: number, direction: "left" | "right") => {
-    if (isSystemRestoring) return;
-    setIsUpdating(true);
-    const tabs = isViewingInbox
-      ? [...(inboxData?.tabs || [])]
-      : [...(currentWindowData?.tabs || [])];
-    const newIdx = direction === "left" ? index - 1 : index + 1;
-    if (newIdx < 0 || newIdx >= tabs.length) {
-      setIsUpdating(false);
-      return;
-    }
-    [tabs[index], tabs[newIdx]] = [tabs[newIdx], tabs[index]];
-    try {
-      if (isViewingInbox)
-        await updateDoc(doc(db, "inbox_data", "global"), { tabs });
-      else if (selectedWorkspace && selectedWindowId)
-        await updateDoc(
-          doc(
-            db,
-            "workspaces_data",
-            selectedWorkspace.id,
-            "windows",
-            selectedWindowId
-          ),
-          { tabs }
-        );
-    } finally {
-      setTimeout(() => setIsUpdating(false), 800);
-    }
+  // --- TAB MANAGEMENT FUNKTIONER ---
+  const toggleSelectAll = () => {
+    const list = isViewingInbox
+      ? inboxData?.tabs || []
+      : windows.find((w) => w.id === selectedWindowId)?.tabs || [];
+    const allUrls = list.map((t: any) => t.url);
+    setSelectedUrls(selectedUrls.length === allUrls.length ? [] : allUrls);
   };
+
   const deleteSelectedTabs = async () => {
     if (
       isSystemRestoring ||
       selectedUrls.length === 0 ||
-      !confirm(`Slet tabs?`)
+      !confirm(`Slet ${selectedUrls.length} tabs?`)
     )
       return;
-    setIsUpdating(true);
-    const tabs = isViewingInbox
+    isPerformingAction.current = true;
+
+    const sourceWinId = isViewingInbox ? "global" : selectedWindowId;
+    const currentTabs = isViewingInbox
       ? [...(inboxData?.tabs || [])]
-      : [...(currentWindowData?.tabs || [])];
-    const filtered = tabs.filter((t: any) => !selectedUrls.includes(t.url));
+      : [...(windows.find((w) => w.id === selectedWindowId)?.tabs || [])];
+    const filtered = currentTabs.filter(
+      (t: any) => !selectedUrls.includes(t.url)
+    );
+
     try {
       chrome.runtime.sendMessage({
         type: "CLOSE_PHYSICAL_TABS",
-        payload: {
-          urls: selectedUrls,
-          internalWindowId: isViewingInbox ? "global" : selectedWindowId,
-        },
+        payload: { urls: selectedUrls, internalWindowId: sourceWinId },
       });
-      if (isViewingInbox)
+
+      if (isViewingInbox) {
+        setInboxData({ ...inboxData, tabs: filtered });
         await updateDoc(doc(db, "inbox_data", "global"), { tabs: filtered });
-      else if (selectedWorkspace && selectedWindowId)
+      } else if (selectedWorkspace && selectedWindowId) {
+        setWindows((prev) =>
+          prev.map((w) =>
+            w.id === selectedWindowId ? { ...w, tabs: filtered } : w
+          )
+        );
         await updateDoc(
           doc(
             db,
@@ -376,44 +366,22 @@ export const Dashboard = () => {
           ),
           { tabs: filtered }
         );
+      }
       setSelectedUrls([]);
     } finally {
-      setTimeout(() => setIsUpdating(false), 800);
+      isPerformingAction.current = false;
     }
   };
-  const emptyInbox = async () => {
-    if (!inboxData?.tabs?.length || !confirm("Ryd Inbox?")) return;
-    setIsUpdating(true);
-    try {
-      chrome.runtime.sendMessage({
-        type: "CLOSE_PHYSICAL_TABS",
-        payload: {
-          urls: inboxData.tabs.map((t: any) => t.url),
-          internalWindowId: "global",
-        },
-      });
-      await updateDoc(doc(db, "inbox_data", "global"), { tabs: [] });
-    } finally {
-      setTimeout(() => setIsUpdating(false), 800);
-    }
-  };
-  const toggleSelectAll = () => {
-    const list = isViewingInbox
-      ? inboxData?.tabs || []
-      : currentWindowData?.tabs || [];
-    setSelectedUrls(
-      selectedUrls.length === list.length ? [] : list.map((t: any) => t.url)
-    );
-  };
+
   const deleteWindowData = async () => {
     if (
       isSystemRestoring ||
       !selectedWindowId ||
       !selectedWorkspace ||
-      !confirm("Slet data?")
+      !confirm("Slet ALT data for dette vindue?")
     )
       return;
-    setIsUpdating(true);
+    isPerformingAction.current = true;
     try {
       await deleteDoc(
         doc(
@@ -424,8 +392,63 @@ export const Dashboard = () => {
       );
       setSelectedWindowId(null);
     } finally {
-      setTimeout(() => setIsUpdating(false), 800);
+      isPerformingAction.current = false;
     }
+  };
+
+  const emptyInbox = async () => {
+    if (!inboxData?.tabs?.length || !confirm("Vil du rydde hele din Inbox?"))
+      return;
+    isPerformingAction.current = true;
+    try {
+      chrome.runtime.sendMessage({
+        type: "CLOSE_PHYSICAL_TABS",
+        payload: {
+          urls: inboxData.tabs.map((t: any) => t.url),
+          internalWindowId: "global",
+        },
+      });
+      setInboxData({ ...inboxData, tabs: [] });
+      await updateDoc(doc(db, "inbox_data", "global"), { tabs: [] });
+    } finally {
+      isPerformingAction.current = false;
+    }
+  };
+
+  const currentWindowData = windows.find((w) => w.id === selectedWindowId);
+  const handleMoveTab = async (index: number, direction: "left" | "right") => {
+    if (isSystemRestoring) return;
+    isPerformingAction.current = true;
+    const tabs = isViewingInbox
+      ? [...(inboxData?.tabs || [])]
+      : [...(currentWindowData?.tabs || [])];
+    const newIdx = direction === "left" ? index - 1 : index + 1;
+    if (newIdx < 0 || newIdx >= tabs.length) {
+      isPerformingAction.current = false;
+      return;
+    }
+    [tabs[index], tabs[newIdx]] = [tabs[newIdx], tabs[index]];
+
+    if (isViewingInbox) setInboxData({ ...inboxData, tabs });
+    else
+      setWindows((prev) =>
+        prev.map((w) => (w.id === selectedWindowId ? { ...w, tabs } : w))
+      );
+
+    if (isViewingInbox)
+      await updateDoc(doc(db, "inbox_data", "global"), { tabs });
+    else if (selectedWorkspace && selectedWindowId)
+      await updateDoc(
+        doc(
+          db,
+          "workspaces_data",
+          selectedWorkspace.id,
+          "windows",
+          selectedWindowId
+        ),
+        { tabs }
+      );
+    isPerformingAction.current = false;
   };
 
   const TabCard = ({ tab, index }: { tab: any; index: number }) => (
@@ -438,9 +461,7 @@ export const Dashboard = () => {
         selectedUrls.includes(tab.url)
           ? "border-blue-500 bg-blue-500/5"
           : "border-slate-800"
-      } flex flex-col gap-2 hover:bg-slate-900 transition group relative ${
-        isSystemRestoring ? "opacity-50 pointer-events-none" : ""
-      }`}
+      } flex flex-col gap-2 hover:bg-slate-900 transition group relative`}
     >
       <div
         className="absolute top-2 right-2 cursor-pointer text-slate-600 hover:text-blue-400"
@@ -494,7 +515,7 @@ export const Dashboard = () => {
         <button
           onClick={() => {
             setSelectedUrls([tab.url]);
-            setTimeout(deleteSelectedTabs, 10);
+            deleteSelectedTabs();
           }}
           className="p-1 text-slate-600 hover:text-red-500"
         >
@@ -526,7 +547,6 @@ export const Dashboard = () => {
         </div>
       )}
 
-      {/* SIDEBAR BREDDE: w-80 (Standard Tailwind) */}
       <aside className="w-80 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0 shadow-2xl z-20">
         <div className="p-6 border-b border-slate-800 font-black text-white text-xl uppercase tracking-tighter flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg shadow-blue-500/20">
@@ -570,7 +590,7 @@ export const Dashboard = () => {
                 onDrop={onDropToRoot}
                 className={`p-4 border-2 border-dashed rounded-2xl flex items-center justify-center gap-3 transition-all duration-300 ${
                   isDragOverRoot
-                    ? "bg-blue-600/20 border-blue-400 scale-[1.02] shadow-lg shadow-blue-500/10 text-blue-400"
+                    ? "bg-blue-600/20 border-blue-400 scale-[1.02] text-blue-400 shadow-lg"
                     : "bg-slate-800/40 border-slate-700 text-slate-500"
                 }`}
               >
@@ -589,18 +609,28 @@ export const Dashboard = () => {
                 Spaces
                 <div className="flex gap-2">
                   <button
-                    onClick={() => handleOpenRootModal("folder")}
+                    onClick={() => {
+                      setModalParentId("root");
+                      setModalType("folder");
+                    }}
                     title="Ny Mappe"
-                    className="hover:text-white transition-colors"
                   >
-                    <FolderPlus size={14} />
+                    <FolderPlus
+                      size={14}
+                      className="hover:text-white transition-colors"
+                    />
                   </button>
                   <button
-                    onClick={() => handleOpenRootModal("workspace")}
+                    onClick={() => {
+                      setModalParentId("root");
+                      setModalType("workspace");
+                    }}
                     title="Nyt Space"
-                    className="hover:text-white transition-colors"
                   >
-                    <PlusCircle size={14} />
+                    <PlusCircle
+                      size={14}
+                      className="hover:text-white transition-colors"
+                    />
                   </button>
                 </div>
               </div>
@@ -621,7 +651,10 @@ export const Dashboard = () => {
                         setIsViewingInbox(false);
                         setSelectedWorkspace(it);
                       }}
-                      onAddChild={handleAddChild}
+                      onAddChild={(pid, type) => {
+                        setModalParentId(pid);
+                        setModalType(type);
+                      }}
                       onDragStateChange={(dragging) =>
                         setIsDraggingItem(dragging)
                       }
@@ -649,7 +682,7 @@ export const Dashboard = () => {
               }}
               className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all ${
                 isViewingInbox || dropTargetWinId === "global"
-                  ? "bg-orange-600/20 text-orange-400 border border-orange-500/50 shadow-lg shadow-orange-900/10 scale-[1.02]"
+                  ? "bg-orange-600/20 text-orange-400 border border-orange-500/50 shadow-lg"
                   : "hover:bg-slate-800 text-slate-400"
               }`}
               onDragLeave={() => setDropTargetWinId(null)}
@@ -717,28 +750,6 @@ export const Dashboard = () => {
                               <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
                             )}
                           </button>
-                          {!activeMappings.some(
-                            ([_, m]: any) => m.internalWindowId === win.id
-                          ) && (
-                            <button
-                              onClick={async (e: any) => {
-                                e.stopPropagation();
-                                if (confirm("Slet data?"))
-                                  await deleteDoc(
-                                    doc(
-                                      db,
-                                      `workspaces_data/${
-                                        selectedWorkspace!.id
-                                      }/windows`,
-                                      win.id
-                                    )
-                                  );
-                              }}
-                              className="absolute -top-2 -right-2 bg-red-600 text-white p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition"
-                            >
-                              <X size={10} />
-                            </button>
-                          )}
                         </div>
                         <button
                           onClick={() =>
