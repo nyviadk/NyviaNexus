@@ -48,21 +48,13 @@ function broadcast(type: string, payload: any) {
 }
 
 function startFirebaseListeners() {
-  // PROFILER: Her sikrer vi at id bliver tilføjet dokumentet
   onSnapshot(collection(db, "profiles"), (snap) => {
-    globalState.profiles = snap.docs.map((d) => ({
-      id: d.id,
-      ...(d.data() as object),
-    }));
+    globalState.profiles = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     broadcast("STATE_UPDATED", { profiles: globalState.profiles });
   });
 
-  // ITEMS: Her sikrer vi at id bliver tilføjet dokumentet
   onSnapshot(collection(db, "items"), (snap) => {
-    globalState.items = snap.docs.map((d) => ({
-      id: d.id,
-      ...(d.data() as object),
-    }));
+    globalState.items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     broadcast("STATE_UPDATED", { items: globalState.items });
   });
 
@@ -161,6 +153,7 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
         url: t.url || "",
         favIconUrl: t.favIconUrl || "",
       }));
+
     if (mapping && validTabs.length === 0 && isRemoval) {
       const docRef = doc(
         db,
@@ -175,6 +168,7 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       chrome.windows.remove(windowId);
       return;
     }
+
     if (mapping) {
       await updateWindowGrouping(windowId, mapping);
       const docRef = doc(
@@ -227,7 +221,6 @@ chrome.tabs.onUpdated.addListener((_id, change, tab) => {
   if (change.status === "complete" && tab.windowId)
     saveToFirestore(tab.windowId, false);
 });
-
 chrome.tabs.onRemoved.addListener((_id, info) => {
   if (!info.isWindowClosing) saveToFirestore(info.windowId, true);
 });

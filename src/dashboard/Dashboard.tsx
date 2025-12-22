@@ -32,51 +32,42 @@ import { LoginForm } from "../components/LoginForm";
 import { SidebarItem } from "../components/SidebarItem";
 import { auth, db } from "../lib/firebase";
 import { NexusItem, Profile, WorkspaceWindow } from "../types";
+import { NexusService } from "../services/nexusService";
 
-// MODAL KOMPONENT (Flyttet ud for at bevare fokus på input)
 const ProfileManagerModal = ({
   profiles,
   onClose,
   activeProfile,
   setActiveProfile,
-}: {
-  profiles: Profile[];
-  onClose: () => void;
-  activeProfile: string;
-  setActiveProfile: (id: string) => void;
-}) => {
+}: any) => {
   const [newProfileName, setNewProfileName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
-
   const addProfile = async () => {
     if (!newProfileName.trim()) return;
     await addDoc(collection(db, "profiles"), { name: newProfileName });
     setNewProfileName("");
   };
-
   const saveEdit = async (id: string) => {
     if (!id) return;
     await updateDoc(doc(db, "profiles", id), { name: editName });
     setEditingId(null);
   };
-
   const removeProfile = async (id: string) => {
     if (!id) return;
-    if (profiles.length <= 1) return alert("Du skal have mindst én profil.");
-    if (confirm("Slet profil og alt tilhørende data?")) {
+    if (profiles.length <= 1) return alert("Mindst én profil.");
+    if (confirm("Slet profil?")) {
       await deleteDoc(doc(db, "profiles", id));
       if (activeProfile === id)
-        setActiveProfile(profiles.find((p) => p.id !== id)?.id || "");
+        setActiveProfile(profiles.find((p: Profile) => p.id !== id)?.id || ""); // FIXED: p type
     }
   };
-
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
       <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-3xl p-8 shadow-2xl space-y-6">
         <div className="flex justify-between items-center">
           <h3 className="text-xl font-bold text-white uppercase tracking-tight">
-            Administrer Profiler
+            Profiler
           </h3>
           <button onClick={onClose} className="text-slate-500 hover:text-white">
             <X size={20} />
@@ -86,7 +77,7 @@ const ProfileManagerModal = ({
           <input
             value={newProfileName}
             onChange={(e) => setNewProfileName(e.target.value)}
-            placeholder="Ny profil navn..."
+            placeholder="Navn..."
             className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none focus:border-blue-500 transition"
           />
           <button
@@ -97,7 +88,7 @@ const ProfileManagerModal = ({
           </button>
         </div>
         <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
-          {profiles.map((p) => (
+          {profiles.map((p: Profile) => (
             <div
               key={p.id}
               className="flex items-center gap-2 p-3 bg-slate-800/50 rounded-2xl border border-slate-800 group"
@@ -156,6 +147,7 @@ export const Dashboard = () => {
   const [modalType, setModalType] = useState<
     "folder" | "workspace" | "profiles" | null
   >(null);
+  const [modalParentId, setModalParentId] = useState<string>("root");
   const [inboxData, setInboxData] = useState<any>(null);
   const [isViewingInbox, setIsViewingInbox] = useState(false);
   const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
@@ -165,14 +157,14 @@ export const Dashboard = () => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isSystemRestoring, setIsSystemRestoring] = useState(false);
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
+  const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
 
   const applyState = useCallback(
     (state: any) => {
       if (state.profiles) {
         setProfiles(state.profiles);
-        if (state.profiles.length > 0 && !activeProfile) {
+        if (state.profiles.length > 0 && !activeProfile)
           setActiveProfile(state.profiles[0].id);
-        }
       }
       if (state.items) setItems(state.items);
       if (state.inbox) setInboxData(state.inbox);
@@ -192,14 +184,11 @@ export const Dashboard = () => {
         });
       }
     });
-
     const messageListener = (msg: any) => {
       if (msg.type === "STATE_UPDATED") applyState(msg.payload);
-      if (msg.type === "WORKSPACE_WINDOWS_UPDATED" && !isUpdating) {
+      if (msg.type === "WORKSPACE_WINDOWS_UPDATED" && !isUpdating)
         setWindows(msg.payload.windows);
-      }
     };
-
     chrome.runtime.onMessage.addListener(messageListener);
     const int = setInterval(() => {
       chrome.runtime.sendMessage(
@@ -210,7 +199,6 @@ export const Dashboard = () => {
         setIsSystemRestoring(res)
       );
     }, 1000);
-
     return () => {
       chrome.runtime.onMessage.removeListener(messageListener);
       clearInterval(int);
@@ -218,12 +206,11 @@ export const Dashboard = () => {
   }, [applyState, isUpdating]);
 
   useEffect(() => {
-    if (selectedWorkspace) {
+    if (selectedWorkspace)
       chrome.runtime.sendMessage({
         type: "WATCH_WORKSPACE",
         payload: selectedWorkspace.id,
       });
-    }
   }, [selectedWorkspace]);
 
   useEffect(() => {
@@ -255,13 +242,79 @@ export const Dashboard = () => {
     if (
       windows.length > 0 &&
       (!selectedWindowId || !windows.some((w) => w.id === selectedWindowId))
-    ) {
+    )
       setSelectedWindowId(windows[0].id);
-    }
   }, [windows, selectedWindowId]);
 
-  const currentWindowData = windows.find((w) => w.id === selectedWindowId);
+  const handleAddChild = (parentId: string, type: "folder" | "workspace") => {
+    setModalParentId(parentId);
+    setModalType(type);
+  };
+  const handleOpenRootModal = (type: "folder" | "workspace") => {
+    setModalParentId("root");
+    setModalType(type);
+  };
+  const onDropToRoot = async (e: React.DragEvent) => {
+    e.preventDefault();
+    const draggedId = e.dataTransfer.getData("itemId");
+    if (draggedId)
+      await updateDoc(doc(db, "items", draggedId), { parentId: "root" });
+  };
 
+  // --- TAB DRAG & DROP LOGIK ---
+  const handleTabDrop = async (targetWinId: string) => {
+    setDropTargetWinId(null);
+    const tabJson = window.sessionStorage.getItem("draggedTab");
+    if (!tabJson) return;
+    const tab = JSON.parse(tabJson);
+    const sourceWinId = isViewingInbox ? "global" : selectedWindowId;
+    if (!sourceWinId || sourceWinId === targetWinId) return;
+
+    setIsUpdating(true);
+    try {
+      // 1. Find ud af om kilde-vinduet er åbent i Chrome
+      const sourceMapping = activeMappings.find(
+        ([_, m]) => m.internalWindowId === sourceWinId
+      );
+      const targetMapping = activeMappings.find(
+        ([_, m]) => m.internalWindowId === targetWinId
+      );
+
+      // 2. Hvis begge er åbne, flyt fanen fysisk først (Dette trigger auto-sync i baggrunden)
+      if (sourceMapping && targetMapping) {
+        const tabs = await chrome.tabs.query({ windowId: sourceMapping[0] });
+        const targetTab = tabs.find((t) => t.url === tab.url);
+        if (targetTab?.id) {
+          await chrome.tabs.move(targetTab.id, {
+            windowId: targetMapping[0],
+            index: -1,
+          });
+        }
+      } else {
+        // 3. Hvis et af vinduerne er lukket, flyt kun data i Firestore
+        await NexusService.moveTabBetweenWindows(
+          tab,
+          selectedWorkspace?.id || "global",
+          sourceWinId,
+          selectedWorkspace?.id || "global",
+          targetWinId
+        );
+
+        // Hvis kun kilde var åben, luk fanen fysisk
+        if (sourceMapping) {
+          chrome.runtime.sendMessage({
+            type: "CLOSE_PHYSICAL_TABS",
+            payload: { urls: [tab.url], internalWindowId: sourceWinId },
+          });
+        }
+      }
+    } finally {
+      window.sessionStorage.removeItem("draggedTab");
+      setTimeout(() => setIsUpdating(false), 1000);
+    }
+  };
+
+  const currentWindowData = windows.find((w) => w.id === selectedWindowId);
   const handleMoveTab = async (index: number, direction: "left" | "right") => {
     if (isSystemRestoring) return;
     setIsUpdating(true);
@@ -292,12 +345,11 @@ export const Dashboard = () => {
       setTimeout(() => setIsUpdating(false), 800);
     }
   };
-
   const deleteSelectedTabs = async () => {
     if (
       isSystemRestoring ||
       selectedUrls.length === 0 ||
-      !confirm(`Slet ${selectedUrls.length} tabs?`)
+      !confirm(`Slet tabs?`)
     )
       return;
     setIsUpdating(true);
@@ -331,10 +383,8 @@ export const Dashboard = () => {
       setTimeout(() => setIsUpdating(false), 800);
     }
   };
-
   const emptyInbox = async () => {
-    if (!inboxData?.tabs?.length || !confirm("Vil du rydde hele din Inbox?"))
-      return;
+    if (!inboxData?.tabs?.length || !confirm("Ryd Inbox?")) return;
     setIsUpdating(true);
     try {
       chrome.runtime.sendMessage({
@@ -349,7 +399,6 @@ export const Dashboard = () => {
       setTimeout(() => setIsUpdating(false), 800);
     }
   };
-
   const toggleSelectAll = () => {
     const list = isViewingInbox
       ? inboxData?.tabs || []
@@ -358,13 +407,12 @@ export const Dashboard = () => {
       selectedUrls.length === list.length ? [] : list.map((t: any) => t.url)
     );
   };
-
   const deleteWindowData = async () => {
     if (
       isSystemRestoring ||
       !selectedWindowId ||
       !selectedWorkspace ||
-      !confirm("Slet ALT data?")
+      !confirm("Slet data?")
     )
       return;
     setIsUpdating(true);
@@ -384,7 +432,11 @@ export const Dashboard = () => {
 
   const TabCard = ({ tab, index }: { tab: any; index: number }) => (
     <div
-      className={`bg-slate-900/40 p-4 rounded-2xl border ${
+      draggable
+      onDragStart={() =>
+        window.sessionStorage.setItem("draggedTab", JSON.stringify(tab))
+      }
+      className={`bg-slate-900/40 p-4 rounded-2xl border cursor-grab active:cursor-grabbing ${
         selectedUrls.includes(tab.url)
           ? "border-blue-500 bg-blue-500/5"
           : "border-slate-800"
@@ -394,13 +446,14 @@ export const Dashboard = () => {
     >
       <div
         className="absolute top-2 right-2 cursor-pointer text-slate-600 hover:text-blue-400"
-        onClick={() =>
+        onClick={(e) => {
+          e.stopPropagation();
           setSelectedUrls((prev) =>
             prev.includes(tab.url)
               ? prev.filter((u) => u !== tab.url)
               : [...prev, tab.url]
-          )
-        }
+          );
+        }}
       >
         {selectedUrls.includes(tab.url) ? (
           <CheckSquare size={16} className="text-blue-500" />
@@ -459,7 +512,6 @@ export const Dashboard = () => {
         <LoginForm />
       </div>
     );
-
   const isViewingCurrent = activeMappings.some(
     ([id, m]: any) =>
       id === currentWindowId && m.internalWindowId === selectedWindowId
@@ -475,7 +527,6 @@ export const Dashboard = () => {
           </div>
         </div>
       )}
-
       <aside className="w-72 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0">
         <div className="p-6 border-b border-slate-800 font-black text-white text-xl uppercase tracking-tighter flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center">
@@ -489,12 +540,12 @@ export const Dashboard = () => {
               value={activeProfile}
               onChange={(e) => {
                 setActiveProfile(e.target.value);
-                setSelectedWorkspace(null); // Nulstil valgt space ved skift
+                setSelectedWorkspace(null);
                 setIsViewingInbox(false);
               }}
               className="flex-1 bg-slate-800 p-2 rounded-xl border border-slate-700 text-sm outline-none"
             >
-              {profiles.map((p) => (
+              {profiles.map((p: Profile) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                 </option>
@@ -507,20 +558,20 @@ export const Dashboard = () => {
               <Settings size={18} />
             </button>
           </div>
-          <nav className="space-y-1">
+          <nav
+            className="space-y-1"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={onDropToRoot}
+          >
             <div className="flex justify-between items-center px-2 mb-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
               Spaces
               <div className="flex gap-2">
-                <FolderPlus
-                  size={14}
-                  className="cursor-pointer hover:text-white"
-                  onClick={() => setModalType("folder")}
-                />
-                <PlusCircle
-                  size={14}
-                  className="cursor-pointer hover:text-white"
-                  onClick={() => setModalType("workspace")}
-                />
+                <button onClick={() => handleOpenRootModal("folder")}>
+                  <FolderPlus size={14} className="hover:text-white" />
+                </button>
+                <button onClick={() => handleOpenRootModal("workspace")}>
+                  <PlusCircle size={14} className="hover:text-white" />
+                </button>
               </div>
             </div>
             {items
@@ -537,10 +588,18 @@ export const Dashboard = () => {
                     setIsViewingInbox(false);
                     setSelectedWorkspace(it);
                   }}
+                  onAddChild={handleAddChild}
                 />
               ))}
           </nav>
-          <nav className="space-y-1">
+          <nav
+            className="space-y-1"
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDropTargetWinId("global");
+            }}
+            onDrop={() => handleTabDrop("global")}
+          >
             <label className="text-[10px] font-bold text-slate-500 uppercase px-2 mb-2 block tracking-widest">
               Opsamling
             </label>
@@ -550,10 +609,11 @@ export const Dashboard = () => {
                 setIsViewingInbox(true);
               }}
               className={`flex items-center gap-2 p-2 rounded cursor-pointer text-sm transition ${
-                isViewingInbox
-                  ? "bg-orange-600/20 text-orange-400"
+                isViewingInbox || dropTargetWinId === "global"
+                  ? "bg-orange-600/20 text-orange-400 border border-orange-500/30"
                   : "hover:bg-slate-800 text-slate-400"
               }`}
+              onDragLeave={() => setDropTargetWinId(null)}
             >
               <InboxIcon size={16} />{" "}
               <span>Inbox ({inboxData?.tabs?.length || 0})</span>
@@ -572,7 +632,6 @@ export const Dashboard = () => {
           </button>
         </div>
       </aside>
-
       <main className="flex-1 flex flex-col bg-slate-950 relative">
         {selectedWorkspace || isViewingInbox ? (
           <>
@@ -594,13 +653,20 @@ export const Dashboard = () => {
                       <div
                         key={win.id}
                         className="flex flex-col gap-1 items-center"
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setDropTargetWinId(win.id);
+                        }}
+                        onDrop={() => handleTabDrop(win.id)}
+                        onDragLeave={() => setDropTargetWinId(null)}
                       >
                         <div className="relative group">
                           <button
                             onClick={() => setSelectedWindowId(win.id)}
                             className={`px-4 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-2 ${
-                              selectedWindowId === win.id
-                                ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30"
+                              selectedWindowId === win.id ||
+                              dropTargetWinId === win.id
+                                ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30 scale-105"
                                 : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                             }`}
                           >
@@ -755,9 +821,15 @@ export const Dashboard = () => {
         <CreateItemModal
           type={modalType}
           activeProfile={activeProfile}
-          parentId="root"
-          onClose={() => setModalType(null)}
-          onSuccess={() => setModalType(null)}
+          parentId={modalParentId}
+          onClose={() => {
+            setModalType(null);
+            setModalParentId("root");
+          }}
+          onSuccess={() => {
+            setModalType(null);
+            setModalParentId("root");
+          }}
         />
       )}
       {modalType === "profiles" && (

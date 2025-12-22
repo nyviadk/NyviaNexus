@@ -1,25 +1,28 @@
 import { db } from "../lib/firebase";
-import { writeBatch, doc, collection, getDocs } from "firebase/firestore";
+import {
+  writeBatch,
+  doc,
+  collection,
+  getDocs,
+  updateDoc,
+  arrayRemove,
+  arrayUnion,
+} from "firebase/firestore";
 import { NexusItem } from "../types";
 
 export const NexusService = {
-  // Sletter et element og alle dets børn rekursivt (Batching)
   async deleteItem(item: NexusItem, allItems: NexusItem[]) {
     const batch = writeBatch(db);
     const itemsToDelete: string[] = [];
-
     const findChildren = (parentId: string) => {
       itemsToDelete.push(parentId);
       const children = allItems.filter((i) => i.parentId === parentId);
       children.forEach((child) => findChildren(child.id));
     };
-
     findChildren(item.id);
-
     for (const id of itemsToDelete) {
-      const currentItem = allItems.find((i) => i.id === id) || item;
       batch.delete(doc(db, "items", id));
-
+      const currentItem = allItems.find((i) => i.id === id) || item;
       if (currentItem.type === "workspace") {
         const winSnap = await getDocs(
           collection(db, "workspaces_data", id, "windows")
@@ -32,7 +35,6 @@ export const NexusService = {
     await batch.commit();
   },
 
-  // Opretter en mappe eller et workspace (Batching)
   async createItem(data: {
     name: string;
     type: "folder" | "workspace";
@@ -41,7 +43,6 @@ export const NexusService = {
   }) {
     const id = `${data.type === "folder" ? "fol" : "ws"}_${Date.now()}`;
     const batch = writeBatch(db);
-
     batch.set(doc(db, "items", id), {
       id,
       name: data.name,
@@ -50,7 +51,6 @@ export const NexusService = {
       profileId: data.profileId,
       createdAt: Date.now(),
     });
-
     if (data.type === "workspace") {
       const winId = `win_${Date.now()}`;
       batch.set(doc(db, "workspaces_data", id, "windows", winId), {
@@ -64,12 +64,49 @@ export const NexusService = {
   },
 
   async renameItem(id: string, newName: string) {
+    await updateDoc(doc(db, "items", id), { name: newName });
+  },
+
+  async moveItem(itemId: string, newParentId: string) {
+    if (itemId === newParentId) return;
+    await updateDoc(doc(db, "items", itemId), { parentId: newParentId });
+  },
+
+  async moveTabBetweenWindows(
+    tab: any,
+    sourceWorkspaceId: string,
+    sourceWindowId: string,
+    targetWorkspaceId: string,
+    targetWindowId: string
+  ) {
+    const sourceRef =
+      sourceWindowId === "global"
+        ? doc(db, "inbox_data", "global")
+        : doc(
+            db,
+            "workspaces_data",
+            sourceWorkspaceId,
+            "windows",
+            sourceWindowId
+          );
+
+    const targetRef =
+      targetWindowId === "global"
+        ? doc(db, "inbox_data", "global")
+        : doc(
+            db,
+            "workspaces_data",
+            targetWorkspaceId,
+            "windows",
+            targetWindowId
+          );
+
     const batch = writeBatch(db);
-    batch.update(doc(db, "items", id), { name: newName });
+    batch.update(sourceRef, { tabs: arrayRemove(tab) });
+    batch.update(targetRef, { tabs: arrayUnion(tab) });
     await batch.commit();
   },
 
-  // Bruges til 'Claim Window' funktionen
   async createWorkspace(data: {
     id: string;
     name: string;
@@ -82,7 +119,7 @@ export const NexusService = {
     batch.set(doc(db, "items", data.id), {
       id: data.id,
       name: data.name,
-      type: "workspace",
+      type: "workspace" as const, // FIXED: Explicit type
       parentId: data.parentId,
       profileId: data.profileId,
       createdAt: Date.now(),
