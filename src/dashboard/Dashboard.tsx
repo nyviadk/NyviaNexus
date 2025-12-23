@@ -225,6 +225,9 @@ export const Dashboard = () => {
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
   const [isSyncingRoot, setIsSyncingRoot] = useState(false);
 
+  // Visual Loading State for Main View during moves
+  const [isProcessingMove, setIsProcessingMove] = useState(false);
+
   // NEW: Inbox Drag State
   const [isInboxDragOver, setIsInboxDragOver] = useState(false);
   const [inboxDropStatus, setInboxDropStatus] = useState<
@@ -351,6 +354,23 @@ export const Dashboard = () => {
       });
   }, [selectedWorkspace]);
 
+  // --- AUTO-SELECT FIRST WINDOW LOGIC ---
+  useEffect(() => {
+    if (
+      selectedWorkspace &&
+      !isViewingInbox &&
+      windows.length > 0 &&
+      !selectedWindowId
+    ) {
+      const sorted = [...windows].sort(
+        (a: any, b: any) => (a.index || 0) - (b.index || 0)
+      );
+      if (sorted[0]?.id) {
+        setSelectedWindowId(sorted[0].id);
+      }
+    }
+  }, [windows, selectedWorkspace, selectedWindowId, isViewingInbox]);
+
   const emergencyRepairHierarchy = async () => {
     if (
       !confirm(
@@ -419,6 +439,7 @@ export const Dashboard = () => {
     if (!sourceWinId || sourceWinId === targetWinId) return;
 
     isPerformingAction.current = true;
+    setIsProcessingMove(true);
     try {
       const sourceMapping = activeMappings.find(
         ([_, m]) => m.internalWindowId === sourceWinId
@@ -448,10 +469,12 @@ export const Dashboard = () => {
             payload: { urls: [tab.url], internalWindowId: sourceWinId },
           });
       }
-      await new Promise((r) => setTimeout(r, 500));
+      // REDUCERET DELAY TIL 200ms
+      await new Promise((r) => setTimeout(r, 200));
     } finally {
       window.sessionStorage.removeItem("draggedTab");
       isPerformingAction.current = false;
+      setIsProcessingMove(false);
     }
   };
 
@@ -467,14 +490,12 @@ export const Dashboard = () => {
     const targetWorkspaceId =
       targetItem === "global" ? "global" : targetItem.id;
 
-    // Sikkerhedscheck: Flyt ikke til samme space
     if (sourceWorkspaceId === targetWorkspaceId) return;
 
     isPerformingAction.current = true;
+    setIsProcessingMove(true);
     try {
-      // 1. Tilføj til destinationen
       if (targetWorkspaceId === "global") {
-        // Til Inbox
         const inboxRef = doc(db, "inbox_data", "global");
         const inboxSnap = await getDoc(inboxRef);
         const currentTabs = inboxSnap.exists()
@@ -492,7 +513,6 @@ export const Dashboard = () => {
           );
         }
       } else {
-        // Til et Space (første vindue eller nyt)
         const windowsCol = collection(
           db,
           "workspaces_data",
@@ -519,7 +539,6 @@ export const Dashboard = () => {
         }
       }
 
-      // 2. Fjern fra kilden
       const sourceWinId = isViewingInbox
         ? "global"
         : selectedWindowId || "global";
@@ -561,7 +580,6 @@ export const Dashboard = () => {
         }
       }
 
-      // 3. Luk fysisk fane
       const sourceMapping = activeMappings.find(
         ([_, m]) => m.internalWindowId === sourceWinId
       );
@@ -571,13 +589,28 @@ export const Dashboard = () => {
           payload: { urls: [tab.url], internalWindowId: sourceWinId },
         });
       }
+
+      // REDUCERET DELAY TIL 200ms
+      await new Promise((resolve) => setTimeout(resolve, 200));
     } catch (e) {
       console.error("Move tab error", e);
       alert("Fejl ved flytning af fane.");
     } finally {
       isPerformingAction.current = false;
+      setIsProcessingMove(false);
       window.sessionStorage.removeItem("draggedTab");
     }
+  };
+
+  // --- WORKSPACE CLICK LOGIC (UPDATED) ---
+  const handleWorkspaceClick = (item: NexusItem) => {
+    if (selectedWorkspace?.id === item.id) return;
+
+    setIsViewingInbox(false);
+    setSelectedWorkspace(item);
+
+    setWindows([]);
+    setSelectedWindowId(null);
   };
 
   const toggleSelectAll = () => {
@@ -886,10 +919,7 @@ export const Dashboard = () => {
                       item={item}
                       allItems={items}
                       onRefresh={() => {}}
-                      onSelect={(it: NexusItem) => {
-                        setIsViewingInbox(false);
-                        setSelectedWorkspace(it);
-                      }}
+                      onSelect={(it: NexusItem) => handleWorkspaceClick(it)}
                       onAddChild={(pid, type) => {
                         setModalParentId(pid);
                         setModalType(type);
@@ -967,7 +997,6 @@ export const Dashboard = () => {
                 setSelectedWorkspace(null);
                 setIsViewingInbox(true);
               }}
-              // HER ER DEN RETTEDE CLASSNAME LOGIK:
               className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all border ${
                 isViewingInbox
                   ? "bg-orange-600/20 text-orange-400 border-orange-500/50 shadow-lg"
@@ -975,8 +1004,8 @@ export const Dashboard = () => {
                   ? "bg-blue-800/60 border-blue-400 text-blue-200 shadow-[0_0_15px_rgba(59,130,246,0.4)] scale-[1.02]"
                   : inboxDropStatus === "invalid"
                   ? "bg-red-900/40 border-red-400 text-red-300 shadow-[0_0_15px_rgba(239,68,68,0.4)] opacity-80"
-                  : isInboxDragOver // <--- NU BRUGES DEN HER
-                  ? "bg-slate-700 border-slate-500 text-slate-200" // Generisk drag-over look
+                  : isInboxDragOver
+                  ? "bg-slate-700 border-slate-500 text-slate-200"
                   : "hover:bg-slate-700 text-slate-400 border-transparent"
               }`}
             >
@@ -998,6 +1027,13 @@ export const Dashboard = () => {
         </div>
       </aside>
       <main className="flex-1 flex flex-col bg-slate-900 relative">
+        {/* MAIN VIEW LOADER OVERLAY */}
+        {isProcessingMove && (
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center">
+            <Loader2 className="animate-spin text-blue-500" size={48} />
+          </div>
+        )}
+
         {selectedWorkspace || isViewingInbox ? (
           <>
             <header className="p-8 pb-4 flex justify-between items-end border-b border-slate-800 bg-slate-800/30">

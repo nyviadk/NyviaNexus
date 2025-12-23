@@ -24,8 +24,8 @@ interface Props {
   onDragStateChange: (id: string | null) => void;
   onDragEndCleanup: () => void;
   activeDragId: string | null;
-  // Ny prop til at håndtere tab drops
-  onTabDrop?: (targetItem: NexusItem) => void;
+  // Opdateret type til at returnere Promise for loader-styring
+  onTabDrop?: (targetItem: NexusItem) => Promise<void>;
 }
 
 export const SidebarItem = ({
@@ -41,7 +41,6 @@ export const SidebarItem = ({
 }: Props) => {
   const [isOpen, setIsOpen] = useState(true);
   const [isDragOver, setIsDragOver] = useState(false);
-  // Ny state til tab validation styling
   const [tabDropStatus, setTabDropStatus] = useState<
     "valid" | "invalid" | null
   >(null);
@@ -60,12 +59,11 @@ export const SidebarItem = ({
 
   useEffect(() => {
     if (!activeDragId) {
-      if (!tabDropStatus) setIsDragOver(false); // Only reset if not processing a tab drag
+      if (!tabDropStatus) setIsDragOver(false);
       dragCounter.current = 0;
     }
   }, [activeDragId]);
 
-  // FIX: Type-safe descendant check
   const isDescendant = (
     sourceId: string,
     targetId: string,
@@ -105,9 +103,8 @@ export const SidebarItem = ({
   };
 
   const onDragStart = (e: React.DragEvent) => {
-    // Marker at dette er et ITEM drag, ikke et tab drag
     e.dataTransfer.setData("nexus/item-id", item.id);
-    e.dataTransfer.setData("itemId", item.id); // Backward comp
+    e.dataTransfer.setData("itemId", item.id);
     e.dataTransfer.effectAllowed = "move";
     setTimeout(() => onDragStateChange(item.id), 50);
   };
@@ -124,13 +121,11 @@ export const SidebarItem = ({
     e.stopPropagation();
     dragCounter.current++;
 
-    // Check om det er en TAB der dragges (fra Dashboard)
     const tabJson = window.sessionStorage.getItem("draggedTab");
     if (tabJson) {
       const tabData = JSON.parse(tabJson);
       const isSourceSpace = tabData.sourceWorkspaceId === item.id;
 
-      // Logik: Rød hvis det er en mappe ELLER hvis tabben kommer fra samme space
       if (isFolder || isSourceSpace) {
         setTabDropStatus("invalid");
       } else {
@@ -139,7 +134,6 @@ export const SidebarItem = ({
       return;
     }
 
-    // Ellers alm. item sortering logik
     if (isFolder) {
       setIsDragOver(true);
     }
@@ -165,15 +159,20 @@ export const SidebarItem = ({
     // --- TAB DROP HANDLER ---
     const tabJson = window.sessionStorage.getItem("draggedTab");
     if (tabJson) {
-      // Hvis det er en mappe eller samme space, gør intet (invalid drop)
       const tabData = JSON.parse(tabJson);
       if (isFolder || tabData.sourceWorkspaceId === item.id) {
         return;
       }
 
-      // Valid drop -> Trigger prop funktion
       if (onTabDrop) {
-        onTabDrop(item);
+        setIsSyncing(true); // Start visuel loader
+        try {
+          await onTabDrop(item);
+          // Tvungen pause på 500ms for visuel feedback, ligesom ved mappe-flyt
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        } finally {
+          setIsSyncing(false); // Stop loader
+        }
       }
       return;
     }
@@ -217,7 +216,6 @@ export const SidebarItem = ({
     }
   };
 
-  // Bestem border/bg farve baseret på drop type
   let containerClasses =
     "relative z-10 flex items-center gap-2 p-2 rounded-xl mb-1 cursor-grab active:cursor-grabbing transition-all border ";
 
@@ -228,7 +226,6 @@ export const SidebarItem = ({
     containerClasses +=
       "bg-red-900/40 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.4)] opacity-80";
   } else if (isDragOver) {
-    // Alm. item drag over folder
     containerClasses += isInvalidItemDrop
       ? "bg-red-900/40 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.4)]"
       : "bg-blue-800/60 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.4)] scale-[1.02]";
@@ -384,7 +381,6 @@ export const SidebarItem = ({
                     onDragStateChange={onDragStateChange}
                     onDragEndCleanup={onDragEndCleanup}
                     activeDragId={activeDragId}
-                    // Vi sender prop videre ned i træet
                     onTabDrop={onTabDrop}
                   />
                 </div>
