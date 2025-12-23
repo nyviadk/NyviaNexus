@@ -233,6 +233,7 @@ export const Dashboard = () => {
   const [inboxDropStatus, setInboxDropStatus] = useState<
     "valid" | "invalid" | null
   >(null);
+  const [isInboxSyncing, setIsInboxSyncing] = useState(false);
 
   const isPerformingAction = useRef(false);
   const rootDragCounter = useRef(0);
@@ -469,7 +470,6 @@ export const Dashboard = () => {
             payload: { urls: [tab.url], internalWindowId: sourceWinId },
           });
       }
-      // REDUCERET DELAY TIL 200ms
       await new Promise((r) => setTimeout(r, 200));
     } finally {
       window.sessionStorage.removeItem("draggedTab");
@@ -494,25 +494,43 @@ export const Dashboard = () => {
 
     isPerformingAction.current = true;
     setIsProcessingMove(true);
+    if (targetItem === "global") setIsInboxSyncing(true);
+
     try {
+      // Clean tab object
+      const cleanTab = {
+        title: tab.title,
+        url: tab.url,
+        favIconUrl: tab.favIconUrl,
+      };
+
+      // 1. ADD TO TARGET
       if (targetWorkspaceId === "global") {
+        // Til Inbox
+        // Optimistic Update
+        const currentLocalTabs = inboxData?.tabs || [];
+        if (!currentLocalTabs.some((t: any) => t.url === cleanTab.url)) {
+          setInboxData({ ...inboxData, tabs: [...currentLocalTabs, cleanTab] });
+        }
+
         const inboxRef = doc(db, "inbox_data", "global");
         const inboxSnap = await getDoc(inboxRef);
         const currentTabs = inboxSnap.exists()
           ? inboxSnap.data().tabs || []
           : [];
 
-        if (!currentTabs.some((t: any) => t.url === tab.url)) {
+        if (!currentTabs.some((t: any) => t.url === cleanTab.url)) {
           await setDoc(
             inboxRef,
             {
-              tabs: [...currentTabs, tab],
+              tabs: [...currentTabs, cleanTab],
               lastUpdate: serverTimestamp(),
             },
             { merge: true }
           );
         }
       } else {
+        // Til et Space (første vindue eller nyt)
         const windowsCol = collection(
           db,
           "workspaces_data",
@@ -524,7 +542,7 @@ export const Dashboard = () => {
         if (!windowsSnap.empty) {
           const firstWin = windowsSnap.docs[0];
           const winData = firstWin.data();
-          const newTabs = [...(winData.tabs || []), tab];
+          const newTabs = [...(winData.tabs || []), cleanTab];
           await updateDoc(firstWin.ref, { tabs: newTabs });
         } else {
           const newWinRef = doc(
@@ -532,33 +550,36 @@ export const Dashboard = () => {
           );
           await setDoc(newWinRef, {
             id: newWinRef.id,
-            tabs: [tab],
+            tabs: [cleanTab],
             isActive: false,
             lastActive: serverTimestamp(),
           });
         }
       }
 
+      // 2. REMOVE FROM SOURCE
       const sourceWinId = isViewingInbox
         ? "global"
         : selectedWindowId || "global";
 
       if (sourceWorkspaceId === "global") {
+        // Fjern fra Inbox
         const newInboxTabs = (inboxData?.tabs || []).filter(
-          (t: any) => t.url !== tab.url
+          (t: any) => t.url !== cleanTab.url
         );
         setInboxData({ ...inboxData, tabs: newInboxTabs });
         await updateDoc(doc(db, "inbox_data", "global"), {
           tabs: newInboxTabs,
         });
       } else {
+        // Fjern fra Space Vindue
         if (selectedWindowId) {
           setWindows((prev) =>
             prev.map((w) => {
               if (w.id === selectedWindowId) {
                 return {
                   ...w,
-                  tabs: w.tabs.filter((t: any) => t.url !== tab.url),
+                  tabs: w.tabs.filter((t: any) => t.url !== cleanTab.url),
                 };
               }
               return w;
@@ -574,23 +595,26 @@ export const Dashboard = () => {
           const winSnap = await getDoc(winRef);
           if (winSnap.exists()) {
             const tabs = winSnap.data().tabs || [];
-            const filtered = tabs.filter((t: any) => t.url !== tab.url);
+            const filtered = tabs.filter((t: any) => t.url !== cleanTab.url);
             await updateDoc(winRef, { tabs: filtered });
           }
         }
       }
 
+      // 3. CLOSE PHYSICAL TAB
+      // Hvis vi er i Inbox, er sourceWinId "global".
+      // Vi skal lukke fanen hvis den enten er i en mapped window ELLER hvis vi kommer fra inbox ("global")
       const sourceMapping = activeMappings.find(
         ([_, m]) => m.internalWindowId === sourceWinId
       );
-      if (sourceMapping) {
+
+      if (sourceWinId === "global" || sourceMapping) {
         chrome.runtime.sendMessage({
           type: "CLOSE_PHYSICAL_TABS",
-          payload: { urls: [tab.url], internalWindowId: sourceWinId },
+          payload: { urls: [cleanTab.url], internalWindowId: sourceWinId },
         });
       }
 
-      // REDUCERET DELAY TIL 200ms
       await new Promise((resolve) => setTimeout(resolve, 200));
     } catch (e) {
       console.error("Move tab error", e);
@@ -598,11 +622,12 @@ export const Dashboard = () => {
     } finally {
       isPerformingAction.current = false;
       setIsProcessingMove(false);
+      setIsInboxSyncing(false);
       window.sessionStorage.removeItem("draggedTab");
     }
   };
 
-  // --- WORKSPACE CLICK LOGIC (UPDATED) ---
+  // --- WORKSPACE CLICK LOGIC ---
   const handleWorkspaceClick = (item: NexusItem) => {
     if (selectedWorkspace?.id === item.id) return;
 
@@ -1009,7 +1034,11 @@ export const Dashboard = () => {
                   : "hover:bg-slate-700 text-slate-400 border-transparent"
               }`}
             >
-              <InboxIcon size={16} />{" "}
+              {isInboxSyncing ? (
+                <Loader2 size={16} className="animate-spin text-blue-400" />
+              ) : (
+                <InboxIcon size={16} />
+              )}
               <span>Inbox ({inboxData?.tabs?.length || 0})</span>
             </div>
           </nav>
