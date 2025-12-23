@@ -63,7 +63,7 @@ export const CreateItemModal = ({
         // Luk hvis man klikker på backdrop (udenfor selve dialogen)
         if (e.target === dialogRef.current) handleClose();
       }}
-      className="bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm open:animate-in open:fade-in open:zoom-in-95"
+      className="bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm open:animate-in open:fade-in open:zoom-in-95 m-auto"
     >
       <div className="bg-slate-800 border border-slate-600 w-full max-w-sm rounded-2xl p-6 shadow-2xl">
         <div className="flex justify-between items-center mb-6">

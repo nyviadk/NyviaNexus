@@ -85,7 +85,7 @@ const ProfileManagerModal = ({
       ref={dialogRef}
       onCancel={onClose}
       onClick={(e) => e.target === dialogRef.current && onClose()}
-      className="bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm open:animate-in open:fade-in open:zoom-in-95"
+      className="bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm open:animate-in open:fade-in open:zoom-in-95 m-auto"
     >
       <div className="bg-slate-800 border border-slate-600 w-full max-w-md rounded-3xl p-8 shadow-2xl space-y-6">
         <div className="flex justify-between items-center">
