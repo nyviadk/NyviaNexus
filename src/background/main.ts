@@ -30,8 +30,7 @@ let lastDashboardTime = 0;
 let activeWindows = new Map<number, WinMapping>();
 const lockedWindowIds = new Set<number>();
 
-// NYT: Vi holder styr på hvilke URL'er vi har "set" i denne session.
-// Dette forhindrer at vi sletter "Zombies" (gemte tabs), som vi bare ikke har åbnet endnu.
+// Session Memory
 let sessionKnownUrls = new Set<string>();
 
 let globalState = {
@@ -101,7 +100,7 @@ async function loadAndVerifyWindows() {
 }
 loadAndVerifyWindows();
 
-// --- TAB GROUPING HELPERS ---
+// --- VISUEL GRUPPERING (EPHEMERAL GROUPS) ---
 async function updateWindowGrouping(
   windowId: number,
   mapping: WinMapping | null
@@ -110,41 +109,50 @@ async function updateWindowGrouping(
     const groupName = mapping
       ? `${mapping.workspaceName.toUpperCase()} (${mapping.index})`
       : "INBOX";
-    const groups = await chrome.tabGroups.query({ windowId });
+
+    const color = mapping ? "blue" : "grey";
+
     const tabs = await chrome.tabs.query({ windowId });
-    const tabIds = tabs
+
+    // RETTELSE HER: Vi filtrerer også explicit på !isDash(t.url)
+    // Dette sikrer, at Dashboardet ALDRIG kommer med i gruppen, selv hvis pinned driller.
+    const tabsToGroup = tabs
       .filter((t) => !t.pinned && t.id && !isDash(t.url))
       .map((t) => t.id as number);
 
-    if (tabIds.length === 0) {
-      for (const g of groups) {
-        const gTabs = await chrome.tabs.query({ windowId, groupId: g.id });
-        const ids = gTabs.map((t) => t.id).filter(Boolean) as number[];
-        if (ids.length > 0)
-          await chrome.tabs.ungroup(ids as [number, ...number[]]);
-      }
-      return;
-    }
+    if (tabsToGroup.length === 0) return;
 
-    const existingGroup = groups[0];
-    if (!existingGroup || existingGroup.title !== groupName) {
-      const groupId = await (chrome.tabs.group({
-        tabIds: tabIds as [number, ...number[]],
-      }) as any);
-      await chrome.tabGroups.update(groupId, {
-        title: groupName,
-        color: mapping ? "blue" : "grey",
-      });
-    } else {
+    const groups = await chrome.tabGroups.query({ windowId });
+    const existingGroup = groups.find((g) => g.title === groupName);
+
+    // TypeScript Casts
+    const safeTabIds = tabsToGroup as [number, ...number[]];
+
+    if (existingGroup) {
       await chrome.tabs.group({
-        tabIds: tabIds as [number, ...number[]],
+        tabIds: safeTabIds,
         groupId: existingGroup.id,
       });
+      if (existingGroup.color !== color) {
+        await chrome.tabGroups.update(existingGroup.id, { color: color });
+      }
+    } else {
+      const groupId = (await chrome.tabs.group({
+        tabIds: safeTabIds,
+      })) as number;
+
+      await chrome.tabGroups.update(groupId, {
+        title: groupName,
+        color: color as any,
+        collapsed: false,
+      });
     }
-  } catch (e) {}
+  } catch (e) {
+    // Ignorer fejl
+  }
 }
 
-// --- SAVE FUNCTION (MED SMART MERGE LOGIK) ---
+// --- SAVE FUNCTION ---
 async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
   if (lockedWindowIds.has(windowId) || activeRestorations > 0) return;
 
@@ -158,9 +166,7 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
 
     const mapping = activeWindows.get(windowId);
 
-    // ============================================
-    // SPACE LOGIK (Normal opførsel - "What you see is what you get")
-    // ============================================
+    // SPACE LOGIK
     if (mapping) {
       if (!windowExists) return;
 
@@ -172,6 +178,8 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
           url: t.url || "",
           favIconUrl: t.favIconUrl || "",
         }));
+
+      await updateWindowGrouping(windowId, mapping);
 
       if (validTabs.length === 0 && isRemoval) {
         const docRef = doc(
@@ -188,7 +196,6 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
         return;
       }
 
-      await updateWindowGrouping(windowId, mapping);
       const docRef = doc(
         db,
         "workspaces_data",
@@ -206,25 +213,19 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
         { merge: true }
       );
     }
-    // ============================================
-    // INBOX LOGIK (MED "SMART MERGE")
-    // ============================================
+    // INBOX LOGIK
     else {
-      // 1. Hvis vinduet der kalder er væk, gør vi intet (Zombie protection).
       if (!windowExists) return;
 
-      // 2. Find alle fysiske Inbox-vinduer
       const allWindows = await chrome.windows.getAll();
       const visibleInboxWindows = allWindows.filter(
         (w) => w.id && !activeWindows.has(w.id) && !lockedWindowIds.has(w.id)
       );
 
-      // Hvis ingen Inbox-vinduer er åbne, rører vi ikke databasen.
       if (visibleInboxWindows.length === 0) return;
 
       await updateWindowGrouping(windowId, null);
 
-      // 3. Hent de FYSISKE (Live) tabs
       let liveTabs: TabData[] = [];
       for (const w of visibleInboxWindows) {
         if (w.id) {
@@ -244,37 +245,32 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
         }
       }
 
-      // 4. Opdater vores hukommelse: "Disse URL'er er nu set live i denne session"
+      if (liveTabs.length === 0) {
+        const checkDoc = await getDoc(doc(db, "inbox_data", "global"));
+        if (checkDoc.exists() && (checkDoc.data().tabs || []).length > 0) {
+          return;
+        }
+      }
+
       liveTabs.forEach((t) => sessionKnownUrls.add(t.url));
 
-      // 5. Hent de GAMLE tabs fra Databasen for at lave en "Merge"
       const inboxDoc = await getDoc(doc(db, "inbox_data", "global"));
       let finalTabsToSave: TabData[] = [...liveTabs];
 
       if (inboxDoc.exists()) {
         const storedTabs = (inboxDoc.data().tabs || []) as TabData[];
-
-        // Loop gennem de gemte tabs:
         for (const storedTab of storedTabs) {
-          // Tjek om denne gemte tab allerede findes i vores live-liste
           const existsInLive = liveTabs.some(
             (live) => live.url === storedTab.url
           );
-
-          // Tjek om vi nogensinde har set den i denne session
           const hasBeenSeen = sessionKnownUrls.has(storedTab.url);
 
-          // LOGIKKEN:
-          // Hvis den IKKE er live lige nu, MEN vi heller ikke har set den før i denne session...
-          // ... så er det en "Zombie" vi ikke har vækket endnu. BEHOLD DEN!
-          // (Hvis hasBeenSeen er true, men den ikke er live, betyder det, at brugeren har lukket den bevidst -> SLET)
           if (!existsInLive && !hasBeenSeen) {
             finalTabsToSave.push(storedTab);
           }
         }
       }
 
-      // 6. Gem den samlede liste (Live + Zombies)
       await setDoc(doc(db, "inbox_data", "global"), {
         tabs: finalTabsToSave,
         lastUpdate: serverTimestamp(),
@@ -311,7 +307,7 @@ chrome.windows.onFocusChanged.addListener(async (winId) => {
       await chrome.tabs.create({
         windowId: winId,
         url: "dashboard.html",
-        pinned: true,
+        pinned: true, // PINNED TRUE
         index: 0,
       });
     }
@@ -335,8 +331,20 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
   lockedWindowIds.delete(windowId);
 });
 
+// --- MESSAGING ---
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const { type, payload } = msg;
+
+  if (type === "GET_WINDOW_NAME") {
+    const mapping = activeWindows.get(payload.windowId);
+    if (mapping) {
+      sendResponse({ name: `${mapping.workspaceName}` });
+    } else {
+      sendResponse({ name: "Inbox" });
+    }
+    return true;
+  }
+
   if (type === "GET_LATEST_STATE") {
     sendResponse(globalState);
   } else if (type === "WATCH_WORKSPACE") {
@@ -446,7 +454,10 @@ async function handleOpenSpecificWindow(
       const winId = newWin.id;
       lockedWindowIds.add(winId);
       const tabs = await chrome.tabs.query({ windowId: winId });
+
+      // VIGTIGT: Pinned TRUE her
       if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
+
       const mapping = {
         workspaceId,
         internalWindowId: winData.id,
@@ -474,7 +485,10 @@ async function handleCreateNewWindowInWorkspace(
     if (newWin?.id) {
       const winId = newWin.id;
       const tabs = await chrome.tabs.query({ windowId: winId });
+
+      // VIGTIGT: Pinned TRUE her
       if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
+
       const internalId = `win_${Date.now()}`;
       const snap = await getDocs(
         collection(db, "workspaces_data", workspaceId, "windows")

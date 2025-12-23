@@ -36,7 +36,7 @@ import { auth, db } from "../lib/firebase";
 import { NexusService } from "../services/nexusService";
 import { NexusItem, Profile, WorkspaceWindow } from "../types";
 
-// --- Profile Manager Modal (NU MED DIALOG) ---
+// --- Profile Manager Modal ---
 const ProfileManagerModal = ({
   profiles,
   onClose,
@@ -163,6 +163,39 @@ const ProfileManagerModal = ({
   );
 };
 
+// Hjælpefunktion til at lave dynamisk ikon (Power Icon)
+const setDynamicFavicon = (text: string, color: string) => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  // 1. Tegn baggrund (Farvet firkant med afrundede hjørner)
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.roundRect(0, 0, 64, 64, 16);
+  ctx.fill();
+
+  // 2. Tegn bogstav (Første bogstav i navnet)
+  ctx.fillStyle = "white";
+  ctx.font = "bold 40px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text.charAt(0).toUpperCase(), 32, 34);
+
+  // 3. Sæt som favicon
+  const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+  if (link) {
+    link.href = canvas.toDataURL();
+  } else {
+    const newLink = document.createElement("link");
+    newLink.rel = "icon";
+    newLink.href = canvas.toDataURL();
+    document.head.appendChild(newLink);
+  }
+};
+
 export const Dashboard = () => {
   const [user, setUser] = useState<any>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -224,6 +257,28 @@ export const Dashboard = () => {
       localStorage.removeItem("lastActiveWorkspaceId");
     }
   }, [selectedWorkspace, isViewingInbox]);
+
+  // --- DYNAMISK TITEL & FAVICON LOGIK ---
+  useEffect(() => {
+    chrome.windows.getCurrent((win) => {
+      if (win.id) {
+        chrome.runtime.sendMessage(
+          { type: "GET_WINDOW_NAME", payload: { windowId: win.id } },
+          (response) => {
+            // Hvis der er et navn, og det IKKE er "Inbox" -> Space (Blå)
+            if (response && response.name && response.name !== "Inbox") {
+              document.title = `${response.name} — Space`;
+              setDynamicFavicon(response.name, "#2563eb"); // Blå
+            } else {
+              // Ellers -> Inbox (Orange)
+              document.title = "Inbox";
+              setDynamicFavicon("I", "#ea580c"); // Orange
+            }
+          }
+        );
+      }
+    });
+  }, []);
 
   const applyState = useCallback(
     (state: any) => {
@@ -464,7 +519,6 @@ export const Dashboard = () => {
     <div className="group relative">
       <button
         onClick={async () => {
-          // ALERT TILFØJET HER
           if (!confirm("Slet denne tab?")) return;
 
           const sourceWinId = isViewingInbox ? "global" : selectedWindowId!;
@@ -481,7 +535,7 @@ export const Dashboard = () => {
         <X size={12} />
       </button>
 
-      {/* Select Box - Venstre top */}
+      {/* Select Box */}
       <div
         className="absolute top-2 left-2 cursor-pointer z-20 text-slate-500 hover:text-blue-400"
         onClick={(e) => {
@@ -534,7 +588,6 @@ export const Dashboard = () => {
             </div>
           </div>
         </div>
-        {/* Footer med pile er fjernet */}
       </div>
     </div>
   );
@@ -765,7 +818,6 @@ export const Dashboard = () => {
                         onDrop={() => handleTabDrop(win.id)}
                         onDragLeave={() => setDropTargetWinId(null)}
                       >
-                        {/* Redesignet Vindue Card */}
                         <div
                           onClick={() =>
                             setSelectedWindowId(
@@ -813,7 +865,6 @@ export const Dashboard = () => {
                             </button>
                           </div>
 
-                          {/* Trash Icon moved to top right absolute, visible on hover */}
                           <button
                             title="Slet vindue"
                             onClick={async (e) => {
@@ -835,7 +886,6 @@ export const Dashboard = () => {
                             <Trash2 size={12} />
                           </button>
 
-                          {/* Active Indicator */}
                           {activeMappings.some(
                             ([_, m]: any) => m.internalWindowId === win.id
                           ) && (
