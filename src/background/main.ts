@@ -30,6 +30,10 @@ let lastDashboardTime = 0;
 let activeWindows = new Map<number, WinMapping>();
 const lockedWindowIds = new Set<number>();
 
+// NYT: Vi holder styr på hvilke URL'er vi har "set" i denne session.
+// Dette forhindrer at vi sletter "Zombies" (gemte tabs), som vi bare ikke har åbnet endnu.
+let sessionKnownUrls = new Set<string>();
+
 let globalState = {
   profiles: [] as any[],
   items: [] as any[],
@@ -82,7 +86,6 @@ async function loadAndVerifyWindows() {
         await chrome.windows.get(winId);
         activeWindows.set(winId, mapping);
       } catch (e) {
-        // Vinduet findes ikke længere, markér som inaktivt i DB
         const docRef = doc(
           db,
           "workspaces_data",
@@ -141,7 +144,7 @@ async function updateWindowGrouping(
   } catch (e) {}
 }
 
-// --- SAVE FUNCTION WITH STARTUP PROTECTION ---
+// --- SAVE FUNCTION (MED SMART MERGE LOGIK) ---
 async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
   if (lockedWindowIds.has(windowId) || activeRestorations > 0) return;
 
@@ -156,7 +159,7 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
     const mapping = activeWindows.get(windowId);
 
     // ============================================
-    // SPACE LOGIK (Normal opførsel)
+    // SPACE LOGIK (Normal opførsel - "What you see is what you get")
     // ============================================
     if (mapping) {
       if (!windowExists) return;
@@ -204,29 +207,30 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       );
     }
     // ============================================
-    // INBOX LOGIK (Med Startup Protection)
+    // INBOX LOGIK (MED "SMART MERGE")
     // ============================================
     else {
-      // 1. Hvis vinduet er væk, gør intet (bevar Zombies)
+      // 1. Hvis vinduet der kalder er væk, gør vi intet (Zombie protection).
       if (!windowExists) return;
 
-      // 2. Hvis ingen Inbox-vinduer er åbne i hele browseren, gør intet.
+      // 2. Find alle fysiske Inbox-vinduer
       const allWindows = await chrome.windows.getAll();
       const visibleInboxWindows = allWindows.filter(
         (w) => w.id && !activeWindows.has(w.id) && !lockedWindowIds.has(w.id)
       );
 
+      // Hvis ingen Inbox-vinduer er åbne, rører vi ikke databasen.
       if (visibleInboxWindows.length === 0) return;
 
       await updateWindowGrouping(windowId, null);
 
-      // 3. Saml alle tabs fra alle Inbox-vinduer
-      let allInboxTabs: TabData[] = [];
+      // 3. Hent de FYSISKE (Live) tabs
+      let liveTabs: TabData[] = [];
       for (const w of visibleInboxWindows) {
         if (w.id) {
           const winTabs = await chrome.tabs.query({ windowId: w.id });
-          allInboxTabs = [
-            ...allInboxTabs,
+          liveTabs = [
+            ...liveTabs,
             ...winTabs
               .filter(
                 (t) => t.url && !t.url.startsWith("chrome") && !isDash(t.url)
@@ -240,28 +244,39 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
         }
       }
 
-      // ============================================================
-      // STARTUP PROTECTION (FIXET HER)
-      // ============================================================
-      // Hvis vi har fundet 0 tabs (kun Dashboard/NewTab), så tjek DB.
-      // Hvis DB har data, så er det en kold start -> STOP GEMNING.
-      // ============================================================
-      if (allInboxTabs.length === 0) {
-        const inboxDoc = await getDoc(doc(db, "inbox_data", "global"));
-        if (inboxDoc.exists()) {
-          const storedTabs = inboxDoc.data().tabs || [];
-          if (storedTabs.length > 0) {
-            console.log(
-              "Startup Protection: Browser er tom, men DB har data. Stopper overskrivning."
-            );
-            return;
+      // 4. Opdater vores hukommelse: "Disse URL'er er nu set live i denne session"
+      liveTabs.forEach((t) => sessionKnownUrls.add(t.url));
+
+      // 5. Hent de GAMLE tabs fra Databasen for at lave en "Merge"
+      const inboxDoc = await getDoc(doc(db, "inbox_data", "global"));
+      let finalTabsToSave: TabData[] = [...liveTabs];
+
+      if (inboxDoc.exists()) {
+        const storedTabs = (inboxDoc.data().tabs || []) as TabData[];
+
+        // Loop gennem de gemte tabs:
+        for (const storedTab of storedTabs) {
+          // Tjek om denne gemte tab allerede findes i vores live-liste
+          const existsInLive = liveTabs.some(
+            (live) => live.url === storedTab.url
+          );
+
+          // Tjek om vi nogensinde har set den i denne session
+          const hasBeenSeen = sessionKnownUrls.has(storedTab.url);
+
+          // LOGIKKEN:
+          // Hvis den IKKE er live lige nu, MEN vi heller ikke har set den før i denne session...
+          // ... så er det en "Zombie" vi ikke har vækket endnu. BEHOLD DEN!
+          // (Hvis hasBeenSeen er true, men den ikke er live, betyder det, at brugeren har lukket den bevidst -> SLET)
+          if (!existsInLive && !hasBeenSeen) {
+            finalTabsToSave.push(storedTab);
           }
         }
       }
 
-      // Hvis vi når herit, er det sikkert at gemme
+      // 6. Gem den samlede liste (Live + Zombies)
       await setDoc(doc(db, "inbox_data", "global"), {
-        tabs: allInboxTabs,
+        tabs: finalTabsToSave,
         lastUpdate: serverTimestamp(),
       });
     }
