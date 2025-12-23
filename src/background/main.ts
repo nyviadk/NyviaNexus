@@ -114,8 +114,6 @@ async function updateWindowGrouping(
 
     const tabs = await chrome.tabs.query({ windowId });
 
-    // RETTELSE HER: Vi filtrerer også explicit på !isDash(t.url)
-    // Dette sikrer, at Dashboardet ALDRIG kommer med i gruppen, selv hvis pinned driller.
     const tabsToGroup = tabs
       .filter((t) => !t.pinned && t.id && !isDash(t.url))
       .map((t) => t.id as number);
@@ -125,7 +123,6 @@ async function updateWindowGrouping(
     const groups = await chrome.tabGroups.query({ windowId });
     const existingGroup = groups.find((g) => g.title === groupName);
 
-    // TypeScript Casts
     const safeTabIds = tabsToGroup as [number, ...number[]];
 
     if (existingGroup) {
@@ -226,50 +223,64 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
 
       await updateWindowGrouping(windowId, null);
 
-      let liveTabs: TabData[] = [];
+      // --- DEDUPLIKERING START ---
+      // Vi bruger et Map hvor URL er nøglen. Det sikrer automatisk at hver URL kun findes én gang.
+      const uniqueTabsMap = new Map<string, TabData>();
+
+      let hasLiveTabs = false;
+
+      // 1. Scan alle åbne vinduer og tilføj til mappet
       for (const w of visibleInboxWindows) {
         if (w.id) {
           const winTabs = await chrome.tabs.query({ windowId: w.id });
-          liveTabs = [
-            ...liveTabs,
-            ...winTabs
-              .filter(
-                (t) => t.url && !t.url.startsWith("chrome") && !isDash(t.url)
-              )
-              .map((t) => ({
-                title: t.title || "Ny fane",
-                url: t.url || "",
-                favIconUrl: t.favIconUrl || "",
-              })),
-          ];
+          const filtered = winTabs.filter(
+            (t) => t.url && !t.url.startsWith("chrome") && !isDash(t.url)
+          );
+
+          if (filtered.length > 0) hasLiveTabs = true;
+
+          filtered.forEach((t) => {
+            const tabData = {
+              title: t.title || "Ny fane",
+              url: t.url || "",
+              favIconUrl: t.favIconUrl || "",
+            };
+            // Tilføj til unikt map (overskriver hvis den findes)
+            uniqueTabsMap.set(tabData.url, tabData);
+            // Opdater session hukommelse
+            sessionKnownUrls.add(tabData.url);
+          });
         }
       }
 
-      if (liveTabs.length === 0) {
+      // 2. Startup Protection: Hvis ingen LIVE tabs (kun dashboard), stop.
+      if (!hasLiveTabs) {
         const checkDoc = await getDoc(doc(db, "inbox_data", "global"));
         if (checkDoc.exists() && (checkDoc.data().tabs || []).length > 0) {
           return;
         }
       }
 
-      liveTabs.forEach((t) => sessionKnownUrls.add(t.url));
-
+      // 3. Merge med Zombies (Gemte tabs)
       const inboxDoc = await getDoc(doc(db, "inbox_data", "global"));
-      let finalTabsToSave: TabData[] = [...liveTabs];
-
       if (inboxDoc.exists()) {
         const storedTabs = (inboxDoc.data().tabs || []) as TabData[];
         for (const storedTab of storedTabs) {
-          const existsInLive = liveTabs.some(
-            (live) => live.url === storedTab.url
-          );
+          // Tjek: Har vi allerede denne URL i vores liste?
+          const alreadyExists = uniqueTabsMap.has(storedTab.url);
+          // Tjek: Har vi set den i denne session (men lukket den)?
           const hasBeenSeen = sessionKnownUrls.has(storedTab.url);
 
-          if (!existsInLive && !hasBeenSeen) {
-            finalTabsToSave.push(storedTab);
+          // Hvis den IKKE findes i listen endnu, OG vi ikke har "dræbt" den i denne session -> Behold Zombie
+          if (!alreadyExists && !hasBeenSeen) {
+            uniqueTabsMap.set(storedTab.url, storedTab);
           }
         }
       }
+
+      // Konverter Map tilbage til Array
+      const finalTabsToSave = Array.from(uniqueTabsMap.values());
+      // --- DEDUPLIKERING SLUT ---
 
       await setDoc(doc(db, "inbox_data", "global"), {
         tabs: finalTabsToSave,
@@ -307,7 +318,7 @@ chrome.windows.onFocusChanged.addListener(async (winId) => {
       await chrome.tabs.create({
         windowId: winId,
         url: "dashboard.html",
-        pinned: true, // PINNED TRUE
+        pinned: true,
         index: 0,
       });
     }
@@ -455,7 +466,6 @@ async function handleOpenSpecificWindow(
       lockedWindowIds.add(winId);
       const tabs = await chrome.tabs.query({ windowId: winId });
 
-      // VIGTIGT: Pinned TRUE her
       if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
 
       const mapping = {
@@ -486,7 +496,6 @@ async function handleCreateNewWindowInWorkspace(
       const winId = newWin.id;
       const tabs = await chrome.tabs.query({ windowId: winId });
 
-      // VIGTIGT: Pinned TRUE her
       if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
 
       const internalId = `win_${Date.now()}`;
