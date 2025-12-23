@@ -218,7 +218,11 @@ export const Dashboard = () => {
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const [activeMappings, setActiveMappings] = useState<any[]>([]);
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
+
+  // -- SYSTEM STATES --
   const [isSystemRestoring, setIsSystemRestoring] = useState(false);
+  const [isLocalWindowLoading, setIsLocalWindowLoading] = useState(false);
+
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -292,6 +296,51 @@ export const Dashboard = () => {
       }
     });
   }, []);
+
+  // --- LOCAL WINDOW LOADING LISTENER ---
+  useEffect(() => {
+    if (!currentWindowId) return;
+
+    const checkStatus = () => {
+      chrome.tabs.query({ windowId: currentWindowId }, (tabs) => {
+        // Ignorer dashboard.html og chrome:// URLs for at undgå falske loading states
+        const somethingIsLoading = tabs.some(
+          (t) =>
+            t.status === "loading" &&
+            !t.url?.includes("dashboard.html") &&
+            !t.url?.startsWith("chrome://")
+        );
+        setIsLocalWindowLoading(somethingIsLoading);
+      });
+    };
+
+    // Tjek med det samme
+    checkStatus();
+
+    // Lyt efter ændringer
+    const listener = (_id: number, change: any, tab: any) => {
+      // Fixed unused 'id' error
+      if (tab.windowId === currentWindowId) {
+        if (change.status === "loading") {
+          setIsLocalWindowLoading(true);
+        } else if (change.status === "complete") {
+          checkStatus();
+        }
+      }
+    };
+
+    chrome.tabs.onUpdated.addListener(listener);
+    return () => chrome.tabs.onUpdated.removeListener(listener);
+  }, [currentWindowId]);
+
+  // --- SAFETY VALVE FOR LOADER ---
+  // Hvis loaderen hænger i mere end 4 sekunder, tving den væk
+  useEffect(() => {
+    if (isLocalWindowLoading) {
+      const t = setTimeout(() => setIsLocalWindowLoading(false), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [isLocalWindowLoading]);
 
   const applyState = useCallback(
     (state: any) => {
@@ -815,9 +864,12 @@ export const Dashboard = () => {
       </div>
     );
 
+  // COMBINERET LOADER LOGIK:
+  const showLoader = isSystemRestoring || isLocalWindowLoading;
+
   return (
     <div className="flex h-screen bg-slate-900 text-slate-200 overflow-hidden font-sans relative">
-      {isSystemRestoring && (
+      {showLoader && (
         <div className="absolute inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center flex-col gap-4">
           <Loader2 size={48} className="text-blue-500 animate-spin" />
           <div className="text-xl font-bold text-white animate-pulse">
