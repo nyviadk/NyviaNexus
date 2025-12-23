@@ -44,6 +44,7 @@ function broadcast(type: string, payload: any) {
   chrome.runtime.sendMessage({ type, payload }).catch(() => {});
 }
 
+// --- FIREBASE LISTENERS ---
 function startFirebaseListeners() {
   onSnapshot(collection(db, "profiles"), (snap) => {
     globalState.profiles = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -65,6 +66,7 @@ auth.onAuthStateChanged((user) => {
   if (user) startFirebaseListeners();
 });
 
+// --- STORAGE & RESTORATION ---
 async function saveActiveWindowsToStorage() {
   const data = Array.from(activeWindows.entries());
   await chrome.storage.local.set({ nexus_active_windows: data });
@@ -80,6 +82,7 @@ async function loadAndVerifyWindows() {
         await chrome.windows.get(winId);
         activeWindows.set(winId, mapping);
       } catch (e) {
+        // Vinduet findes ikke længere, markér som inaktivt i DB
         const docRef = doc(
           db,
           "workspaces_data",
@@ -95,6 +98,7 @@ async function loadAndVerifyWindows() {
 }
 loadAndVerifyWindows();
 
+// --- TAB GROUPING HELPERS ---
 async function updateWindowGrouping(
   windowId: number,
   mapping: WinMapping | null
@@ -108,6 +112,7 @@ async function updateWindowGrouping(
     const tabIds = tabs
       .filter((t) => !t.pinned && t.id && !isDash(t.url))
       .map((t) => t.id as number);
+
     if (tabIds.length === 0) {
       for (const g of groups) {
         const gTabs = await chrome.tabs.query({ windowId, groupId: g.id });
@@ -117,6 +122,7 @@ async function updateWindowGrouping(
       }
       return;
     }
+
     const existingGroup = groups[0];
     if (!existingGroup || existingGroup.title !== groupName) {
       const groupId = await (chrome.tabs.group({
@@ -135,34 +141,50 @@ async function updateWindowGrouping(
   } catch (e) {}
 }
 
+// --- SAVE FUNCTION WITH STARTUP PROTECTION ---
 async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
   if (lockedWindowIds.has(windowId) || activeRestorations > 0) return;
+
   try {
-    const win = await chrome.windows.get(windowId);
-    const mapping = activeWindows.get(windowId);
-    const tabs = await chrome.tabs.query({ windowId });
-    const validTabs: TabData[] = tabs
-      .filter((t) => t.url && !t.url.startsWith("chrome") && !isDash(t.url))
-      .map((t) => ({
-        title: t.title || "Ny fane",
-        url: t.url || "",
-        favIconUrl: t.favIconUrl || "",
-      }));
-    if (mapping && validTabs.length === 0 && isRemoval) {
-      const docRef = doc(
-        db,
-        "workspaces_data",
-        mapping.workspaceId,
-        "windows",
-        mapping.internalWindowId
-      );
-      await deleteDoc(docRef);
-      activeWindows.delete(windowId);
-      await saveActiveWindowsToStorage();
-      chrome.windows.remove(windowId);
-      return;
+    let windowExists = true;
+    try {
+      await chrome.windows.get(windowId);
+    } catch (e) {
+      windowExists = false;
     }
+
+    const mapping = activeWindows.get(windowId);
+
+    // ============================================
+    // SPACE LOGIK (Normal opførsel)
+    // ============================================
     if (mapping) {
+      if (!windowExists) return;
+
+      const tabs = await chrome.tabs.query({ windowId });
+      const validTabs: TabData[] = tabs
+        .filter((t) => t.url && !t.url.startsWith("chrome") && !isDash(t.url))
+        .map((t) => ({
+          title: t.title || "Ny fane",
+          url: t.url || "",
+          favIconUrl: t.favIconUrl || "",
+        }));
+
+      if (validTabs.length === 0 && isRemoval) {
+        const docRef = doc(
+          db,
+          "workspaces_data",
+          mapping.workspaceId,
+          "windows",
+          mapping.internalWindowId
+        );
+        await deleteDoc(docRef);
+        activeWindows.delete(windowId);
+        await saveActiveWindowsToStorage();
+        chrome.windows.remove(windowId);
+        return;
+      }
+
       await updateWindowGrouping(windowId, mapping);
       const docRef = doc(
         db,
@@ -177,16 +199,31 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
           tabs: validTabs,
           lastActive: serverTimestamp(),
           isActive: true,
-          isIncognito: win.incognito,
         },
         { merge: true }
       );
-    } else {
-      await updateWindowGrouping(windowId, null);
+    }
+    // ============================================
+    // INBOX LOGIK (Med Startup Protection)
+    // ============================================
+    else {
+      // 1. Hvis vinduet er væk, gør intet (bevar Zombies)
+      if (!windowExists) return;
+
+      // 2. Hvis ingen Inbox-vinduer er åbne i hele browseren, gør intet.
       const allWindows = await chrome.windows.getAll();
+      const visibleInboxWindows = allWindows.filter(
+        (w) => w.id && !activeWindows.has(w.id) && !lockedWindowIds.has(w.id)
+      );
+
+      if (visibleInboxWindows.length === 0) return;
+
+      await updateWindowGrouping(windowId, null);
+
+      // 3. Saml alle tabs fra alle Inbox-vinduer
       let allInboxTabs: TabData[] = [];
-      for (const w of allWindows) {
-        if (w.id && !activeWindows.has(w.id) && !lockedWindowIds.has(w.id)) {
+      for (const w of visibleInboxWindows) {
+        if (w.id) {
           const winTabs = await chrome.tabs.query({ windowId: w.id });
           allInboxTabs = [
             ...allInboxTabs,
@@ -202,20 +239,48 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
           ];
         }
       }
+
+      // ============================================================
+      // STARTUP PROTECTION (FIXET HER)
+      // ============================================================
+      // Hvis vi har fundet 0 tabs (kun Dashboard/NewTab), så tjek DB.
+      // Hvis DB har data, så er det en kold start -> STOP GEMNING.
+      // ============================================================
+      if (allInboxTabs.length === 0) {
+        const inboxDoc = await getDoc(doc(db, "inbox_data", "global"));
+        if (inboxDoc.exists()) {
+          const storedTabs = inboxDoc.data().tabs || [];
+          if (storedTabs.length > 0) {
+            console.log(
+              "Startup Protection: Browser er tom, men DB har data. Stopper overskrivning."
+            );
+            return;
+          }
+        }
+      }
+
+      // Hvis vi når herit, er det sikkert at gemme
       await setDoc(doc(db, "inbox_data", "global"), {
         tabs: allInboxTabs,
         lastUpdate: serverTimestamp(),
       });
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error("Save error:", e);
+  }
 }
 
+// --- EVENT LISTENERS ---
 chrome.tabs.onUpdated.addListener((_id, change, tab) => {
-  if (change.status === "complete" && tab.windowId)
+  if (change.status === "complete" && tab.windowId) {
     saveToFirestore(tab.windowId, false);
+  }
 });
+
 chrome.tabs.onRemoved.addListener((_id, info) => {
-  if (!info.isWindowClosing) saveToFirestore(info.windowId, true);
+  if (!info.isWindowClosing) {
+    saveToFirestore(info.windowId, true);
+  }
 });
 
 chrome.windows.onFocusChanged.addListener(async (winId) => {
