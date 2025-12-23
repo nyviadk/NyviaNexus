@@ -24,6 +24,8 @@ interface Props {
   onDragStateChange: (id: string | null) => void;
   onDragEndCleanup: () => void;
   activeDragId: string | null;
+  // Ny prop til at håndtere tab drops
+  onTabDrop?: (targetItem: NexusItem) => void;
 }
 
 export const SidebarItem = ({
@@ -35,9 +37,14 @@ export const SidebarItem = ({
   onDragStateChange,
   onDragEndCleanup,
   activeDragId,
+  onTabDrop,
 }: Props) => {
   const [isOpen, setIsOpen] = useState(true);
   const [isDragOver, setIsDragOver] = useState(false);
+  // Ny state til tab validation styling
+  const [tabDropStatus, setTabDropStatus] = useState<
+    "valid" | "invalid" | null
+  >(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
   const dragCounter = useRef(0);
@@ -48,12 +55,12 @@ export const SidebarItem = ({
     ? allItems.find((i) => i.id === activeDragId)
     : null;
 
-  const isInvalidDrop =
+  const isInvalidItemDrop =
     activeDragId === item.id || draggedItem?.parentId === item.id;
 
   useEffect(() => {
     if (!activeDragId) {
-      setIsDragOver(false);
+      if (!tabDropStatus) setIsDragOver(false); // Only reset if not processing a tab drag
       dragCounter.current = 0;
     }
   }, [activeDragId]);
@@ -67,9 +74,8 @@ export const SidebarItem = ({
     let current = items.find((i) => i.id === targetId);
     while (current && current.parentId !== "root") {
       if (current.parentId === sourceId) return true;
-      // Vi bruger en midlertidig variabel til at tjekke parent
       const parent = items.find((i) => i.id === current?.parentId);
-      if (!parent) break; // Hvis parent ikke findes, stop
+      if (!parent) break;
       current = parent;
     }
     return false;
@@ -99,7 +105,9 @@ export const SidebarItem = ({
   };
 
   const onDragStart = (e: React.DragEvent) => {
-    e.dataTransfer.setData("itemId", item.id);
+    // Marker at dette er et ITEM drag, ikke et tab drag
+    e.dataTransfer.setData("nexus/item-id", item.id);
+    e.dataTransfer.setData("itemId", item.id); // Backward comp
     e.dataTransfer.effectAllowed = "move";
     setTimeout(() => onDragStateChange(item.id), 50);
   };
@@ -107,42 +115,80 @@ export const SidebarItem = ({
   const onDragEnd = () => {
     dragCounter.current = 0;
     setIsDragOver(false);
+    setTabDropStatus(null);
     onDragEndCleanup();
   };
 
   const onDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current++;
+
+    // Check om det er en TAB der dragges (fra Dashboard)
+    const tabJson = window.sessionStorage.getItem("draggedTab");
+    if (tabJson) {
+      const tabData = JSON.parse(tabJson);
+      const isSourceSpace = tabData.sourceWorkspaceId === item.id;
+
+      // Logik: Rød hvis det er en mappe ELLER hvis tabben kommer fra samme space
+      if (isFolder || isSourceSpace) {
+        setTabDropStatus("invalid");
+      } else {
+        setTabDropStatus("valid");
+      }
+      return;
+    }
+
+    // Ellers alm. item sortering logik
     if (isFolder) {
-      e.preventDefault();
-      e.stopPropagation();
-      dragCounter.current++;
       setIsDragOver(true);
     }
   };
 
   const onDragLeave = (e: React.DragEvent) => {
-    if (isFolder) {
-      e.preventDefault();
-      e.stopPropagation();
-      dragCounter.current--;
-      if (dragCounter.current === 0) setIsDragOver(false);
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current--;
+    if (dragCounter.current === 0) {
+      setIsDragOver(false);
+      setTabDropStatus(null);
     }
   };
 
   const onDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     dragCounter.current = 0;
     setIsDragOver(false);
+    setTabDropStatus(null);
 
-    if (!isFolder || isInvalidDrop) {
-      e.preventDefault();
+    // --- TAB DROP HANDLER ---
+    const tabJson = window.sessionStorage.getItem("draggedTab");
+    if (tabJson) {
+      // Hvis det er en mappe eller samme space, gør intet (invalid drop)
+      const tabData = JSON.parse(tabJson);
+      if (isFolder || tabData.sourceWorkspaceId === item.id) {
+        return;
+      }
+
+      // Valid drop -> Trigger prop funktion
+      if (onTabDrop) {
+        onTabDrop(item);
+      }
+      return;
+    }
+
+    // --- ITEM SORTING HANDLER ---
+    if (!isFolder || isInvalidItemDrop) {
       onDragEndCleanup();
       return;
     }
 
-    e.preventDefault();
-    e.stopPropagation();
     onDragEndCleanup();
 
-    const draggedId = e.dataTransfer.getData("itemId");
+    const draggedId =
+      e.dataTransfer.getData("nexus/item-id") ||
+      e.dataTransfer.getData("itemId");
     if (!draggedId) return;
 
     const sourceItem = allItems.find((i) => i.id === draggedId);
@@ -161,7 +207,6 @@ export const SidebarItem = ({
           await NexusService.moveItem(draggedId, item.id);
         }
       }
-
       await new Promise((resolve) => setTimeout(resolve, 500));
     } catch (error) {
       console.error("Fejl ved flytning:", error);
@@ -172,16 +217,32 @@ export const SidebarItem = ({
     }
   };
 
+  // Bestem border/bg farve baseret på drop type
+  let containerClasses =
+    "relative z-10 flex items-center gap-2 p-2 rounded-xl mb-1 cursor-grab active:cursor-grabbing transition-all border ";
+
+  if (tabDropStatus === "valid") {
+    containerClasses +=
+      "bg-blue-800/60 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.4)] scale-[1.02]";
+  } else if (tabDropStatus === "invalid") {
+    containerClasses +=
+      "bg-red-900/40 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.4)] opacity-80";
+  } else if (isDragOver) {
+    // Alm. item drag over folder
+    containerClasses += isInvalidItemDrop
+      ? "bg-red-900/40 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.4)]"
+      : "bg-blue-800/60 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.4)] scale-[1.02]";
+  } else {
+    containerClasses +=
+      "border-transparent hover:bg-slate-700/80 hover:border-slate-600";
+  }
+
   return (
     <div className="relative select-none transition-all duration-200">
       <div
-        className={`relative z-10 flex items-center gap-2 p-2 rounded-xl mb-1 cursor-grab active:cursor-grabbing transition-all border ${
-          isDragOver
-            ? isInvalidDrop
-              ? "bg-red-900/40 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.4)]"
-              : "bg-blue-800/60 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.4)] scale-[1.02]"
-            : "border-transparent hover:bg-slate-700/80 hover:border-slate-600"
-        } ${isSyncing ? "opacity-50 pointer-events-none" : ""}`}
+        className={`${containerClasses} ${
+          isSyncing ? "opacity-50 pointer-events-none" : ""
+        }`}
         onDragEnter={onDragEnter}
         onDragOver={(e) => {
           e.preventDefault();
@@ -233,10 +294,11 @@ export const SidebarItem = ({
           <Folder
             size={16}
             className={`${
-              isDragOver
-                ? isInvalidDrop
-                  ? "text-red-400"
-                  : "text-blue-300"
+              tabDropStatus === "valid" || (isDragOver && !isInvalidItemDrop)
+                ? "text-blue-300"
+                : tabDropStatus === "invalid" ||
+                  (isDragOver && isInvalidItemDrop)
+                ? "text-red-400"
                 : "text-amber-400"
             } fill-current transition-colors shrink-0`}
           />
@@ -322,6 +384,8 @@ export const SidebarItem = ({
                     onDragStateChange={onDragStateChange}
                     onDragEndCleanup={onDragEndCleanup}
                     activeDragId={activeDragId}
+                    // Vi sender prop videre ned i træet
+                    onTabDrop={onTabDrop}
                   />
                 </div>
               );

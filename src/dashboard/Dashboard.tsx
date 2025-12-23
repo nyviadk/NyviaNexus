@@ -4,6 +4,10 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
+  getDocs,
+  serverTimestamp,
+  setDoc,
   updateDoc,
   writeBatch,
 } from "firebase/firestore";
@@ -28,7 +32,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { CreateItemModal } from "../components/CreateItemModal";
 import { LoginForm } from "../components/LoginForm";
 import { SidebarItem } from "../components/SidebarItem";
@@ -171,13 +175,13 @@ const setDynamicFavicon = (text: string, color: string) => {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
-  // 1. Tegn baggrund (Farvet firkant med afrundede hjørner)
+  // 1. Tegn baggrund
   ctx.fillStyle = color;
   ctx.beginPath();
   ctx.roundRect(0, 0, 64, 64, 16);
   ctx.fill();
 
-  // 2. Tegn bogstav (Første bogstav i navnet)
+  // 2. Tegn bogstav
   ctx.fillStyle = "white";
   ctx.font = "bold 40px system-ui, sans-serif";
   ctx.textAlign = "center";
@@ -221,8 +225,15 @@ export const Dashboard = () => {
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
   const [isSyncingRoot, setIsSyncingRoot] = useState(false);
 
+  // NEW: Inbox Drag State
+  const [isInboxDragOver, setIsInboxDragOver] = useState(false);
+  const [inboxDropStatus, setInboxDropStatus] = useState<
+    "valid" | "invalid" | null
+  >(null);
+
   const isPerformingAction = useRef(false);
   const rootDragCounter = useRef(0);
+  const inboxDragCounter = useRef(0);
   const hasLoadedPersistence = useRef(false);
 
   // --- PERSISTENCE LOGIC ---
@@ -265,14 +276,12 @@ export const Dashboard = () => {
         chrome.runtime.sendMessage(
           { type: "GET_WINDOW_NAME", payload: { windowId: win.id } },
           (response) => {
-            // Hvis der er et navn, og det IKKE er "Inbox" -> Space (Blå)
             if (response && response.name && response.name !== "Inbox") {
               document.title = `${response.name} — Space`;
-              setDynamicFavicon(response.name, "#2563eb"); // Blå
+              setDynamicFavicon(response.name, "#2563eb");
             } else {
-              // Ellers -> Inbox (Orange)
               document.title = "Inbox";
-              setDynamicFavicon("I", "#ea580c"); // Orange
+              setDynamicFavicon("I", "#ea580c");
             }
           }
         );
@@ -377,7 +386,12 @@ export const Dashboard = () => {
     e.stopPropagation();
     setIsDragOverRoot(false);
     rootDragCounter.current = 0;
-    const draggedId = e.dataTransfer.getData("itemId");
+
+    // Check om det er et item drag (ikke tab)
+    const draggedId =
+      e.dataTransfer.getData("itemId") ||
+      e.dataTransfer.getData("nexus/item-id");
+
     if (draggedId) {
       isPerformingAction.current = true;
       setIsSyncingRoot(true);
@@ -395,6 +409,7 @@ export const Dashboard = () => {
     }
   };
 
+  // --- TAB DROPPING LOGIC (Between Windows) ---
   const handleTabDrop = async (targetWinId: string) => {
     setDropTargetWinId(null);
     const tabJson = window.sessionStorage.getItem("draggedTab");
@@ -402,6 +417,7 @@ export const Dashboard = () => {
     const tab = JSON.parse(tabJson);
     const sourceWinId = isViewingInbox ? "global" : selectedWindowId;
     if (!sourceWinId || sourceWinId === targetWinId) return;
+
     isPerformingAction.current = true;
     try {
       const sourceMapping = activeMappings.find(
@@ -436,6 +452,131 @@ export const Dashboard = () => {
     } finally {
       window.sessionStorage.removeItem("draggedTab");
       isPerformingAction.current = false;
+    }
+  };
+
+  // --- NEW: TAB DROPPING LOGIC (Onto Sidebar / Inbox) ---
+  const handleSidebarTabDrop = async (targetItem: NexusItem | "global") => {
+    const tabJson = window.sessionStorage.getItem("draggedTab");
+    if (!tabJson) return;
+    const tab = JSON.parse(tabJson);
+
+    const sourceWorkspaceId = isViewingInbox
+      ? "global"
+      : selectedWorkspace?.id || "global";
+    const targetWorkspaceId =
+      targetItem === "global" ? "global" : targetItem.id;
+
+    // Sikkerhedscheck: Flyt ikke til samme space
+    if (sourceWorkspaceId === targetWorkspaceId) return;
+
+    isPerformingAction.current = true;
+    try {
+      // 1. Tilføj til destinationen
+      if (targetWorkspaceId === "global") {
+        // Til Inbox
+        const inboxRef = doc(db, "inbox_data", "global");
+        const inboxSnap = await getDoc(inboxRef);
+        const currentTabs = inboxSnap.exists()
+          ? inboxSnap.data().tabs || []
+          : [];
+
+        if (!currentTabs.some((t: any) => t.url === tab.url)) {
+          await setDoc(
+            inboxRef,
+            {
+              tabs: [...currentTabs, tab],
+              lastUpdate: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+      } else {
+        // Til et Space (første vindue eller nyt)
+        const windowsCol = collection(
+          db,
+          "workspaces_data",
+          targetWorkspaceId,
+          "windows"
+        );
+        const windowsSnap = await getDocs(windowsCol);
+
+        if (!windowsSnap.empty) {
+          const firstWin = windowsSnap.docs[0];
+          const winData = firstWin.data();
+          const newTabs = [...(winData.tabs || []), tab];
+          await updateDoc(firstWin.ref, { tabs: newTabs });
+        } else {
+          const newWinRef = doc(
+            collection(db, "workspaces_data", targetWorkspaceId, "windows")
+          );
+          await setDoc(newWinRef, {
+            id: newWinRef.id,
+            tabs: [tab],
+            isActive: false,
+            lastActive: serverTimestamp(),
+          });
+        }
+      }
+
+      // 2. Fjern fra kilden
+      const sourceWinId = isViewingInbox
+        ? "global"
+        : selectedWindowId || "global";
+
+      if (sourceWorkspaceId === "global") {
+        const newInboxTabs = (inboxData?.tabs || []).filter(
+          (t: any) => t.url !== tab.url
+        );
+        setInboxData({ ...inboxData, tabs: newInboxTabs });
+        await updateDoc(doc(db, "inbox_data", "global"), {
+          tabs: newInboxTabs,
+        });
+      } else {
+        if (selectedWindowId) {
+          setWindows((prev) =>
+            prev.map((w) => {
+              if (w.id === selectedWindowId) {
+                return {
+                  ...w,
+                  tabs: w.tabs.filter((t: any) => t.url !== tab.url),
+                };
+              }
+              return w;
+            })
+          );
+          const winRef = doc(
+            db,
+            "workspaces_data",
+            sourceWorkspaceId,
+            "windows",
+            selectedWindowId
+          );
+          const winSnap = await getDoc(winRef);
+          if (winSnap.exists()) {
+            const tabs = winSnap.data().tabs || [];
+            const filtered = tabs.filter((t: any) => t.url !== tab.url);
+            await updateDoc(winRef, { tabs: filtered });
+          }
+        }
+      }
+
+      // 3. Luk fysisk fane
+      const sourceMapping = activeMappings.find(
+        ([_, m]) => m.internalWindowId === sourceWinId
+      );
+      if (sourceMapping) {
+        chrome.runtime.sendMessage({
+          type: "CLOSE_PHYSICAL_TABS",
+          payload: { urls: [tab.url], internalWindowId: sourceWinId },
+        });
+      }
+    } catch (e) {
+      console.error("Move tab error", e);
+      alert("Fejl ved flytning af fane.");
+    } finally {
+      isPerformingAction.current = false;
+      window.sessionStorage.removeItem("draggedTab");
     }
   };
 
@@ -515,82 +656,99 @@ export const Dashboard = () => {
       id === currentWindowId && m.internalWindowId === selectedWindowId
   );
 
-  const TabCard = ({ tab }: { tab: any; index: number }) => (
-    <div className="group relative">
-      <button
-        onClick={async () => {
-          if (!confirm("Slet denne tab?")) return;
+  const TabCard = ({ tab }: { tab: any; index: number }) => {
+    const currentSpaceId = isViewingInbox
+      ? "global"
+      : selectedWorkspace?.id || "global";
 
-          const sourceWinId = isViewingInbox ? "global" : selectedWindowId!;
-          await NexusService.moveTabBetweenWindows(
-            tab,
-            selectedWorkspace?.id || "global",
-            sourceWinId,
-            "",
-            "global"
-          );
-        }}
-        className="absolute -top-2 -right-2 z-30 bg-slate-700 border border-slate-600 text-slate-300 hover:text-red-400 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition shadow-xl"
-      >
-        <X size={12} />
-      </button>
-
-      {/* Select Box */}
-      <div
-        className="absolute top-2 left-2 cursor-pointer z-20 text-slate-500 hover:text-blue-400"
-        onClick={(e) => {
-          e.stopPropagation();
-          setSelectedUrls((prev) =>
-            prev.includes(tab.url)
-              ? prev.filter((u) => u !== tab.url)
-              : [...prev, tab.url]
-          );
-        }}
-      >
-        {selectedUrls.includes(tab.url) ? (
-          <CheckSquare
-            size={16}
-            className="text-blue-500 bg-slate-900 rounded"
-          />
-        ) : (
-          <Square
-            size={16}
-            className="opacity-0 group-hover:opacity-100 bg-slate-900/50 rounded"
-          />
-        )}
-      </div>
-
-      <div
-        draggable
-        onDragStart={() =>
-          window.sessionStorage.setItem("draggedTab", JSON.stringify(tab))
-        }
-        className={`bg-slate-800/60 p-4 rounded-2xl border cursor-grab active:cursor-grabbing ${
-          selectedUrls.includes(tab.url)
-            ? "border-blue-500 bg-blue-500/10"
-            : "border-slate-700 hover:border-slate-500"
-        } flex flex-col gap-2 hover:bg-slate-800 transition group shadow-md pl-8`}
-      >
-        <div
-          className="flex items-center gap-3 cursor-pointer"
-          onClick={() => chrome.tabs.create({ url: tab.url })}
+    return (
+      <div className="group relative">
+        <button
+          onClick={async (e) => {
+            e.stopPropagation();
+            if (!confirm("Slet denne tab?")) return;
+            const sourceWinId = isViewingInbox ? "global" : selectedWindowId!;
+            await NexusService.moveTabBetweenWindows(
+              tab,
+              selectedWorkspace?.id || "global",
+              sourceWinId,
+              "",
+              "global"
+            );
+          }}
+          className="absolute -top-2 -right-2 z-30 bg-slate-700 border border-slate-600 text-slate-300 hover:text-red-400 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition shadow-xl cursor-pointer"
         >
-          <Globe
-            size={14}
-            className="text-slate-500 group-hover:text-blue-400 shrink-0"
-          />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold text-slate-200">
-              {tab.title}
-            </div>
-            <div className="truncate text-[10px] text-slate-500 italic font-mono">
-              {tab.url}
+          <X size={12} />
+        </button>
+
+        {/* Select Box */}
+        <div
+          className="absolute top-2 left-2 cursor-pointer z-20 text-slate-500 hover:text-blue-400"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedUrls((prev) =>
+              prev.includes(tab.url)
+                ? prev.filter((u) => u !== tab.url)
+                : [...prev, tab.url]
+            );
+          }}
+        >
+          {selectedUrls.includes(tab.url) ? (
+            <CheckSquare
+              size={16}
+              className="text-blue-500 bg-slate-900 rounded"
+            />
+          ) : (
+            <Square
+              size={16}
+              className="opacity-0 group-hover:opacity-100 bg-slate-900/50 rounded"
+            />
+          )}
+        </div>
+
+        <div
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData("nexus/tab", "true");
+            e.dataTransfer.effectAllowed = "move";
+            window.sessionStorage.setItem(
+              "draggedTab",
+              JSON.stringify({
+                ...tab,
+                sourceWorkspaceId: currentSpaceId,
+              })
+            );
+          }}
+          className={`bg-slate-800/60 p-4 rounded-2xl border cursor-grab active:cursor-grabbing ${
+            selectedUrls.includes(tab.url)
+              ? "border-blue-500 bg-blue-500/10"
+              : "border-slate-700 hover:border-slate-500"
+          } flex flex-col gap-2 hover:bg-slate-800 transition group shadow-md pl-8`}
+        >
+          <div
+            className="flex items-center gap-3 cursor-pointer select-none"
+            onClick={(e) => {
+              e.stopPropagation();
+              chrome.tabs.create({ url: tab.url });
+            }}
+          >
+            <Globe
+              size={14}
+              className="text-slate-500 group-hover:text-blue-400 shrink-0"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold text-slate-200 pointer-events-none">
+                {tab.title}
+              </div>
+              <div className="truncate text-[10px] text-slate-500 italic font-mono pointer-events-none">
+                {tab.url}
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   if (!user)
     return (
@@ -743,6 +901,7 @@ export const Dashboard = () => {
                         rootDragCounter.current = 0;
                       }}
                       activeDragId={activeDragId}
+                      onTabDrop={handleSidebarTabDrop}
                     />
                   ))}
               </div>
@@ -753,9 +912,52 @@ export const Dashboard = () => {
             onDragOver={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              setDropTargetWinId("global");
+
+              const tabJson = window.sessionStorage.getItem("draggedTab");
+              if (tabJson) {
+                const tabData = JSON.parse(tabJson);
+                if (tabData.sourceWorkspaceId === "global") {
+                  setInboxDropStatus("invalid");
+                } else {
+                  setInboxDropStatus("valid");
+                }
+              } else {
+                setDropTargetWinId("global");
+              }
             }}
-            onDrop={() => handleTabDrop("global")}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              inboxDragCounter.current++;
+              setIsInboxDragOver(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              inboxDragCounter.current--;
+              if (inboxDragCounter.current === 0) {
+                setIsInboxDragOver(false);
+                setInboxDropStatus(null);
+                setDropTargetWinId(null);
+              }
+            }}
+            onDrop={(e) => {
+              const tabJson = window.sessionStorage.getItem("draggedTab");
+              if (tabJson) {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsInboxDragOver(false);
+                setInboxDropStatus(null);
+                inboxDragCounter.current = 0;
+
+                const tabData = JSON.parse(tabJson);
+                if (tabData.sourceWorkspaceId !== "global") {
+                  handleSidebarTabDrop("global");
+                }
+                return;
+              }
+              handleTabDrop("global");
+            }}
           >
             <label className="text-[10px] font-bold text-slate-400 uppercase px-2 mb-2 block tracking-widest">
               Opsamling
@@ -765,12 +967,18 @@ export const Dashboard = () => {
                 setSelectedWorkspace(null);
                 setIsViewingInbox(true);
               }}
-              className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all ${
-                isViewingInbox || dropTargetWinId === "global"
-                  ? "bg-orange-600/20 text-orange-400 border border-orange-500/50 shadow-lg"
-                  : "hover:bg-slate-700 text-slate-400"
+              // HER ER DEN RETTEDE CLASSNAME LOGIK:
+              className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all border ${
+                isViewingInbox
+                  ? "bg-orange-600/20 text-orange-400 border-orange-500/50 shadow-lg"
+                  : inboxDropStatus === "valid"
+                  ? "bg-blue-800/60 border-blue-400 text-blue-200 shadow-[0_0_15px_rgba(59,130,246,0.4)] scale-[1.02]"
+                  : inboxDropStatus === "invalid"
+                  ? "bg-red-900/40 border-red-400 text-red-300 shadow-[0_0_15px_rgba(239,68,68,0.4)] opacity-80"
+                  : isInboxDragOver // <--- NU BRUGES DEN HER
+                  ? "bg-slate-700 border-slate-500 text-slate-200" // Generisk drag-over look
+                  : "hover:bg-slate-700 text-slate-400 border-transparent"
               }`}
-              onDragLeave={() => setDropTargetWinId(null)}
             >
               <InboxIcon size={16} />{" "}
               <span>Inbox ({inboxData?.tabs?.length || 0})</span>
