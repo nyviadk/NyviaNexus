@@ -70,6 +70,7 @@ const ProfileManagerModal = ({
     await updateDoc(doc(db, "profiles", id), { name: editName });
     setEditingId(null);
   };
+
   const removeProfile = async (id: string) => {
     if (!id) return;
     if (profiles.length <= 1) return alert("Mindst én profil påkrævet.");
@@ -167,39 +168,6 @@ const ProfileManagerModal = ({
   );
 };
 
-// Hjælpefunktion til at lave dynamisk ikon (Power Icon)
-const setDynamicFavicon = (text: string, color: string) => {
-  const canvas = document.createElement("canvas");
-  canvas.width = 64;
-  canvas.height = 64;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  // 1. Tegn baggrund
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.roundRect(0, 0, 64, 64, 16);
-  ctx.fill();
-
-  // 2. Tegn bogstav
-  ctx.fillStyle = "white";
-  ctx.font = "bold 40px system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(text.charAt(0).toUpperCase(), 32, 34);
-
-  // 3. Sæt som favicon
-  const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
-  if (link) {
-    link.href = canvas.toDataURL();
-  } else {
-    const newLink = document.createElement("link");
-    newLink.rel = "icon";
-    newLink.href = canvas.toDataURL();
-    document.head.appendChild(newLink);
-  }
-};
-
 export const Dashboard = () => {
   const [user, setUser] = useState<any>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -224,92 +192,32 @@ export const Dashboard = () => {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
   const [isSyncingRoot, setIsSyncingRoot] = useState(false);
-
-  // Visual Loading State for Main View during moves
   const [isProcessingMove, setIsProcessingMove] = useState(false);
-
-  // NEW: Inbox Drag State
   const [isInboxDragOver, setIsInboxDragOver] = useState(false);
   const [inboxDropStatus, setInboxDropStatus] = useState<
     "valid" | "invalid" | null
   >(null);
   const [isInboxSyncing, setIsInboxSyncing] = useState(false);
 
-  const isPerformingAction = useRef(false);
   const rootDragCounter = useRef(0);
   const inboxDragCounter = useRef(0);
-  const hasLoadedPersistence = useRef(false);
 
-  // --- PERSISTENCE LOGIC ---
+  // --- PERSISTENCE & INIT ---
   useEffect(() => {
     const lastProfile = localStorage.getItem("lastActiveProfileId");
     if (lastProfile) setActiveProfile(lastProfile);
   }, []);
 
   useEffect(() => {
-    if (hasLoadedPersistence.current || items.length === 0 || !activeProfile)
-      return;
-
-    const lastWorkspaceId = localStorage.getItem("lastActiveWorkspaceId");
-    if (lastWorkspaceId) {
-      const ws = items.find((i) => i.id === lastWorkspaceId);
-      if (ws && ws.profileId === activeProfile) {
-        setSelectedWorkspace(ws);
-      }
-    }
-    hasLoadedPersistence.current = true;
-  }, [items, activeProfile]);
-
-  useEffect(() => {
     if (activeProfile)
       localStorage.setItem("lastActiveProfileId", activeProfile);
   }, [activeProfile]);
 
-  useEffect(() => {
-    if (selectedWorkspace) {
-      localStorage.setItem("lastActiveWorkspaceId", selectedWorkspace.id);
-    } else if (isViewingInbox) {
-      localStorage.removeItem("lastActiveWorkspaceId");
-    }
-  }, [selectedWorkspace, isViewingInbox]);
-
-  // --- DYNAMISK TITEL & FAVICON LOGIK ---
-  useEffect(() => {
-    chrome.windows.getCurrent((win) => {
-      if (win.id) {
-        chrome.runtime.sendMessage(
-          { type: "GET_WINDOW_NAME", payload: { windowId: win.id } },
-          (response) => {
-            if (response && response.name && response.name !== "Inbox") {
-              document.title = `${response.name} — Space`;
-              setDynamicFavicon(response.name, "#2563eb");
-            } else {
-              document.title = "Inbox";
-              setDynamicFavicon("I", "#ea580c");
-            }
-          }
-        );
-      }
-    });
+  const applyState = useCallback((state: any) => {
+    if (state.profiles) setProfiles(state.profiles);
+    if (state.items) setItems(state.items);
+    if (state.inbox) setInboxData(state.inbox);
   }, []);
-
-  const applyState = useCallback(
-    (state: any) => {
-      if (isPerformingAction.current) return;
-      if (state.profiles) {
-        setProfiles(state.profiles);
-        if (
-          state.profiles.length > 0 &&
-          !activeProfile &&
-          !localStorage.getItem("lastActiveProfileId")
-        )
-          setActiveProfile(state.profiles[0].id);
-      }
-      if (state.items) setItems(state.items);
-      if (state.inbox) setInboxData(state.inbox);
-    },
-    [activeProfile]
-  );
 
   useEffect(() => {
     onAuthStateChanged(auth, (u) => {
@@ -318,19 +226,25 @@ export const Dashboard = () => {
         chrome.windows.getCurrent(
           (win) => win.id && setCurrentWindowId(win.id)
         );
-        chrome.runtime.sendMessage({ type: "GET_LATEST_STATE" }, (state) => {
-          if (state) applyState(state);
-        });
+        chrome.runtime.sendMessage(
+          { type: "GET_LATEST_STATE" },
+          (state) => state && applyState(state)
+        );
       }
     });
+
     const messageListener = (msg: any) => {
       if (msg.type === "STATE_UPDATED") applyState(msg.payload);
-      if (
-        msg.type === "WORKSPACE_WINDOWS_UPDATED" &&
-        !isPerformingAction.current
-      )
-        setWindows(msg.payload.windows);
+      if (msg.type === "WORKSPACE_WINDOWS_UPDATED") {
+        if (
+          selectedWorkspace &&
+          msg.payload.workspaceId === selectedWorkspace.id
+        ) {
+          setWindows(msg.payload.windows);
+        }
+      }
     };
+
     chrome.runtime.onMessage.addListener(messageListener);
     const int = setInterval(() => {
       chrome.runtime.sendMessage(
@@ -341,21 +255,22 @@ export const Dashboard = () => {
         setIsSystemRestoring(res)
       );
     }, 1000);
+
     return () => {
       chrome.runtime.onMessage.removeListener(messageListener);
       clearInterval(int);
     };
-  }, [applyState]);
+  }, [applyState, selectedWorkspace]);
 
   useEffect(() => {
-    if (selectedWorkspace)
+    if (selectedWorkspace) {
       chrome.runtime.sendMessage({
         type: "WATCH_WORKSPACE",
         payload: selectedWorkspace.id,
       });
+    }
   }, [selectedWorkspace]);
 
-  // --- AUTO-SELECT FIRST WINDOW LOGIC ---
   useEffect(() => {
     if (
       selectedWorkspace &&
@@ -366,71 +281,112 @@ export const Dashboard = () => {
       const sorted = [...windows].sort(
         (a: any, b: any) => (a.index || 0) - (b.index || 0)
       );
-      if (sorted[0]?.id) {
-        setSelectedWindowId(sorted[0].id);
-      }
+      if (sorted[0]?.id) setSelectedWindowId(sorted[0].id);
     }
   }, [windows, selectedWorkspace, selectedWindowId, isViewingInbox]);
 
-  const emergencyRepairHierarchy = async () => {
-    if (
-      !confirm(
-        "ADVARSEL: Dette vil flytte ALLE elementer ud til hovedmappen (Root) for at fikse ødelagte mapper/loops. Vil du fortsætte?"
-      )
-    )
-      return;
+  // --- ACTIONS ---
+  const handleWorkspaceClick = (item: NexusItem) => {
+    if (selectedWorkspace?.id === item.id) return;
+    setIsViewingInbox(false);
+    setSelectedWorkspace(item);
+    setSelectedWindowId(null);
+  };
 
-    setIsSyncingRoot(true);
+  const handleSidebarTabDrop = async (targetItem: NexusItem | "global") => {
+    const tabJson = window.sessionStorage.getItem("draggedTab");
+    if (!tabJson) return;
+    const tab = JSON.parse(tabJson);
+    const sourceWorkspaceId = isViewingInbox
+      ? "global"
+      : selectedWorkspace?.id || "global";
+    const targetWorkspaceId =
+      targetItem === "global" ? "global" : targetItem.id;
+    if (sourceWorkspaceId === targetWorkspaceId) return;
+
+    setIsProcessingMove(true);
+    if (targetItem === "global") setIsInboxSyncing(true);
+
     try {
-      const batch = writeBatch(db);
-      const profileItems = items.filter((i) => i.profileId === activeProfile);
+      const cleanTab = {
+        title: tab.title,
+        url: tab.url,
+        favIconUrl: tab.favIconUrl,
+      };
+      const sourceWinId = isViewingInbox
+        ? "global"
+        : selectedWindowId || "global";
 
-      profileItems.forEach((item) => {
-        if (item.parentId !== "root") {
-          const ref = doc(db, "items", item.id);
-          batch.update(ref, { parentId: "root" });
+      // Destination
+      if (targetWorkspaceId === "global") {
+        const snap = await getDoc(doc(db, "inbox_data", "global"));
+        const currentTabs = snap.exists() ? snap.data().tabs || [] : [];
+        if (!currentTabs.some((t: any) => t.url === cleanTab.url)) {
+          await setDoc(
+            doc(db, "inbox_data", "global"),
+            { tabs: [...currentTabs, cleanTab], lastUpdate: serverTimestamp() },
+            { merge: true }
+          );
         }
-      });
-
-      await batch.commit();
-      alert("Hierarki nulstillet. Alle elementer ligger nu i roden.");
-    } catch (e) {
-      console.error(e);
-      alert("Fejl under reparation.");
-    } finally {
-      setIsSyncingRoot(false);
-    }
-  };
-
-  const onDropToRoot = async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOverRoot(false);
-    rootDragCounter.current = 0;
-
-    // Check om det er et item drag (ikke tab)
-    const draggedId =
-      e.dataTransfer.getData("itemId") ||
-      e.dataTransfer.getData("nexus/item-id");
-
-    if (draggedId) {
-      isPerformingAction.current = true;
-      setIsSyncingRoot(true);
-      setItems((prev) =>
-        prev.map((i) => (i.id === draggedId ? { ...i, parentId: "root" } : i))
-      );
-      try {
-        await NexusService.moveItem(draggedId, "root");
-        await new Promise((r) => setTimeout(r, 500));
-      } finally {
-        isPerformingAction.current = false;
-        setIsSyncingRoot(false);
-        setActiveDragId(null);
+      } else {
+        const snap = await getDocs(
+          collection(db, "workspaces_data", targetWorkspaceId, "windows")
+        );
+        if (!snap.empty) {
+          const firstWin = snap.docs[0];
+          await updateDoc(firstWin.ref, {
+            tabs: [...(firstWin.data().tabs || []), cleanTab],
+          });
+        } else {
+          const newRef = doc(
+            collection(db, "workspaces_data", targetWorkspaceId, "windows")
+          );
+          await setDoc(newRef, {
+            id: newRef.id,
+            tabs: [cleanTab],
+            isActive: false,
+            lastActive: serverTimestamp(),
+          });
+        }
       }
+
+      // Source
+      if (sourceWorkspaceId === "global") {
+        const snap = await getDoc(doc(db, "inbox_data", "global"));
+        if (snap.exists()) {
+          const filtered = (snap.data().tabs || []).filter(
+            (t: any) => t.url !== cleanTab.url
+          );
+          await updateDoc(doc(db, "inbox_data", "global"), { tabs: filtered });
+        }
+      } else if (selectedWorkspace && selectedWindowId) {
+        const winRef = doc(
+          db,
+          "workspaces_data",
+          selectedWorkspace.id,
+          "windows",
+          selectedWindowId
+        );
+        const snap = await getDoc(winRef);
+        if (snap.exists()) {
+          const filtered = (snap.data().tabs || []).filter(
+            (t: any) => t.url !== cleanTab.url
+          );
+          await updateDoc(winRef, { tabs: filtered });
+        }
+      }
+
+      chrome.runtime.sendMessage({
+        type: "CLOSE_PHYSICAL_TABS",
+        payload: { urls: [cleanTab.url], internalWindowId: sourceWinId },
+      });
+    } finally {
+      setIsProcessingMove(false);
+      setIsInboxSyncing(false);
+      window.sessionStorage.removeItem("draggedTab");
     }
   };
 
-  // --- TAB DROPPING LOGIC (Between Windows) ---
   const handleTabDrop = async (targetWinId: string) => {
     setDropTargetWinId(null);
     const tabJson = window.sessionStorage.getItem("draggedTab");
@@ -439,7 +395,6 @@ export const Dashboard = () => {
     const sourceWinId = isViewingInbox ? "global" : selectedWindowId;
     if (!sourceWinId || sourceWinId === targetWinId) return;
 
-    isPerformingAction.current = true;
     setIsProcessingMove(true);
     try {
       const sourceMapping = activeMappings.find(
@@ -470,242 +425,9 @@ export const Dashboard = () => {
             payload: { urls: [tab.url], internalWindowId: sourceWinId },
           });
       }
-      await new Promise((r) => setTimeout(r, 200));
     } finally {
       window.sessionStorage.removeItem("draggedTab");
-      isPerformingAction.current = false;
       setIsProcessingMove(false);
-    }
-  };
-
-  // --- NEW: TAB DROPPING LOGIC (Onto Sidebar / Inbox) ---
-  const handleSidebarTabDrop = async (targetItem: NexusItem | "global") => {
-    const tabJson = window.sessionStorage.getItem("draggedTab");
-    if (!tabJson) return;
-    const tab = JSON.parse(tabJson);
-
-    const sourceWorkspaceId = isViewingInbox
-      ? "global"
-      : selectedWorkspace?.id || "global";
-    const targetWorkspaceId =
-      targetItem === "global" ? "global" : targetItem.id;
-
-    if (sourceWorkspaceId === targetWorkspaceId) return;
-
-    isPerformingAction.current = true;
-    setIsProcessingMove(true);
-    if (targetItem === "global") setIsInboxSyncing(true);
-
-    try {
-      // Clean tab object
-      const cleanTab = {
-        title: tab.title,
-        url: tab.url,
-        favIconUrl: tab.favIconUrl,
-      };
-
-      // 1. ADD TO TARGET
-      if (targetWorkspaceId === "global") {
-        // Til Inbox
-        // Optimistic Update
-        const currentLocalTabs = inboxData?.tabs || [];
-        if (!currentLocalTabs.some((t: any) => t.url === cleanTab.url)) {
-          setInboxData({ ...inboxData, tabs: [...currentLocalTabs, cleanTab] });
-        }
-
-        const inboxRef = doc(db, "inbox_data", "global");
-        const inboxSnap = await getDoc(inboxRef);
-        const currentTabs = inboxSnap.exists()
-          ? inboxSnap.data().tabs || []
-          : [];
-
-        if (!currentTabs.some((t: any) => t.url === cleanTab.url)) {
-          await setDoc(
-            inboxRef,
-            {
-              tabs: [...currentTabs, cleanTab],
-              lastUpdate: serverTimestamp(),
-            },
-            { merge: true }
-          );
-        }
-      } else {
-        // Til et Space (første vindue eller nyt)
-        const windowsCol = collection(
-          db,
-          "workspaces_data",
-          targetWorkspaceId,
-          "windows"
-        );
-        const windowsSnap = await getDocs(windowsCol);
-
-        if (!windowsSnap.empty) {
-          const firstWin = windowsSnap.docs[0];
-          const winData = firstWin.data();
-          const newTabs = [...(winData.tabs || []), cleanTab];
-          await updateDoc(firstWin.ref, { tabs: newTabs });
-        } else {
-          const newWinRef = doc(
-            collection(db, "workspaces_data", targetWorkspaceId, "windows")
-          );
-          await setDoc(newWinRef, {
-            id: newWinRef.id,
-            tabs: [cleanTab],
-            isActive: false,
-            lastActive: serverTimestamp(),
-          });
-        }
-      }
-
-      // 2. REMOVE FROM SOURCE
-      const sourceWinId = isViewingInbox
-        ? "global"
-        : selectedWindowId || "global";
-
-      if (sourceWorkspaceId === "global") {
-        // Fjern fra Inbox
-        const newInboxTabs = (inboxData?.tabs || []).filter(
-          (t: any) => t.url !== cleanTab.url
-        );
-        setInboxData({ ...inboxData, tabs: newInboxTabs });
-        await updateDoc(doc(db, "inbox_data", "global"), {
-          tabs: newInboxTabs,
-        });
-      } else {
-        // Fjern fra Space Vindue
-        if (selectedWindowId) {
-          setWindows((prev) =>
-            prev.map((w) => {
-              if (w.id === selectedWindowId) {
-                return {
-                  ...w,
-                  tabs: w.tabs.filter((t: any) => t.url !== cleanTab.url),
-                };
-              }
-              return w;
-            })
-          );
-          const winRef = doc(
-            db,
-            "workspaces_data",
-            sourceWorkspaceId,
-            "windows",
-            selectedWindowId
-          );
-          const winSnap = await getDoc(winRef);
-          if (winSnap.exists()) {
-            const tabs = winSnap.data().tabs || [];
-            const filtered = tabs.filter((t: any) => t.url !== cleanTab.url);
-            await updateDoc(winRef, { tabs: filtered });
-          }
-        }
-      }
-
-      // 3. CLOSE PHYSICAL TAB
-      // Hvis vi er i Inbox, er sourceWinId "global".
-      // Vi skal lukke fanen hvis den enten er i en mapped window ELLER hvis vi kommer fra inbox ("global")
-      const sourceMapping = activeMappings.find(
-        ([_, m]) => m.internalWindowId === sourceWinId
-      );
-
-      if (sourceWinId === "global" || sourceMapping) {
-        chrome.runtime.sendMessage({
-          type: "CLOSE_PHYSICAL_TABS",
-          payload: { urls: [cleanTab.url], internalWindowId: sourceWinId },
-        });
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    } catch (e) {
-      console.error("Move tab error", e);
-      alert("Fejl ved flytning af fane.");
-    } finally {
-      isPerformingAction.current = false;
-      setIsProcessingMove(false);
-      setIsInboxSyncing(false);
-      window.sessionStorage.removeItem("draggedTab");
-    }
-  };
-
-  // --- WORKSPACE CLICK LOGIC ---
-  const handleWorkspaceClick = (item: NexusItem) => {
-    if (selectedWorkspace?.id === item.id) return;
-
-    setIsViewingInbox(false);
-    setSelectedWorkspace(item);
-
-    setWindows([]);
-    setSelectedWindowId(null);
-  };
-
-  const toggleSelectAll = () => {
-    const list = isViewingInbox
-      ? inboxData?.tabs || []
-      : windows.find((w) => w.id === selectedWindowId)?.tabs || [];
-    const allUrls = list.map((t: any) => t.url);
-    setSelectedUrls(selectedUrls.length === allUrls.length ? [] : allUrls);
-  };
-
-  const deleteSelectedTabs = async () => {
-    if (
-      isSystemRestoring ||
-      selectedUrls.length === 0 ||
-      !confirm(`Slet ${selectedUrls.length} tabs?`)
-    )
-      return;
-    isPerformingAction.current = true;
-    const sourceWinId = isViewingInbox ? "global" : selectedWindowId;
-    const list = isViewingInbox
-      ? [...(inboxData?.tabs || [])]
-      : [...(windows.find((w) => w.id === selectedWindowId)?.tabs || [])];
-    const filtered = list.filter((t: any) => !selectedUrls.includes(t.url));
-    try {
-      chrome.runtime.sendMessage({
-        type: "CLOSE_PHYSICAL_TABS",
-        payload: { urls: selectedUrls, internalWindowId: sourceWinId },
-      });
-      if (isViewingInbox) {
-        setInboxData({ ...inboxData, tabs: filtered });
-        await updateDoc(doc(db, "inbox_data", "global"), { tabs: filtered });
-      } else if (selectedWorkspace && selectedWindowId) {
-        setWindows((prev) =>
-          prev.map((w) =>
-            w.id === selectedWindowId ? { ...w, tabs: filtered } : w
-          )
-        );
-        await updateDoc(
-          doc(
-            db,
-            "workspaces_data",
-            selectedWorkspace.id,
-            "windows",
-            selectedWindowId
-          ),
-          { tabs: filtered }
-        );
-      }
-      setSelectedUrls([]);
-    } finally {
-      isPerformingAction.current = false;
-    }
-  };
-
-  const emptyInbox = async () => {
-    if (!inboxData?.tabs?.length || !confirm("Vil du rydde hele din Inbox?"))
-      return;
-    isPerformingAction.current = true;
-    try {
-      chrome.runtime.sendMessage({
-        type: "CLOSE_PHYSICAL_TABS",
-        payload: {
-          urls: inboxData.tabs.map((t: any) => t.url),
-          internalWindowId: "global",
-        },
-      });
-      setInboxData({ ...inboxData, tabs: [] });
-      await updateDoc(doc(db, "inbox_data", "global"), { tabs: [] });
-    } finally {
-      isPerformingAction.current = false;
     }
   };
 
@@ -713,100 +435,6 @@ export const Dashboard = () => {
     ([id, m]: any) =>
       id === currentWindowId && m.internalWindowId === selectedWindowId
   );
-
-  const TabCard = ({ tab }: { tab: any; index: number }) => {
-    const currentSpaceId = isViewingInbox
-      ? "global"
-      : selectedWorkspace?.id || "global";
-
-    return (
-      <div className="group relative">
-        <button
-          onClick={async (e) => {
-            e.stopPropagation();
-            if (!confirm("Slet denne tab?")) return;
-            const sourceWinId = isViewingInbox ? "global" : selectedWindowId!;
-            await NexusService.moveTabBetweenWindows(
-              tab,
-              selectedWorkspace?.id || "global",
-              sourceWinId,
-              "",
-              "global"
-            );
-          }}
-          className="absolute -top-2 -right-2 z-30 bg-slate-700 border border-slate-600 text-slate-300 hover:text-red-400 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition shadow-xl cursor-pointer"
-        >
-          <X size={12} />
-        </button>
-
-        {/* Select Box */}
-        <div
-          className="absolute top-2 left-2 cursor-pointer z-20 text-slate-500 hover:text-blue-400"
-          onClick={(e) => {
-            e.stopPropagation();
-            setSelectedUrls((prev) =>
-              prev.includes(tab.url)
-                ? prev.filter((u) => u !== tab.url)
-                : [...prev, tab.url]
-            );
-          }}
-        >
-          {selectedUrls.includes(tab.url) ? (
-            <CheckSquare
-              size={16}
-              className="text-blue-500 bg-slate-900 rounded"
-            />
-          ) : (
-            <Square
-              size={16}
-              className="opacity-0 group-hover:opacity-100 bg-slate-900/50 rounded"
-            />
-          )}
-        </div>
-
-        <div
-          draggable
-          onDragStart={(e) => {
-            e.dataTransfer.setData("nexus/tab", "true");
-            e.dataTransfer.effectAllowed = "move";
-            window.sessionStorage.setItem(
-              "draggedTab",
-              JSON.stringify({
-                ...tab,
-                sourceWorkspaceId: currentSpaceId,
-              })
-            );
-          }}
-          className={`bg-slate-800/60 p-4 rounded-2xl border cursor-grab active:cursor-grabbing ${
-            selectedUrls.includes(tab.url)
-              ? "border-blue-500 bg-blue-500/10"
-              : "border-slate-700 hover:border-slate-500"
-          } flex flex-col gap-2 hover:bg-slate-800 transition group shadow-md pl-8`}
-        >
-          <div
-            className="flex items-center gap-3 cursor-pointer select-none"
-            onClick={(e) => {
-              e.stopPropagation();
-              chrome.tabs.create({ url: tab.url });
-            }}
-          >
-            <Globe
-              size={14}
-              className="text-slate-500 group-hover:text-blue-400 shrink-0"
-            />
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-semibold text-slate-200 pointer-events-none">
-                {tab.title}
-              </div>
-              <div className="truncate text-[10px] text-slate-500 italic font-mono pointer-events-none">
-                {tab.url}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   if (!user)
     return (
@@ -825,13 +453,15 @@ export const Dashboard = () => {
           </div>
         </div>
       )}
-      <aside className="w-96 border-r border-slate-700 bg-slate-800 flex flex-col shrink-0 shadow-2xl z-20 transition-all">
+
+      <aside className="w-96 border-r border-slate-700 bg-slate-800 flex flex-col shrink-0 shadow-2xl z-20">
         <div className="p-6 border-b border-slate-700 font-black text-white text-xl uppercase tracking-tighter flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg shadow-blue-500/20">
+          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center">
             N
           </div>{" "}
           NyviaNexus
         </div>
+
         <div className="p-4 flex-1 overflow-y-auto space-y-6">
           <div className="flex items-center gap-2">
             <select
@@ -841,7 +471,7 @@ export const Dashboard = () => {
                 setSelectedWorkspace(null);
                 setIsViewingInbox(false);
               }}
-              className="flex-1 bg-slate-700 p-2 rounded-xl border border-slate-600 text-sm outline-none focus:ring-2 ring-blue-500/50 transition-all text-white"
+              className="flex-1 bg-slate-700 p-2 rounded-xl border border-slate-600 text-sm outline-none text-white"
             >
               {profiles.map((p: Profile) => (
                 <option key={p.id} value={p.id}>
@@ -851,34 +481,39 @@ export const Dashboard = () => {
             </select>
             <button
               onClick={() => setModalType("profiles")}
-              className="p-2 text-slate-400 hover:text-blue-400 bg-slate-700 rounded-xl border border-slate-600 transition shadow-sm active:scale-95"
+              className="p-2 text-slate-400 hover:text-blue-400 bg-slate-700 rounded-xl border border-slate-600"
             >
               <Settings size={18} />
             </button>
           </div>
+
           <nav className="space-y-4">
             {activeDragId && (
               <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                onDragEnter={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
+                onDragOver={(e) => e.preventDefault()}
+                onDragEnter={() => {
                   rootDragCounter.current++;
                   setIsDragOverRoot(true);
                 }}
-                onDragLeave={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
+                onDragLeave={() => {
                   rootDragCounter.current--;
                   if (rootDragCounter.current === 0) setIsDragOverRoot(false);
                 }}
-                onDrop={onDropToRoot}
-                className={`p-4 border-2 border-dashed rounded-2xl flex items-center justify-center gap-3 transition-all duration-300 ${
+                onDrop={async (e) => {
+                  e.preventDefault();
+                  setIsDragOverRoot(false);
+                  rootDragCounter.current = 0;
+                  const dId = e.dataTransfer.getData("itemId");
+                  if (dId) {
+                    setIsSyncingRoot(true);
+                    await NexusService.moveItem(dId, "root");
+                    setIsSyncingRoot(false);
+                    setActiveDragId(null);
+                  }
+                }}
+                className={`p-4 border-2 border-dashed rounded-2xl flex items-center justify-center gap-3 transition-all ${
                   isDragOverRoot
-                    ? "bg-blue-600/20 border-blue-400 scale-[1.02] text-blue-400 shadow-lg ring-4 ring-blue-500/10"
+                    ? "bg-blue-600/20 border-blue-400 scale-[1.02] text-blue-400"
                     : "bg-slate-700/40 border-slate-600 text-slate-500"
                 }`}
               >
@@ -887,7 +522,7 @@ export const Dashboard = () => {
                 ) : (
                   <ArrowUpCircle
                     size={20}
-                    className={`${isDragOverRoot ? "animate-bounce" : ""}`}
+                    className={isDragOverRoot ? "animate-bounce" : ""}
                   />
                 )}
                 <span className="text-xs font-bold uppercase tracking-widest">
@@ -895,40 +530,47 @@ export const Dashboard = () => {
                 </span>
               </div>
             )}
+
             <div className="space-y-2">
               <div className="flex justify-between items-center px-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                 Spaces
                 <div className="flex gap-2">
                   <button
-                    onClick={emergencyRepairHierarchy}
-                    title="NØD REPARATION: Flyt alt til rod"
-                    className="hover:text-red-400 text-slate-600 transition-colors mr-2"
+                    onClick={async () => {
+                      if (confirm("Nulstil hierarki?")) {
+                        const b = writeBatch(db);
+                        items
+                          .filter(
+                            (i) =>
+                              i.profileId === activeProfile &&
+                              i.parentId !== "root"
+                          )
+                          .forEach((it) =>
+                            b.update(doc(db, "items", it.id), {
+                              parentId: "root",
+                            })
+                          );
+                        await b.commit();
+                      }
+                    }}
                   >
-                    <LifeBuoy size={14} />
+                    <LifeBuoy size={14} className="hover:text-red-400" />
                   </button>
                   <button
                     onClick={() => {
                       setModalParentId("root");
                       setModalType("folder");
                     }}
-                    title="Ny Mappe"
                   >
-                    <FolderPlus
-                      size={14}
-                      className="hover:text-white transition-colors"
-                    />
+                    <FolderPlus size={14} className="hover:text-white" />
                   </button>
                   <button
                     onClick={() => {
                       setModalParentId("root");
                       setModalType("workspace");
                     }}
-                    title="Nyt Space"
                   >
-                    <PlusCircle
-                      size={14}
-                      className="hover:text-white transition-colors"
-                    />
+                    <PlusCircle size={14} className="hover:text-white" />
                   </button>
                 </div>
               </div>
@@ -944,12 +586,12 @@ export const Dashboard = () => {
                       item={item}
                       allItems={items}
                       onRefresh={() => {}}
-                      onSelect={(it: NexusItem) => handleWorkspaceClick(it)}
+                      onSelect={handleWorkspaceClick}
                       onAddChild={(pid, type) => {
                         setModalParentId(pid);
                         setModalType(type);
                       }}
-                      onDragStateChange={(id) => setActiveDragId(id)}
+                      onDragStateChange={setActiveDragId}
                       onDragEndCleanup={() => {
                         setActiveDragId(null);
                         setIsDragOverRoot(false);
@@ -962,33 +604,24 @@ export const Dashboard = () => {
               </div>
             </div>
           </nav>
+
           <nav
-            className="space-y-1"
             onDragOver={(e) => {
               e.preventDefault();
-              e.stopPropagation();
-
-              const tabJson = window.sessionStorage.getItem("draggedTab");
-              if (tabJson) {
-                const tabData = JSON.parse(tabJson);
-                if (tabData.sourceWorkspaceId === "global") {
-                  setInboxDropStatus("invalid");
-                } else {
-                  setInboxDropStatus("valid");
-                }
-              } else {
-                setDropTargetWinId("global");
-              }
+              const tJ = window.sessionStorage.getItem("draggedTab");
+              if (tJ)
+                setInboxDropStatus(
+                  JSON.parse(tJ).sourceWorkspaceId === "global"
+                    ? "invalid"
+                    : "valid"
+                );
+              else setDropTargetWinId("global");
             }}
-            onDragEnter={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
+            onDragEnter={() => {
               inboxDragCounter.current++;
               setIsInboxDragOver(true);
             }}
-            onDragLeave={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
+            onDragLeave={() => {
               inboxDragCounter.current--;
               if (inboxDragCounter.current === 0) {
                 setIsInboxDragOver(false);
@@ -997,21 +630,15 @@ export const Dashboard = () => {
               }
             }}
             onDrop={(e) => {
-              const tabJson = window.sessionStorage.getItem("draggedTab");
-              if (tabJson) {
+              const tJ = window.sessionStorage.getItem("draggedTab");
+              if (tJ) {
                 e.preventDefault();
-                e.stopPropagation();
                 setIsInboxDragOver(false);
                 setInboxDropStatus(null);
                 inboxDragCounter.current = 0;
-
-                const tabData = JSON.parse(tabJson);
-                if (tabData.sourceWorkspaceId !== "global") {
+                if (JSON.parse(tJ).sourceWorkspaceId !== "global")
                   handleSidebarTabDrop("global");
-                }
-                return;
-              }
-              handleTabDrop("global");
+              } else handleTabDrop("global");
             }}
           >
             <label className="text-[10px] font-bold text-slate-400 uppercase px-2 mb-2 block tracking-widest">
@@ -1026,9 +653,7 @@ export const Dashboard = () => {
                 isViewingInbox
                   ? "bg-orange-600/20 text-orange-400 border-orange-500/50 shadow-lg"
                   : inboxDropStatus === "valid"
-                  ? "bg-blue-800/60 border-blue-400 text-blue-200 shadow-[0_0_15px_rgba(59,130,246,0.4)] scale-[1.02]"
-                  : inboxDropStatus === "invalid"
-                  ? "bg-red-900/40 border-red-400 text-red-300 shadow-[0_0_15px_rgba(239,68,68,0.4)] opacity-80"
+                  ? "bg-blue-600/20 border-blue-400 text-blue-400 scale-[1.02]"
                   : isInboxDragOver
                   ? "bg-slate-700 border-slate-500 text-slate-200"
                   : "hover:bg-slate-700 text-slate-400 border-transparent"
@@ -1043,22 +668,23 @@ export const Dashboard = () => {
             </div>
           </nav>
         </div>
-        <div className="p-4 border-t border-slate-700 bg-slate-800/50 flex flex-col gap-3 text-sm font-medium">
-          <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase tracking-tighter">
-            <Activity size={12} className="animate-pulse" /> Live Sync Active
+
+        <div className="p-4 border-t border-slate-700 bg-slate-800/50 flex flex-col gap-3 text-sm">
+          <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase">
+            <Activity size={12} className="animate-pulse" /> Live Sync
           </div>
           <button
             onClick={() => auth.signOut()}
-            className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition active:scale-95"
+            className="flex items-center gap-2 text-slate-500 hover:text-red-500"
           >
             <LogOut size={16} /> Log ud
           </button>
         </div>
       </aside>
+
       <main className="flex-1 flex flex-col bg-slate-900 relative">
-        {/* MAIN VIEW LOADER OVERLAY */}
         {isProcessingMove && (
-          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center">
             <Loader2 className="animate-spin text-blue-500" size={48} />
           </div>
         )}
@@ -1085,7 +711,6 @@ export const Dashboard = () => {
                         className="flex flex-col gap-1 items-center"
                         onDragOver={(e) => {
                           e.preventDefault();
-                          e.stopPropagation();
                           setDropTargetWinId(win.id);
                         }}
                         onDrop={() => handleTabDrop(win.id)}
@@ -1100,51 +725,39 @@ export const Dashboard = () => {
                           className={`relative group px-4 py-3 rounded-xl border transition-all flex items-center gap-3 cursor-pointer ${
                             selectedWindowId === win.id ||
                             dropTargetWinId === win.id
-                              ? "bg-blue-600/10 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.2)]"
-                              : "bg-slate-800 border-slate-700 hover:border-slate-500 hover:bg-slate-800/80"
+                              ? "bg-blue-600/10 border-blue-500/50 shadow-lg"
+                              : "bg-slate-800 border-slate-700 hover:border-slate-500"
                           }`}
                         >
                           <div className="flex flex-col">
-                            <span className="text-xs font-bold text-slate-300 group-hover:text-white uppercase tracking-wider">
+                            <span className="text-xs font-bold text-slate-300">
                               Vindue {idx + 1}
                             </span>
                             <span className="text-[10px] text-slate-500">
-                              {win.tabs.length} tabs
+                              {win.tabs?.length || 0} tabs
                             </span>
                           </div>
-
-                          <div className="w-px h-6 bg-slate-700 mx-1"></div>
-
-                          <div
-                            className="flex gap-1"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              title="Åbn i nyt vindue"
-                              onClick={() =>
-                                chrome.runtime.sendMessage({
-                                  type: "OPEN_SPECIFIC_WINDOW",
-                                  payload: {
-                                    workspaceId: selectedWorkspace?.id,
-                                    windowData: win,
-                                    name: selectedWorkspace?.name,
-                                    index: idx + 1,
-                                  },
-                                })
-                              }
-                              className="p-1.5 hover:bg-blue-500/20 rounded-lg text-slate-400 hover:text-blue-400 transition"
-                            >
-                              <ExternalLink size={20} />
-                            </button>
-                          </div>
-
                           <button
-                            title="Slet vindue"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              chrome.runtime.sendMessage({
+                                type: "OPEN_SPECIFIC_WINDOW",
+                                payload: {
+                                  workspaceId: selectedWorkspace?.id,
+                                  windowData: win,
+                                  name: selectedWorkspace?.name,
+                                  index: idx + 1,
+                                },
+                              });
+                            }}
+                            className="p-1.5 hover:bg-blue-500/20 rounded-lg text-slate-400 hover:text-blue-400"
+                          >
+                            <ExternalLink size={20} />
+                          </button>
+                          <button
                             onClick={async (e) => {
                               e.stopPropagation();
-                              if (
-                                confirm("Slet dette vindue fra gemt space?")
-                              ) {
+                              if (confirm("Slet vindue?"))
                                 await deleteDoc(
                                   doc(
                                     db,
@@ -1152,18 +765,11 @@ export const Dashboard = () => {
                                     win.id
                                   )
                                 );
-                              }
                             }}
                             className="absolute -top-2 -right-2 p-1.5 bg-slate-800 border border-slate-600 rounded-full text-slate-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition shadow-sm z-10"
                           >
                             <Trash2 size={12} />
                           </button>
-
-                          {activeMappings.some(
-                            ([_, m]: any) => m.internalWindowId === win.id
-                          ) && (
-                            <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-slate-900 z-10" />
-                          )}
                         </div>
                       </div>
                     ))}
@@ -1177,8 +783,7 @@ export const Dashboard = () => {
                           },
                         })
                       }
-                      className="h-14 w-14 flex items-center justify-center rounded-xl border border-dashed border-slate-700 hover:border-blue-500/50 hover:bg-slate-800 text-slate-500 hover:text-blue-400 transition"
-                      title="Tilføj tomt vindue"
+                      className="h-14 w-14 flex items-center justify-center rounded-xl border border-dashed border-slate-700 hover:border-blue-500 text-slate-500 transition"
                     >
                       <PlusCircle size={24} />
                     </button>
@@ -1186,66 +791,207 @@ export const Dashboard = () => {
                 )}
               </div>
               <div className="flex gap-3 mb-1">
-                {(isViewingInbox
-                  ? inboxData?.tabs?.length ?? 0
-                  : windows.find((w) => w.id === selectedWindowId)?.tabs
-                      ?.length ?? 0) > 0 && (
-                  <button
-                    onClick={toggleSelectAll}
-                    className={`p-2.5 bg-slate-800 border rounded-xl transition ${
-                      selectedUrls.length > 0
-                        ? "border-blue-500 text-blue-400"
-                        : "border-slate-700 hover:text-blue-400"
-                    }`}
-                    title="Marker alle"
-                  >
-                    <CheckSquare size={20} />
-                  </button>
-                )}
+                <button
+                  onClick={() => {
+                    const list = isViewingInbox
+                      ? inboxData?.tabs || []
+                      : windows.find((w) => w.id === selectedWindowId)?.tabs ||
+                        [];
+                    const allU = list.map((t: any) => t.url);
+                    setSelectedUrls(
+                      selectedUrls.length === allU.length ? [] : allU
+                    );
+                  }}
+                  className={`p-2.5 bg-slate-800 border rounded-xl transition ${
+                    selectedUrls.length > 0
+                      ? "border-blue-500 text-blue-400"
+                      : "border-slate-700 hover:text-blue-400"
+                  }`}
+                >
+                  <CheckSquare size={20} />
+                </button>
                 {selectedUrls.length > 0 && (
                   <button
-                    onClick={deleteSelectedTabs}
+                    onClick={async () => {
+                      if (confirm(`Slet ${selectedUrls.length} tabs?`)) {
+                        const sId = isViewingInbox
+                          ? "global"
+                          : selectedWindowId;
+                        chrome.runtime.sendMessage({
+                          type: "CLOSE_PHYSICAL_TABS",
+                          payload: {
+                            urls: selectedUrls,
+                            internalWindowId: sId,
+                          },
+                        });
+                        if (isViewingInbox) {
+                          const f = inboxData.tabs.filter(
+                            (t: any) => !selectedUrls.includes(t.url)
+                          );
+                          await updateDoc(doc(db, "inbox_data", "global"), {
+                            tabs: f,
+                          });
+                        } else if (selectedWorkspace && selectedWindowId) {
+                          const w = windows.find(
+                            (win) => win.id === selectedWindowId
+                          );
+                          if (w) {
+                            const f = w.tabs.filter(
+                              (t: any) => !selectedUrls.includes(t.url)
+                            );
+                            await updateDoc(
+                              doc(
+                                db,
+                                "workspaces_data",
+                                selectedWorkspace.id,
+                                "windows",
+                                selectedWindowId
+                              ),
+                              { tabs: f }
+                            );
+                          }
+                        }
+                        setSelectedUrls([]);
+                      }
+                    }}
                     className="flex items-center gap-2 bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition"
                   >
                     <Trash2 size={16} /> Slet ({selectedUrls.length})
                   </button>
                 )}
-                {isViewingInbox && (inboxData?.tabs?.length ?? 0) > 0 && (
+                {isViewingInbox && (inboxData?.tabs?.length || 0) > 0 && (
                   <button
-                    onClick={emptyInbox}
+                    onClick={async () => {
+                      if (confirm("Ryd Inbox?")) {
+                        chrome.runtime.sendMessage({
+                          type: "CLOSE_PHYSICAL_TABS",
+                          payload: {
+                            urls: inboxData.tabs.map((t: any) => t.url),
+                            internalWindowId: "global",
+                          },
+                        });
+                        await updateDoc(doc(db, "inbox_data", "global"), {
+                          tabs: [],
+                        });
+                      }
+                    }}
                     className="flex items-center gap-2 bg-orange-600/20 text-orange-400 hover:bg-orange-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition"
                   >
                     <Eraser size={16} /> Ryd Inbox
                   </button>
                 )}
                 {!isViewingInbox && (
-                  <>
-                    <button
-                      onClick={() =>
-                        chrome.runtime.sendMessage({
-                          type: "OPEN_WORKSPACE",
-                          payload: {
-                            workspaceId: selectedWorkspace?.id,
-                            windows,
-                            name: selectedWorkspace?.name,
-                          },
-                        })
-                      }
-                      className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition text-white"
-                    >
-                      Åbn Space
-                    </button>
-                  </>
+                  <button
+                    onClick={() =>
+                      chrome.runtime.sendMessage({
+                        type: "OPEN_WORKSPACE",
+                        payload: {
+                          workspaceId: selectedWorkspace?.id,
+                          windows,
+                          name: selectedWorkspace?.name,
+                        },
+                      })
+                    }
+                    className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 text-white active:scale-95 transition"
+                  >
+                    Åbn Space
+                  </button>
                 )}
               </div>
             </header>
+
             <div className="flex-1 overflow-y-auto p-8">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                 {(isViewingInbox
                   ? inboxData?.tabs || []
                   : windows.find((w) => w.id === selectedWindowId)?.tabs || []
                 ).map((tab: any, i: number) => (
-                  <TabCard key={i} tab={tab} index={i} />
+                  <div key={i} className="group relative">
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (confirm("Slet tab?")) {
+                          const sId = isViewingInbox
+                            ? "global"
+                            : selectedWindowId!;
+                          await NexusService.moveTabBetweenWindows(
+                            tab,
+                            selectedWorkspace?.id || "global",
+                            sId,
+                            "",
+                            "global"
+                          );
+                        }
+                      }}
+                      className="absolute -top-2 -right-2 z-30 bg-slate-700 border border-slate-600 text-slate-300 hover:text-red-400 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition shadow-xl cursor-pointer"
+                    >
+                      <X size={12} />
+                    </button>
+                    <div
+                      className="absolute top-2 left-2 cursor-pointer z-20 text-slate-500 hover:text-blue-400"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedUrls((prev) =>
+                          prev.includes(tab.url)
+                            ? prev.filter((u) => u !== tab.url)
+                            : [...prev, tab.url]
+                        );
+                      }}
+                    >
+                      {selectedUrls.includes(tab.url) ? (
+                        <CheckSquare
+                          size={16}
+                          className="text-blue-500 bg-slate-900 rounded"
+                        />
+                      ) : (
+                        <Square
+                          size={16}
+                          className="opacity-0 group-hover:opacity-100 bg-slate-900/50 rounded"
+                        />
+                      )}
+                    </div>
+                    <div
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("nexus/tab", "true");
+                        window.sessionStorage.setItem(
+                          "draggedTab",
+                          JSON.stringify({
+                            ...tab,
+                            sourceWorkspaceId: isViewingInbox
+                              ? "global"
+                              : selectedWorkspace?.id,
+                          })
+                        );
+                      }}
+                      className={`bg-slate-800/60 p-4 rounded-2xl border cursor-grab active:cursor-grabbing ${
+                        selectedUrls.includes(tab.url)
+                          ? "border-blue-500 bg-blue-500/10"
+                          : "border-slate-700 hover:border-slate-500"
+                      } flex flex-col gap-2 hover:bg-slate-800 transition group shadow-md pl-8`}
+                    >
+                      <div
+                        className="flex items-center gap-3 cursor-pointer select-none"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          chrome.tabs.create({ url: tab.url });
+                        }}
+                      >
+                        <Globe
+                          size={14}
+                          className="text-slate-500 group-hover:text-blue-400 shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold text-slate-200 pointer-events-none">
+                            {tab.title}
+                          </div>
+                          <div className="truncate text-[10px] text-slate-500 italic font-mono pointer-events-none">
+                            {tab.url}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -1253,10 +999,11 @@ export const Dashboard = () => {
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-slate-600 gap-4">
             <Monitor size={48} className="opacity-20" />
-            <p className="text-lg font-medium">Vælg et space i sidebaren</p>
+            <p className="text-lg font-medium">Vælg et space</p>
           </div>
         )}
       </main>
+
       {(modalType === "folder" || modalType === "workspace") && (
         <CreateItemModal
           type={modalType}

@@ -29,8 +29,6 @@ let activeRestorations = 0;
 let lastDashboardTime = 0;
 let activeWindows = new Map<number, WinMapping>();
 const lockedWindowIds = new Set<number>();
-
-// Session Memory
 let sessionKnownUrls = new Set<string>();
 
 let globalState = {
@@ -39,8 +37,9 @@ let globalState = {
   inbox: null as any,
   workspaceWindows: {} as Record<string, any[]>,
 };
-let activeWindowsUnsubscribe: (() => void) | null = null;
-let currentWatchedWorkspaceId: string | null = null;
+
+// Map til at holde styr på aktive listeners for at undgå lækager (180 peak fix)
+const activeListeners = new Map<string, () => void>();
 
 const isDash = (url?: string) => url?.includes("dashboard.html");
 function broadcast(type: string, payload: any) {
@@ -49,24 +48,42 @@ function broadcast(type: string, payload: any) {
 
 // --- FIREBASE LISTENERS ---
 function startFirebaseListeners() {
-  onSnapshot(collection(db, "profiles"), (snap) => {
-    globalState.profiles = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    broadcast("STATE_UPDATED", { profiles: globalState.profiles });
-  });
-  onSnapshot(collection(db, "items"), (snap) => {
-    globalState.items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    broadcast("STATE_UPDATED", { items: globalState.items });
-  });
-  onSnapshot(doc(db, "inbox_data", "global"), (snap) => {
-    globalState.inbox = snap.exists()
-      ? { id: snap.id, ...snap.data() }
-      : { tabs: [] };
-    broadcast("STATE_UPDATED", { inbox: globalState.inbox });
-  });
+  // Global listeners - kør kun én gang
+  if (!activeListeners.has("profiles")) {
+    const unsub = onSnapshot(collection(db, "profiles"), (snap) => {
+      globalState.profiles = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      broadcast("STATE_UPDATED", { profiles: globalState.profiles });
+    });
+    activeListeners.set("profiles", unsub);
+  }
+
+  if (!activeListeners.has("items")) {
+    const unsub = onSnapshot(collection(db, "items"), (snap) => {
+      globalState.items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      broadcast("STATE_UPDATED", { items: globalState.items });
+    });
+    activeListeners.set("items", unsub);
+  }
+
+  if (!activeListeners.has("inbox")) {
+    const unsub = onSnapshot(doc(db, "inbox_data", "global"), (snap) => {
+      globalState.inbox = snap.exists()
+        ? { id: snap.id, ...snap.data() }
+        : { tabs: [] };
+      broadcast("STATE_UPDATED", { inbox: globalState.inbox });
+    });
+    activeListeners.set("inbox", unsub);
+  }
 }
 
 auth.onAuthStateChanged((user) => {
-  if (user) startFirebaseListeners();
+  if (user) {
+    startFirebaseListeners();
+  } else {
+    // Ryd op ved logout
+    activeListeners.forEach((unsub) => unsub());
+    activeListeners.clear();
+  }
 });
 
 // --- STORAGE & RESTORATION ---
@@ -100,7 +117,6 @@ async function loadAndVerifyWindows() {
 }
 loadAndVerifyWindows();
 
-// --- VISUEL GRUPPERING (EPHEMERAL GROUPS) ---
 async function updateWindowGrouping(
   windowId: number,
   mapping: WinMapping | null
@@ -109,11 +125,8 @@ async function updateWindowGrouping(
     const groupName = mapping
       ? `${mapping.workspaceName.toUpperCase()} (${mapping.index})`
       : "INBOX";
-
     const color = mapping ? "blue" : "grey";
-
     const tabs = await chrome.tabs.query({ windowId });
-
     const tabsToGroup = tabs
       .filter((t) => !t.pinned && t.id && !isDash(t.url))
       .map((t) => t.id as number);
@@ -122,7 +135,6 @@ async function updateWindowGrouping(
 
     const groups = await chrome.tabGroups.query({ windowId });
     const existingGroup = groups.find((g) => g.title === groupName);
-
     const safeTabIds = tabsToGroup as [number, ...number[]];
 
     if (existingGroup) {
@@ -137,19 +149,15 @@ async function updateWindowGrouping(
       const groupId = (await chrome.tabs.group({
         tabIds: safeTabIds,
       })) as number;
-
       await chrome.tabGroups.update(groupId, {
         title: groupName,
         color: color as any,
         collapsed: false,
       });
     }
-  } catch (e) {
-    // Ignorer fejl
-  }
+  } catch (e) {}
 }
 
-// --- SAVE FUNCTION ---
 async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
   if (lockedWindowIds.has(windowId) || activeRestorations > 0) return;
 
@@ -163,10 +171,8 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
 
     const mapping = activeWindows.get(windowId);
 
-    // SPACE LOGIK
     if (mapping) {
       if (!windowExists) return;
-
       const tabs = await chrome.tabs.query({ windowId });
       const validTabs: TabData[] = tabs
         .filter((t) => t.url && !t.url.startsWith("chrome") && !isDash(t.url))
@@ -202,88 +208,61 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       );
       await setDoc(
         docRef,
-        {
-          tabs: validTabs,
-          lastActive: serverTimestamp(),
-          isActive: true,
-        },
+        { tabs: validTabs, lastActive: serverTimestamp(), isActive: true },
         { merge: true }
       );
-    }
-    // INBOX LOGIK
-    else {
+    } else {
       if (!windowExists) return;
-
       const allWindows = await chrome.windows.getAll();
       const visibleInboxWindows = allWindows.filter(
         (w) => w.id && !activeWindows.has(w.id) && !lockedWindowIds.has(w.id)
       );
-
       if (visibleInboxWindows.length === 0) return;
-
       await updateWindowGrouping(windowId, null);
 
-      // --- DEDUPLIKERING START ---
-      // Vi bruger et Map hvor URL er nøglen. Det sikrer automatisk at hver URL kun findes én gang.
       const uniqueTabsMap = new Map<string, TabData>();
-
       let hasLiveTabs = false;
 
-      // 1. Scan alle åbne vinduer og tilføj til mappet
       for (const w of visibleInboxWindows) {
         if (w.id) {
           const winTabs = await chrome.tabs.query({ windowId: w.id });
           const filtered = winTabs.filter(
             (t) => t.url && !t.url.startsWith("chrome") && !isDash(t.url)
           );
-
           if (filtered.length > 0) hasLiveTabs = true;
-
           filtered.forEach((t) => {
             const tabData = {
               title: t.title || "Ny fane",
               url: t.url || "",
               favIconUrl: t.favIconUrl || "",
             };
-            // Tilføj til unikt map (overskriver hvis den findes)
             uniqueTabsMap.set(tabData.url, tabData);
-            // Opdater session hukommelse
             sessionKnownUrls.add(tabData.url);
           });
         }
       }
 
-      // 2. Startup Protection: Hvis ingen LIVE tabs (kun dashboard), stop.
       if (!hasLiveTabs) {
         const checkDoc = await getDoc(doc(db, "inbox_data", "global"));
-        if (checkDoc.exists() && (checkDoc.data().tabs || []).length > 0) {
+        if (checkDoc.exists() && (checkDoc.data().tabs || []).length > 0)
           return;
-        }
       }
 
-      // 3. Merge med Zombies (Gemte tabs)
       const inboxDoc = await getDoc(doc(db, "inbox_data", "global"));
       if (inboxDoc.exists()) {
         const storedTabs = (inboxDoc.data().tabs || []) as TabData[];
         for (const storedTab of storedTabs) {
-          // Tjek: Har vi allerede denne URL i vores liste?
-          const alreadyExists = uniqueTabsMap.has(storedTab.url);
-          // Tjek: Har vi set den i denne session (men lukket den)?
-          const hasBeenSeen = sessionKnownUrls.has(storedTab.url);
-
-          // Hvis den IKKE findes i listen endnu, OG vi ikke har "dræbt" den i denne session -> Behold Zombie
-          if (!alreadyExists && !hasBeenSeen) {
+          if (
+            !uniqueTabsMap.has(storedTab.url) &&
+            !sessionKnownUrls.has(storedTab.url)
+          ) {
             uniqueTabsMap.set(storedTab.url, storedTab);
           }
         }
       }
 
-      // Konverter Map tilbage til Array
-      const finalTabsToSave = Array.from(uniqueTabsMap.values());
-      // --- DEDUPLIKERING SLUT ---
-
       await setDoc(doc(db, "inbox_data", "global"), {
-        tabs: finalTabsToSave,
+        tabs: Array.from(uniqueTabsMap.values()),
         lastUpdate: serverTimestamp(),
       });
     }
@@ -294,15 +273,12 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
 
 // --- EVENT LISTENERS ---
 chrome.tabs.onUpdated.addListener((_id, change, tab) => {
-  if (change.status === "complete" && tab.windowId) {
+  if (change.status === "complete" && tab.windowId)
     saveToFirestore(tab.windowId, false);
-  }
 });
 
 chrome.tabs.onRemoved.addListener((_id, info) => {
-  if (!info.isWindowClosing) {
-    saveToFirestore(info.windowId, true);
-  }
+  if (!info.isWindowClosing) saveToFirestore(info.windowId, true);
 });
 
 chrome.windows.onFocusChanged.addListener(async (winId) => {
@@ -348,22 +324,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   if (type === "GET_WINDOW_NAME") {
     const mapping = activeWindows.get(payload.windowId);
-    if (mapping) {
-      sendResponse({ name: `${mapping.workspaceName}` });
-    } else {
-      sendResponse({ name: "Inbox" });
-    }
+    sendResponse({ name: mapping ? mapping.workspaceName : "Inbox" });
     return true;
   }
 
   if (type === "GET_LATEST_STATE") {
     sendResponse(globalState);
-  } else if (type === "WATCH_WORKSPACE") {
+    return true;
+  }
+
+  if (type === "WATCH_WORKSPACE") {
     const workspaceId = payload;
-    if (currentWatchedWorkspaceId !== workspaceId) {
-      if (activeWindowsUnsubscribe) activeWindowsUnsubscribe();
-      currentWatchedWorkspaceId = workspaceId;
-      activeWindowsUnsubscribe = onSnapshot(
+    // Hvis vi allerede har en listener for dette workspace, så bare send cachen
+    if (activeListeners.has(`workspace_${workspaceId}`)) {
+      const cached = globalState.workspaceWindows[workspaceId];
+      if (cached)
+        broadcast("WORKSPACE_WINDOWS_UPDATED", {
+          workspaceId,
+          windows: cached,
+        });
+    } else {
+      // Start en ny listener og gem den i vores map
+      const unsub = onSnapshot(
         collection(db, "workspaces_data", workspaceId, "windows"),
         (snap) => {
           const windows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -371,34 +353,30 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           broadcast("WORKSPACE_WINDOWS_UPDATED", { workspaceId, windows });
         }
       );
-    } else {
-      const cached = globalState.workspaceWindows[workspaceId];
-      if (cached)
-        broadcast("WORKSPACE_WINDOWS_UPDATED", {
-          workspaceId,
-          windows: cached,
-        });
+      activeListeners.set(`workspace_${workspaceId}`, unsub);
     }
-  } else if (type === "OPEN_WORKSPACE") {
+    return true;
+  }
+
+  // Resten af håndteringerne...
+  if (type === "OPEN_WORKSPACE")
     handleOpenWorkspace(payload.workspaceId, payload.windows, payload.name);
-  } else if (type === "OPEN_SPECIFIC_WINDOW") {
+  if (type === "OPEN_SPECIFIC_WINDOW")
     handleOpenSpecificWindow(
       payload.workspaceId,
       payload.windowData,
       payload.name,
       payload.index
     );
-  } else if (type === "GET_ACTIVE_MAPPINGS") {
+  if (type === "GET_ACTIVE_MAPPINGS")
     sendResponse(Array.from(activeWindows.entries()));
-  } else if (type === "GET_RESTORING_STATUS") {
-    sendResponse(activeRestorations > 0);
-  } else if (type === "FORCE_SYNC_ACTIVE_WINDOW") {
-    handleForceSync(payload.windowId);
-  } else if (type === "CREATE_NEW_WINDOW_IN_WORKSPACE") {
+  if (type === "GET_RESTORING_STATUS") sendResponse(activeRestorations > 0);
+  if (type === "FORCE_SYNC_ACTIVE_WINDOW") handleForceSync(payload.windowId);
+  if (type === "CREATE_NEW_WINDOW_IN_WORKSPACE")
     handleCreateNewWindowInWorkspace(payload.workspaceId, payload.name);
-  } else if (type === "CLOSE_PHYSICAL_TABS") {
+  if (type === "CLOSE_PHYSICAL_TABS")
     handleClosePhysicalTabs(payload.urls, payload.internalWindowId);
-  } else if (type === "CLAIM_WINDOW") {
+  if (type === "CLAIM_WINDOW") {
     if (activeRestorations === 0) {
       getWorkspaceWindowIndex(
         payload.workspaceId,
@@ -417,6 +395,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true;
 });
 
+// --- HELPERS (Simplified for clarity) ---
 async function handleOpenWorkspace(
   workspaceId: string,
   windowsToOpen: any[],
@@ -453,8 +432,7 @@ async function handleOpenSpecificWindow(
   }
   activeRestorations++;
   try {
-    const safeTabs = winData.tabs || [];
-    const urls = safeTabs
+    const urls = (winData.tabs || [])
       .map((t: any) => t.url)
       .filter((u: string) => u && !isDash(u));
     const newWin = await chrome.windows.create({
@@ -465,9 +443,7 @@ async function handleOpenSpecificWindow(
       const winId = newWin.id;
       lockedWindowIds.add(winId);
       const tabs = await chrome.tabs.query({ windowId: winId });
-
       if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
-
       const mapping = {
         workspaceId,
         internalWindowId: winData.id,
@@ -495,9 +471,7 @@ async function handleCreateNewWindowInWorkspace(
     if (newWin?.id) {
       const winId = newWin.id;
       const tabs = await chrome.tabs.query({ windowId: winId });
-
       if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
-
       const internalId = `win_${Date.now()}`;
       const snap = await getDocs(
         collection(db, "workspaces_data", workspaceId, "windows")
