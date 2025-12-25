@@ -35,7 +35,6 @@ let globalState = {
   profiles: [] as any[],
   items: [] as any[],
   inbox: null as any,
-  incognitoInbox: null as any, // NY: State til incognito
   workspaceWindows: {} as Record<string, any[]>,
 };
 
@@ -74,19 +73,6 @@ function startFirebaseListeners() {
       broadcast("STATE_UPDATED", { inbox: globalState.inbox });
     });
     activeListeners.set("inbox", unsub);
-  }
-
-  // NY: Listener for incognito inbox
-  if (!activeListeners.has("incognitoInbox")) {
-    const unsub = onSnapshot(doc(db, "inbox_data", "incognito"), (snap) => {
-      globalState.incognitoInbox = snap.exists()
-        ? { id: snap.id, ...snap.data() }
-        : { tabs: [] };
-      broadcast("STATE_UPDATED", {
-        incognitoInbox: globalState.incognitoInbox,
-      });
-    });
-    activeListeners.set("incognitoInbox", unsub);
   }
 }
 
@@ -133,8 +119,7 @@ loadAndVerifyWindows();
 
 async function updateWindowGrouping(
   windowId: number,
-  mapping: WinMapping | null,
-  isIncognito: boolean = false
+  mapping: WinMapping | null
 ) {
   try {
     let groupName = "INBOX";
@@ -143,9 +128,6 @@ async function updateWindowGrouping(
     if (mapping) {
       groupName = `${mapping.workspaceName.toUpperCase()} (${mapping.index})`;
       color = "blue";
-    } else if (isIncognito) {
-      groupName = "INCOGNITO";
-      color = "red";
     }
 
     const tabs = await chrome.tabs.query({ windowId });
@@ -182,13 +164,8 @@ async function updateWindowGrouping(
   } catch (e) {}
 }
 
-async function processInboxWindows(
-  windows: chrome.windows.Window[],
-  docId: "global" | "incognito"
-) {
+async function processInboxWindows(windows: chrome.windows.Window[]) {
   if (windows.length === 0) {
-    // Hvis ingen vinduer, tjek om vi skal tømme db (kun hvis vi havde live data før)
-    // Men for sikkerhedsskyld gør vi ingenting her for at undgå at slette gemt data ved en fejl
     return;
   }
 
@@ -197,7 +174,7 @@ async function processInboxWindows(
 
   for (const w of windows) {
     if (w.id) {
-      await updateWindowGrouping(w.id, null, docId === "incognito");
+      await updateWindowGrouping(w.id, null);
       const winTabs = await chrome.tabs.query({ windowId: w.id });
       const filtered = winTabs.filter(
         (t) => t.url && !t.url.startsWith("chrome") && !isDash(t.url)
@@ -216,11 +193,11 @@ async function processInboxWindows(
   }
 
   if (!hasLiveTabs) {
-    const checkDoc = await getDoc(doc(db, "inbox_data", docId));
+    const checkDoc = await getDoc(doc(db, "inbox_data", "global"));
     if (checkDoc.exists() && (checkDoc.data().tabs || []).length > 0) return;
   }
 
-  const inboxDoc = await getDoc(doc(db, "inbox_data", docId));
+  const inboxDoc = await getDoc(doc(db, "inbox_data", "global"));
   if (inboxDoc.exists()) {
     const storedTabs = (inboxDoc.data().tabs || []) as TabData[];
     for (const storedTab of storedTabs) {
@@ -233,7 +210,7 @@ async function processInboxWindows(
     }
   }
 
-  await setDoc(doc(db, "inbox_data", docId), {
+  await setDoc(doc(db, "inbox_data", "global"), {
     tabs: Array.from(uniqueTabsMap.values()),
     lastUpdate: serverTimestamp(),
   });
@@ -295,7 +272,7 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       );
     } else {
       // Scenario 2: Det er et Inbox vindue (løst vindue)
-      // Vi behandler ALLE løse vinduer hver gang noget ændres i et af dem for at holde sync
+      // Vi behandler ALLE løse vinduer (inkl. incognito) som global inbox
       if (!windowExists) return;
 
       const allWindows = await chrome.windows.getAll();
@@ -305,14 +282,8 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
         (w) => w.id && !activeWindows.has(w.id) && !lockedWindowIds.has(w.id)
       );
 
-      const regularWindows = unmappedWindows.filter((w) => !w.incognito);
-      const incognitoWindows = unmappedWindows.filter((w) => w.incognito);
-
-      // Gem til Global Inbox
-      await processInboxWindows(regularWindows, "global");
-
-      // Gem til Incognito Inbox
-      await processInboxWindows(incognitoWindows, "incognito");
+      // Gem alle unmapped til Global Inbox
+      await processInboxWindows(unmappedWindows);
     }
   } catch (e) {
     console.error("Save error:", e);
@@ -406,7 +377,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
 
-  // Resten af håndteringerne...
   if (type === "OPEN_WORKSPACE")
     handleOpenWorkspace(payload.workspaceId, payload.windows, payload.name);
   if (type === "OPEN_SPECIFIC_WINDOW")
@@ -485,7 +455,7 @@ async function handleOpenSpecificWindow(
       .filter((u: string) => u && !isDash(u));
     const newWin = await chrome.windows.create({
       url: ["dashboard.html", ...urls],
-      incognito: winData.isIncognito || false,
+      incognito: false, // Force normal window since we removed incognito logic
     });
     if (newWin?.id) {
       const winId = newWin.id;
@@ -596,27 +566,14 @@ async function handleClosePhysicalTabs(
       .filter((t) => t.id && urls.includes(t.url || ""))
       .map((t) => t.id as number);
     if (tabIds.length > 0) await chrome.tabs.remove(tabIds);
-  } else if (
-    internalWindowId === "global" ||
-    internalWindowId === "incognito"
-  ) {
-    // Hvis vi sletter fra Inbox eller Incognito Inbox, søg i alle vinduer, der IKKE er mappet
+  } else if (internalWindowId === "global") {
+    // Hvis vi sletter fra Inbox, søg i alle vinduer, der IKKE er mappet
     const allWindows = await chrome.windows.getAll();
     const unmappedIds = allWindows
       .filter((w) => w.id && !activeWindows.has(w.id))
       .map((w) => w.id as number);
 
     for (const winId of unmappedIds) {
-      const win = await chrome.windows.get(winId);
-      // Tjek om vinduet matcher typen (incognito vs global)
-      const isIncogWin = win.incognito;
-      if (
-        (internalWindowId === "incognito" && !isIncogWin) ||
-        (internalWindowId === "global" && isIncogWin)
-      ) {
-        continue;
-      }
-
       const tabs = await chrome.tabs.query({ windowId: winId });
       const tabIds = tabs
         .filter((t) => t.id && urls.includes(t.url || ""))

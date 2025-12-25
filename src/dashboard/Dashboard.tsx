@@ -30,7 +30,6 @@ import {
   Settings,
   Square,
   Trash2,
-  VenetianMask,
   X,
 } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -184,9 +183,7 @@ export const Dashboard = () => {
 
   // INBOX STATES
   const [inboxData, setInboxData] = useState<any>(null);
-  const [incognitoInboxData, setIncognitoInboxData] = useState<any>(null);
   const [isViewingInbox, setIsViewingInbox] = useState(false);
-  const [isViewingIncognito, setIsViewingIncognito] = useState(false);
 
   const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
@@ -223,7 +220,6 @@ export const Dashboard = () => {
     if (state.profiles) setProfiles(state.profiles);
     if (state.items) setItems(state.items);
     if (state.inbox) setInboxData(state.inbox);
-    if (state.incognitoInbox) setIncognitoInboxData(state.incognitoInbox);
   }, []);
 
   useEffect(() => {
@@ -278,55 +274,47 @@ export const Dashboard = () => {
     }
   }, [selectedWorkspace]);
 
+  // --- AUTO SELECT WINDOW (Issue 4) ---
   useEffect(() => {
     if (
       selectedWorkspace &&
       !isViewingInbox &&
-      !isViewingIncognito &&
       windows.length > 0 &&
       !selectedWindowId
     ) {
       const sorted = [...windows].sort(
         (a: any, b: any) => (a.index || 0) - (b.index || 0)
       );
+      // Auto-select first available window always when entering space
       if (sorted[0]?.id) setSelectedWindowId(sorted[0].id);
     }
-  }, [
-    windows,
-    selectedWorkspace,
-    selectedWindowId,
-    isViewingInbox,
-    isViewingIncognito,
-  ]);
+  }, [windows, selectedWorkspace, isViewingInbox, selectedWindowId]);
 
   // --- ACTIONS ---
   const handleWorkspaceClick = (item: NexusItem) => {
     if (selectedWorkspace?.id === item.id) return;
     setIsViewingInbox(false);
-    setIsViewingIncognito(false);
-    setSelectedWorkspace(item);
+    // Reset selection to allow auto-select effect to run
     setSelectedWindowId(null);
+    setWindows([]); // Clear old windows specifically to avoid ghost UI
+    setSelectedWorkspace(item);
   };
 
   const handleSidebarTabDrop = async (targetItem: NexusItem | "global") => {
     const tabJson = window.sessionStorage.getItem("draggedTab");
     if (!tabJson) return;
     const tab = JSON.parse(tabJson);
-    const sourceWorkspaceId =
-      isViewingInbox || isViewingIncognito
-        ? "global" // Uses generic "global" here for safety, logic handled below
-        : selectedWorkspace?.id || "global";
 
-    // Determine strict source ID
-    const strictSourceId = isViewingIncognito
-      ? "incognito"
-      : isViewingInbox
+    // Strict source logic
+    const strictSourceId = isViewingInbox
       ? "global"
       : selectedWindowId || "global";
 
     const targetWorkspaceId =
       targetItem === "global" ? "global" : targetItem.id;
-    if (sourceWorkspaceId === targetWorkspaceId) return;
+
+    // Prevent drop to same source
+    if (strictSourceId === "global" && targetWorkspaceId === "global") return;
 
     setIsProcessingMove(true);
     if (targetItem === "global") setIsInboxSyncing(true);
@@ -338,8 +326,11 @@ export const Dashboard = () => {
         favIconUrl: tab.favIconUrl,
       };
 
-      // Destination
+      // Destination Logic
+      let targetPhysicalWindowId = null;
+
       if (targetWorkspaceId === "global") {
+        // Drop to Inbox
         const snap = await getDoc(doc(db, "inbox_data", "global"));
         const currentTabs = snap.exists() ? snap.data().tabs || [] : [];
         if (!currentTabs.some((t: any) => t.url === cleanTab.url)) {
@@ -350,11 +341,17 @@ export const Dashboard = () => {
           );
         }
       } else {
+        // Drop to Workspace
+        // 1. Update Database
         const snap = await getDocs(
           collection(db, "workspaces_data", targetWorkspaceId, "windows")
         );
+
+        let targetInternalId = "";
+
         if (!snap.empty) {
           const firstWin = snap.docs[0];
+          targetInternalId = firstWin.id;
           await updateDoc(firstWin.ref, {
             tabs: [...(firstWin.data().tabs || []), cleanTab],
           });
@@ -362,6 +359,7 @@ export const Dashboard = () => {
           const newRef = doc(
             collection(db, "workspaces_data", targetWorkspaceId, "windows")
           );
+          targetInternalId = newRef.id;
           await setDoc(newRef, {
             id: newRef.id,
             tabs: [cleanTab],
@@ -369,11 +367,27 @@ export const Dashboard = () => {
             lastActive: serverTimestamp(),
           });
         }
+
+        // 2. LIVE OPEN (Issue 2 Fix): Check if target space is physically open
+        const mapping = activeMappings.find(
+          ([_id, mapData]: any) =>
+            mapData.workspaceId === targetWorkspaceId &&
+            mapData.internalWindowId === targetInternalId
+        );
+
+        if (mapping) {
+          targetPhysicalWindowId = mapping[0]; // The Chrome Window ID
+          await chrome.tabs.create({
+            windowId: targetPhysicalWindowId,
+            url: cleanTab.url,
+            active: false, // Open in background to not steal focus drastically
+          });
+        }
       }
 
       // Source Removal
-      if (strictSourceId === "global" || strictSourceId === "incognito") {
-        const docId = strictSourceId;
+      if (strictSourceId === "global") {
+        const docId = "global";
         const snap = await getDoc(doc(db, "inbox_data", docId));
         if (snap.exists()) {
           const filtered = (snap.data().tabs || []).filter(
@@ -398,6 +412,7 @@ export const Dashboard = () => {
         }
       }
 
+      // Physical Cleanup (Remove from source window if physically present)
       chrome.runtime.sendMessage({
         type: "CLOSE_PHYSICAL_TABS",
         payload: { urls: [cleanTab.url], internalWindowId: strictSourceId },
@@ -415,12 +430,7 @@ export const Dashboard = () => {
     if (!tabJson) return;
     const tab = JSON.parse(tabJson);
 
-    // Determine strict source ID
-    const strictSourceId = isViewingIncognito
-      ? "incognito"
-      : isViewingInbox
-      ? "global"
-      : selectedWindowId;
+    const strictSourceId = isViewingInbox ? "global" : selectedWindowId;
 
     if (!strictSourceId || strictSourceId === targetWinId) return;
 
@@ -502,7 +512,6 @@ export const Dashboard = () => {
                 setActiveProfile(e.target.value);
                 setSelectedWorkspace(null);
                 setIsViewingInbox(false);
-                setIsViewingIncognito(false);
               }}
               className="flex-1 bg-slate-700 p-2 rounded-xl border border-slate-600 text-sm outline-none text-white"
             >
@@ -678,11 +687,10 @@ export const Dashboard = () => {
               Opsamling
             </label>
 
-            {/* STANDARD INBOX */}
+            {/* STANDARD INBOX (Handels all loose tabs including incognito now) */}
             <div
               onClick={() => {
                 setSelectedWorkspace(null);
-                setIsViewingIncognito(false);
                 setIsViewingInbox(true);
               }}
               className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all border mb-2 ${
@@ -701,23 +709,6 @@ export const Dashboard = () => {
                 <InboxIcon size={16} />
               )}
               <span>Inbox ({inboxData?.tabs?.length || 0})</span>
-            </div>
-
-            {/* INCOGNITO INBOX */}
-            <div
-              onClick={() => {
-                setSelectedWorkspace(null);
-                setIsViewingInbox(false);
-                setIsViewingIncognito(true);
-              }}
-              className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all border ${
-                isViewingIncognito
-                  ? "bg-red-900/40 text-red-400 border-red-500/50 shadow-lg"
-                  : "hover:bg-slate-700 text-slate-400 border-transparent"
-              }`}
-            >
-              <VenetianMask size={16} />
-              <span>Incognito ({incognitoInboxData?.tabs?.length || 0})</span>
             </div>
           </nav>
         </div>
@@ -742,33 +733,21 @@ export const Dashboard = () => {
           </div>
         )}
 
-        {selectedWorkspace || isViewingInbox || isViewingIncognito ? (
+        {selectedWorkspace || isViewingInbox ? (
           <>
             <header className="p-8 pb-4 flex justify-between items-end border-b border-slate-800 bg-slate-800/30">
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
                   <h2 className="text-4xl font-bold text-white tracking-tight flex items-center gap-3">
-                    {isViewingIncognito ? (
-                      <>
-                        <VenetianMask size={36} className="text-red-500" />
-                        <span>Incognito Inbox</span>
-                      </>
-                    ) : isViewingInbox ? (
-                      "Inbox"
-                    ) : (
-                      selectedWorkspace?.name
-                    )}
+                    {isViewingInbox ? "Inbox" : selectedWorkspace?.name}
                   </h2>
-                  {isViewingCurrent &&
-                    !isViewingIncognito &&
-                    !isViewingInbox && (
-                      <span className="text-[10px] bg-blue-600/20 text-blue-400 px-2.5 py-1 rounded-full border border-blue-500/20 font-bold uppercase tracking-widest">
-                        <Monitor size={10} className="inline mr-1" /> Dette
-                        Vindue
-                      </span>
-                    )}
+                  {isViewingCurrent && !isViewingInbox && (
+                    <span className="text-[10px] bg-blue-600/20 text-blue-400 px-2.5 py-1 rounded-full border border-blue-500/20 font-bold uppercase tracking-widest">
+                      <Monitor size={10} className="inline mr-1" /> Dette Vindue
+                    </span>
+                  )}
                 </div>
-                {!isViewingInbox && !isViewingIncognito && (
+                {!isViewingInbox && (
                   <div className="flex gap-4 items-center">
                     {windows.map((win, idx) => (
                       <div
@@ -859,9 +838,7 @@ export const Dashboard = () => {
                 <button
                   onClick={() => {
                     let list = [];
-                    if (isViewingIncognito)
-                      list = incognitoInboxData?.tabs || [];
-                    else if (isViewingInbox) list = inboxData?.tabs || [];
+                    if (isViewingInbox) list = inboxData?.tabs || [];
                     else
                       list =
                         windows.find((w) => w.id === selectedWindowId)?.tabs ||
@@ -884,9 +861,7 @@ export const Dashboard = () => {
                   <button
                     onClick={async () => {
                       if (confirm(`Slet ${selectedUrls.length} tabs?`)) {
-                        const sId = isViewingIncognito
-                          ? "incognito"
-                          : isViewingInbox
+                        const sId = isViewingInbox
                           ? "global"
                           : selectedWindowId;
 
@@ -898,14 +873,7 @@ export const Dashboard = () => {
                           },
                         });
 
-                        if (isViewingIncognito) {
-                          const f = incognitoInboxData.tabs.filter(
-                            (t: any) => !selectedUrls.includes(t.url)
-                          );
-                          await updateDoc(doc(db, "inbox_data", "incognito"), {
-                            tabs: f,
-                          });
-                        } else if (isViewingInbox) {
+                        if (isViewingInbox) {
                           const f = inboxData.tabs.filter(
                             (t: any) => !selectedUrls.includes(t.url)
                           );
@@ -963,32 +931,7 @@ export const Dashboard = () => {
                   </button>
                 )}
 
-                {isViewingIncognito &&
-                  (incognitoInboxData?.tabs?.length || 0) > 0 && (
-                    <button
-                      onClick={async () => {
-                        if (confirm("Ryd Incognito Inbox?")) {
-                          chrome.runtime.sendMessage({
-                            type: "CLOSE_PHYSICAL_TABS",
-                            payload: {
-                              urls: incognitoInboxData.tabs.map(
-                                (t: any) => t.url
-                              ),
-                              internalWindowId: "incognito",
-                            },
-                          });
-                          await updateDoc(doc(db, "inbox_data", "incognito"), {
-                            tabs: [],
-                          });
-                        }
-                      }}
-                      className="flex items-center gap-2 bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition"
-                    >
-                      <Eraser size={16} /> Ryd Incognito
-                    </button>
-                  )}
-
-                {!isViewingInbox && !isViewingIncognito && (
+                {!isViewingInbox && (
                   <button
                     onClick={() =>
                       chrome.runtime.sendMessage({
@@ -1010,9 +953,7 @@ export const Dashboard = () => {
 
             <div className="flex-1 overflow-y-auto p-8">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-                {(isViewingIncognito
-                  ? incognitoInboxData?.tabs || []
-                  : isViewingInbox
+                {(isViewingInbox
                   ? inboxData?.tabs || []
                   : windows.find((w) => w.id === selectedWindowId)?.tabs || []
                 ).map((tab: any, i: number) => (
@@ -1021,9 +962,7 @@ export const Dashboard = () => {
                       onClick={async (e) => {
                         e.stopPropagation();
                         if (confirm("Slet tab?")) {
-                          const sId = isViewingIncognito
-                            ? "incognito"
-                            : isViewingInbox
+                          const sId = isViewingInbox
                             ? "global"
                             : selectedWindowId!;
                           await NexusService.moveTabBetweenWindows(
@@ -1031,28 +970,10 @@ export const Dashboard = () => {
                             selectedWorkspace?.id || "global",
                             sId,
                             "",
-                            "global" // NOTE: Dette sender slettet tab til global, men logikken fjerner den fra source.
-                            // Ideelt set sletter vi bare. Men her genbruger vi move funktion til at fjerne fra source.
-                            // En rigtig delete-funktion i Service ville være renere, men dette virker.
+                            "global"
                           );
-                          // Manuel cleanup hvis det var move til sig selv (aka delete hack)
-                          // Men vi bør nok bare bruge slet logikken direkte her:
-                          if (isViewingIncognito) {
-                            const f = incognitoInboxData.tabs.filter(
-                              (t2: any) => t2.url !== tab.url
-                            );
-                            await updateDoc(
-                              doc(db, "inbox_data", "incognito"),
-                              { tabs: f }
-                            );
-                            chrome.runtime.sendMessage({
-                              type: "CLOSE_PHYSICAL_TABS",
-                              payload: {
-                                urls: [tab.url],
-                                internalWindowId: "incognito",
-                              },
-                            });
-                          } else if (isViewingInbox) {
+
+                          if (isViewingInbox) {
                             const f = inboxData.tabs.filter(
                               (t2: any) => t2.url !== tab.url
                             );
@@ -1104,9 +1025,7 @@ export const Dashboard = () => {
                           "draggedTab",
                           JSON.stringify({
                             ...tab,
-                            sourceWorkspaceId: isViewingIncognito
-                              ? "incognito"
-                              : isViewingInbox
+                            sourceWorkspaceId: isViewingInbox
                               ? "global"
                               : selectedWorkspace?.id,
                           })
@@ -1122,11 +1041,8 @@ export const Dashboard = () => {
                         className="flex items-center gap-3 cursor-pointer select-none"
                         onClick={(e) => {
                           e.stopPropagation();
-                          // Åbn i incognito hvis vi er i incognito inbox
-                          chrome.windows.create({
-                            url: tab.url,
-                            incognito: isViewingIncognito,
-                          });
+                          // ISSUE 3 FIX: Open in current window using tabs.create without windowId defaults
+                          chrome.tabs.create({ url: tab.url, active: true });
                         }}
                       >
                         <Globe

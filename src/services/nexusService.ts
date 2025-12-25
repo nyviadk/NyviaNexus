@@ -82,7 +82,6 @@ export const NexusService = {
     // Helper to resolve reference
     const getRef = (wsId: string, winId: string) => {
       if (winId === "global") return doc(db, "inbox_data", "global");
-      if (winId === "incognito") return doc(db, "inbox_data", "incognito");
       return doc(db, "workspaces_data", wsId, "windows", winId);
     };
 
