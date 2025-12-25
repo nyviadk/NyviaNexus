@@ -163,25 +163,28 @@ async function updateWindowGrouping(
 }
 
 async function processInboxWindows(windows: chrome.windows.Window[]) {
-  // 1. Hent eksisterende data fra DB for at bevare 'isIncognito' tabs
   const inboxDocRef = doc(db, "inbox_data", "global");
   const inboxSnap = await getDoc(inboxDocRef);
-  let existingIncognitoTabs: TabData[] = [];
 
+  // 1. Hent eksisterende incognito tabs fra DB (Stash strategi)
+  // Vi starter med disse, hvis vi IKKE kan se incognito vinduer live.
+  let collectedTabs: TabData[] = [];
   if (inboxSnap.exists()) {
-    const allTabs = (inboxSnap.data().tabs || []) as TabData[];
-    // Gem kopi af eksisterende inkognito tabs, så de ikke overskrives af en scanning af normale vinduer
-    existingIncognitoTabs = allTabs.filter((t) => t.isIncognito === true);
+    const data = inboxSnap.data();
+    if (data.tabs && Array.isArray(data.tabs)) {
+      collectedTabs = data.tabs.filter((t: any) => t.isIncognito);
+    }
   }
 
-  const uniqueTabsMap = new Map<string, TabData>();
+  // 2. Tjek om vi kan se live incognito vinduer
+  // Hvis vi kan det, stoler vi 100% på live state og smider DB-stashed incognito tabs væk
+  // for at undgå at vise dubletter (både stash og live version af samme tab).
+  const hasLiveIncognito = windows.some((w) => w.incognito);
+  if (hasLiveIncognito) {
+    collectedTabs = [];
+  }
 
-  // Læg de eksisterende (stashede) inkognito tabs ind først
-  existingIncognitoTabs.forEach((t) => {
-    uniqueTabsMap.set(t.url, t);
-  });
-
-  // 2. Scan nuværende fysiske vinduer (både normale og inkognito hvis tilgængelige)
+  // 3. Scan alle vinduer og TILFØJ tabs til listen (uden at filtrere dubletter på URL)
   if (windows.length > 0) {
     for (const w of windows) {
       if (w.id) {
@@ -201,17 +204,17 @@ async function processInboxWindows(windows: chrome.windows.Window[]) {
             isIncognito: w.incognito,
           };
 
-          // Live tabs overskriver stashede tabs med samme URL (opdaterer titel/favicon/status)
-          uniqueTabsMap.set(tabData.url, tabData);
+          // HER ER ÆNDRINGEN: Vi pusher bare til arrayet, ingen Map/overskrivning.
+          collectedTabs.push(tabData);
           sessionKnownUrls.add(tabData.url);
         });
       }
     }
   }
 
-  // 3. Gem den samlede liste
+  // 4. Gem den samlede liste
   await setDoc(inboxDocRef, {
-    tabs: Array.from(uniqueTabsMap.values()),
+    tabs: collectedTabs,
     lastUpdate: serverTimestamp(),
   });
 }
@@ -273,13 +276,10 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       );
     } else {
       // --- INBOX LOGIK ---
-      // Hent ALLE vinduer for at tjekke både normal og inkognito
       const allWindows = await chrome.windows.getAll();
-
       const unmappedWindows = allWindows.filter(
         (w) => w.id && !activeWindows.has(w.id) && !lockedWindowIds.has(w.id)
       );
-
       await processInboxWindows(unmappedWindows);
     }
   } catch (e) {
@@ -294,8 +294,7 @@ chrome.tabs.onUpdated.addListener((_id, change, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener((_id, info) => {
-  // Dette er vigtigt: Hvis hele vinduet lukker, håndteres det IKKE her.
-  // Vi gemmer kun ved tab-lukning, hvis vinduet forbliver åbent.
+  // Gemmer kun hvis vinduet IKKE lukker (så vi ikke sletter tabs fra DB ved lukning)
   if (!info.isWindowClosing) saveToFirestore(info.windowId, true);
 });
 
@@ -335,9 +334,8 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
   }
   lockedWindowIds.delete(windowId);
 
-  // RITUAL FIX: Vi tvinger IKKE saveToFirestore ved lukning af Inbox-vinduer.
-  // Inbox data skal persistere selvom vinduet lukkes.
-  // Data opdateres kun via chrome.tabs.onRemoved (hvis !isWindowClosing) eller onUpdated.
+  // VIGTIGT: Vi trigger IKKE saveToFirestore her for unmapped vinduer (Inbox).
+  // Det sikrer at tabs ikke slettes fra DB, når man lukker et Inbox-vindue.
 });
 
 // --- MESSAGING ---
