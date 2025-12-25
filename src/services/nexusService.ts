@@ -79,27 +79,15 @@ export const NexusService = {
     targetWorkspaceId: string,
     targetWindowId: string
   ) {
-    const sourceRef =
-      sourceWindowId === "global"
-        ? doc(db, "inbox_data", "global")
-        : doc(
-            db,
-            "workspaces_data",
-            sourceWorkspaceId,
-            "windows",
-            sourceWindowId
-          );
+    // Helper to resolve reference
+    const getRef = (wsId: string, winId: string) => {
+      if (winId === "global") return doc(db, "inbox_data", "global");
+      if (winId === "incognito") return doc(db, "inbox_data", "incognito");
+      return doc(db, "workspaces_data", wsId, "windows", winId);
+    };
 
-    const targetRef =
-      targetWindowId === "global"
-        ? doc(db, "inbox_data", "global")
-        : doc(
-            db,
-            "workspaces_data",
-            targetWorkspaceId,
-            "windows",
-            targetWindowId
-          );
+    const sourceRef = getRef(sourceWorkspaceId, sourceWindowId);
+    const targetRef = getRef(targetWorkspaceId, targetWindowId);
 
     const batch = writeBatch(db);
     batch.update(sourceRef, { tabs: arrayRemove(tab) });

@@ -35,6 +35,7 @@ let globalState = {
   profiles: [] as any[],
   items: [] as any[],
   inbox: null as any,
+  incognitoInbox: null as any, // NY: State til incognito
   workspaceWindows: {} as Record<string, any[]>,
 };
 
@@ -73,6 +74,19 @@ function startFirebaseListeners() {
       broadcast("STATE_UPDATED", { inbox: globalState.inbox });
     });
     activeListeners.set("inbox", unsub);
+  }
+
+  // NY: Listener for incognito inbox
+  if (!activeListeners.has("incognitoInbox")) {
+    const unsub = onSnapshot(doc(db, "inbox_data", "incognito"), (snap) => {
+      globalState.incognitoInbox = snap.exists()
+        ? { id: snap.id, ...snap.data() }
+        : { tabs: [] };
+      broadcast("STATE_UPDATED", {
+        incognitoInbox: globalState.incognitoInbox,
+      });
+    });
+    activeListeners.set("incognitoInbox", unsub);
   }
 }
 
@@ -119,13 +133,21 @@ loadAndVerifyWindows();
 
 async function updateWindowGrouping(
   windowId: number,
-  mapping: WinMapping | null
+  mapping: WinMapping | null,
+  isIncognito: boolean = false
 ) {
   try {
-    const groupName = mapping
-      ? `${mapping.workspaceName.toUpperCase()} (${mapping.index})`
-      : "INBOX";
-    const color = mapping ? "blue" : "grey";
+    let groupName = "INBOX";
+    let color = "grey";
+
+    if (mapping) {
+      groupName = `${mapping.workspaceName.toUpperCase()} (${mapping.index})`;
+      color = "blue";
+    } else if (isIncognito) {
+      groupName = "INCOGNITO";
+      color = "red";
+    }
+
     const tabs = await chrome.tabs.query({ windowId });
     const tabsToGroup = tabs
       .filter((t) => !t.pinned && t.id && !isDash(t.url))
@@ -143,7 +165,9 @@ async function updateWindowGrouping(
         groupId: existingGroup.id,
       });
       if (existingGroup.color !== color) {
-        await chrome.tabGroups.update(existingGroup.id, { color: color });
+        await chrome.tabGroups.update(existingGroup.id, {
+          color: color as any,
+        });
       }
     } else {
       const groupId = (await chrome.tabs.group({
@@ -156,6 +180,63 @@ async function updateWindowGrouping(
       });
     }
   } catch (e) {}
+}
+
+async function processInboxWindows(
+  windows: chrome.windows.Window[],
+  docId: "global" | "incognito"
+) {
+  if (windows.length === 0) {
+    // Hvis ingen vinduer, tjek om vi skal tømme db (kun hvis vi havde live data før)
+    // Men for sikkerhedsskyld gør vi ingenting her for at undgå at slette gemt data ved en fejl
+    return;
+  }
+
+  const uniqueTabsMap = new Map<string, TabData>();
+  let hasLiveTabs = false;
+
+  for (const w of windows) {
+    if (w.id) {
+      await updateWindowGrouping(w.id, null, docId === "incognito");
+      const winTabs = await chrome.tabs.query({ windowId: w.id });
+      const filtered = winTabs.filter(
+        (t) => t.url && !t.url.startsWith("chrome") && !isDash(t.url)
+      );
+      if (filtered.length > 0) hasLiveTabs = true;
+      filtered.forEach((t) => {
+        const tabData = {
+          title: t.title || "Ny fane",
+          url: t.url || "",
+          favIconUrl: t.favIconUrl || "",
+        };
+        uniqueTabsMap.set(tabData.url, tabData);
+        sessionKnownUrls.add(tabData.url);
+      });
+    }
+  }
+
+  if (!hasLiveTabs) {
+    const checkDoc = await getDoc(doc(db, "inbox_data", docId));
+    if (checkDoc.exists() && (checkDoc.data().tabs || []).length > 0) return;
+  }
+
+  const inboxDoc = await getDoc(doc(db, "inbox_data", docId));
+  if (inboxDoc.exists()) {
+    const storedTabs = (inboxDoc.data().tabs || []) as TabData[];
+    for (const storedTab of storedTabs) {
+      if (
+        !uniqueTabsMap.has(storedTab.url) &&
+        !sessionKnownUrls.has(storedTab.url)
+      ) {
+        uniqueTabsMap.set(storedTab.url, storedTab);
+      }
+    }
+  }
+
+  await setDoc(doc(db, "inbox_data", docId), {
+    tabs: Array.from(uniqueTabsMap.values()),
+    lastUpdate: serverTimestamp(),
+  });
 }
 
 async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
@@ -171,6 +252,7 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
 
     const mapping = activeWindows.get(windowId);
 
+    // Scenario 1: Det er et Workspace vindue
     if (mapping) {
       if (!windowExists) return;
       const tabs = await chrome.tabs.query({ windowId });
@@ -212,59 +294,25 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
         { merge: true }
       );
     } else {
+      // Scenario 2: Det er et Inbox vindue (løst vindue)
+      // Vi behandler ALLE løse vinduer hver gang noget ændres i et af dem for at holde sync
       if (!windowExists) return;
+
       const allWindows = await chrome.windows.getAll();
-      const visibleInboxWindows = allWindows.filter(
+
+      // Filtrer alle vinduer der ikke er i et workspace og ikke er locked
+      const unmappedWindows = allWindows.filter(
         (w) => w.id && !activeWindows.has(w.id) && !lockedWindowIds.has(w.id)
       );
-      if (visibleInboxWindows.length === 0) return;
-      await updateWindowGrouping(windowId, null);
 
-      const uniqueTabsMap = new Map<string, TabData>();
-      let hasLiveTabs = false;
+      const regularWindows = unmappedWindows.filter((w) => !w.incognito);
+      const incognitoWindows = unmappedWindows.filter((w) => w.incognito);
 
-      for (const w of visibleInboxWindows) {
-        if (w.id) {
-          const winTabs = await chrome.tabs.query({ windowId: w.id });
-          const filtered = winTabs.filter(
-            (t) => t.url && !t.url.startsWith("chrome") && !isDash(t.url)
-          );
-          if (filtered.length > 0) hasLiveTabs = true;
-          filtered.forEach((t) => {
-            const tabData = {
-              title: t.title || "Ny fane",
-              url: t.url || "",
-              favIconUrl: t.favIconUrl || "",
-            };
-            uniqueTabsMap.set(tabData.url, tabData);
-            sessionKnownUrls.add(tabData.url);
-          });
-        }
-      }
+      // Gem til Global Inbox
+      await processInboxWindows(regularWindows, "global");
 
-      if (!hasLiveTabs) {
-        const checkDoc = await getDoc(doc(db, "inbox_data", "global"));
-        if (checkDoc.exists() && (checkDoc.data().tabs || []).length > 0)
-          return;
-      }
-
-      const inboxDoc = await getDoc(doc(db, "inbox_data", "global"));
-      if (inboxDoc.exists()) {
-        const storedTabs = (inboxDoc.data().tabs || []) as TabData[];
-        for (const storedTab of storedTabs) {
-          if (
-            !uniqueTabsMap.has(storedTab.url) &&
-            !sessionKnownUrls.has(storedTab.url)
-          ) {
-            uniqueTabsMap.set(storedTab.url, storedTab);
-          }
-        }
-      }
-
-      await setDoc(doc(db, "inbox_data", "global"), {
-        tabs: Array.from(uniqueTabsMap.values()),
-        lastUpdate: serverTimestamp(),
-      });
+      // Gem til Incognito Inbox
+      await processInboxWindows(incognitoWindows, "incognito");
     }
   } catch (e) {
     console.error("Save error:", e);
@@ -533,27 +581,49 @@ async function handleClosePhysicalTabs(
   internalWindowId: string
 ) {
   let chromeWinId: number | undefined;
+
+  // Find mapped window
   for (const [id, map] of activeWindows.entries()) {
     if (map.internalWindowId === internalWindowId) {
       chromeWinId = id;
       break;
     }
   }
+
   if (chromeWinId) {
     const tabs = await chrome.tabs.query({ windowId: chromeWinId });
     const tabIds = tabs
       .filter((t) => t.id && urls.includes(t.url || ""))
       .map((t) => t.id as number);
     if (tabIds.length > 0) await chrome.tabs.remove(tabIds);
-  } else if (internalWindowId === "global") {
-    const allTabs = await chrome.tabs.query({});
-    const tabIds = allTabs
-      .filter(
-        (t) =>
-          t.id && urls.includes(t.url || "") && !activeWindows.has(t.windowId)
-      )
-      .map((t) => t.id as number);
-    if (tabIds.length > 0) await chrome.tabs.remove(tabIds);
+  } else if (
+    internalWindowId === "global" ||
+    internalWindowId === "incognito"
+  ) {
+    // Hvis vi sletter fra Inbox eller Incognito Inbox, søg i alle vinduer, der IKKE er mappet
+    const allWindows = await chrome.windows.getAll();
+    const unmappedIds = allWindows
+      .filter((w) => w.id && !activeWindows.has(w.id))
+      .map((w) => w.id as number);
+
+    for (const winId of unmappedIds) {
+      const win = await chrome.windows.get(winId);
+      // Tjek om vinduet matcher typen (incognito vs global)
+      const isIncogWin = win.incognito;
+      if (
+        (internalWindowId === "incognito" && !isIncogWin) ||
+        (internalWindowId === "global" && isIncogWin)
+      ) {
+        continue;
+      }
+
+      const tabs = await chrome.tabs.query({ windowId: winId });
+      const tabIds = tabs
+        .filter((t) => t.id && urls.includes(t.url || ""))
+        .map((t) => t.id as number);
+
+      if (tabIds.length > 0) await chrome.tabs.remove(tabIds);
+    }
   }
 }
 
