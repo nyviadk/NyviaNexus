@@ -191,7 +191,12 @@ export const Dashboard = () => {
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const [activeMappings, setActiveMappings] = useState<any[]>([]);
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
-  const [isSystemRestoring, setIsSystemRestoring] = useState(false);
+
+  // ÆNDRING: Nu en string for at vise status beskeder
+  const [restorationStatus, setRestorationStatus] = useState<string | null>(
+    null
+  );
+
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -226,26 +231,22 @@ export const Dashboard = () => {
 
   // --- AUTO-OPEN WORKSPACE FROM URL PARAMS ---
   useEffect(() => {
-    // Dette tjekker om dashboardet blev åbnet med ?workspaceId=XYZ
     if (items.length > 0) {
       const params = new URLSearchParams(window.location.search);
       const wsId = params.get("workspaceId");
-      const winId = params.get("windowId"); // Intern ID
+      const winId = params.get("windowId");
 
       if (wsId) {
         const targetWs = items.find((i) => i.id === wsId);
         if (targetWs && selectedWorkspace?.id !== targetWs.id) {
           handleWorkspaceClick(targetWs);
-          // Hvis vi også har et specifikt window ID, sæt det (når windows er loadet)
           if (winId) {
-            // Bemærk: Vi sætter dette i en separat useEffect eller venter på windows load
-            // Men vi gemmer det i session storage eller state midlertidigt
             setSelectedWindowId(winId);
           }
         }
       }
     }
-  }, [items]); // Kører når items er loadet
+  }, [items]);
 
   useEffect(() => {
     onAuthStateChanged(auth, (u) => {
@@ -271,6 +272,10 @@ export const Dashboard = () => {
           setWindows(msg.payload.windows);
         }
       }
+      // HÅNDTER STATUS ÆNDRINGER INSTANT
+      if (msg.type === "RESTORATION_STATUS_CHANGE") {
+        setRestorationStatus(msg.payload || null);
+      }
     };
 
     chrome.runtime.onMessage.addListener(messageListener);
@@ -279,8 +284,9 @@ export const Dashboard = () => {
         { type: "GET_ACTIVE_MAPPINGS" },
         (m) => m && setActiveMappings(m)
       );
+      // HENT STATUS (POLL)
       chrome.runtime.sendMessage({ type: "GET_RESTORING_STATUS" }, (res) =>
-        setIsSystemRestoring(res)
+        setRestorationStatus(res || null)
       );
     }, 1000);
 
@@ -307,7 +313,6 @@ export const Dashboard = () => {
       windows.length > 0 &&
       !selectedWindowId
     ) {
-      // Tjek URL params igen for safety, hvis den ikke blev sat før
       const params = new URLSearchParams(window.location.search);
       const preselect = params.get("windowId");
 
@@ -351,7 +356,6 @@ export const Dashboard = () => {
     if (!tabJson) return;
     const tab = JSON.parse(tabJson);
 
-    // Strict source
     const strictSourceId =
       isViewingInbox || isViewingIncognito
         ? "global"
@@ -360,10 +364,7 @@ export const Dashboard = () => {
     const targetWorkspaceId =
       targetItem === "global" ? "global" : targetItem.id;
 
-    // RETTET GUARD: Tillad global -> global HVIS status ændres (Incognito -> Inbox)
     if (strictSourceId === "global" && targetWorkspaceId === "global") {
-      // Hvis vi trækker Incognito -> Inbox (Global), så fortsæt.
-      // Hvis begge er "Inbox" (normal), så stop.
       if (!tab.isIncognito) return;
     }
 
@@ -375,17 +376,15 @@ export const Dashboard = () => {
         title: tab.title,
         url: tab.url,
         favIconUrl: tab.favIconUrl,
-        isIncognito: false, // Always remove incognito flag when moving to workspace/inbox
+        isIncognito: false,
       };
 
       let targetPhysicalWindowId = null;
 
       if (targetWorkspaceId === "global") {
-        // Drop to Inbox (always becomes normal inbox tab)
         const snap = await getDoc(doc(db, "inbox_data", "global"));
         const currentTabs = snap.exists() ? snap.data().tabs || [] : [];
 
-        // Simpel dublet check på URL
         if (
           !currentTabs.some(
             (t: any) => t.url === cleanTab.url && !t.isIncognito
@@ -398,7 +397,6 @@ export const Dashboard = () => {
           );
         }
       } else {
-        // Drop to Workspace
         const snap = await getDocs(
           collection(db, "workspaces_data", targetWorkspaceId, "windows")
         );
@@ -439,11 +437,9 @@ export const Dashboard = () => {
         }
       }
 
-      // Source Removal
       if (strictSourceId === "global") {
         const snap = await getDoc(doc(db, "inbox_data", "global"));
         if (snap.exists()) {
-          // Remove exact match (url + isIncognito)
           const filtered = (snap.data().tabs || []).filter(
             (t: any) =>
               t.url !== tab.url ||
@@ -468,7 +464,6 @@ export const Dashboard = () => {
         }
       }
 
-      // Hvis vi trækker FRA incognito, skal vi lukke den fysiske fane hvis den findes
       chrome.runtime.sendMessage({
         type: "CLOSE_PHYSICAL_TABS",
         payload: { urls: [cleanTab.url], internalWindowId: strictSourceId },
@@ -500,7 +495,6 @@ export const Dashboard = () => {
         ([_, m]) => m.internalWindowId === targetWinId
       );
 
-      // Clean incognito flag when moving to workspace window
       const cleanTab = { ...tab, isIncognito: false };
 
       if (sourceMapping && targetMapping) {
@@ -545,11 +539,12 @@ export const Dashboard = () => {
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-200 overflow-hidden font-sans relative">
-      {isSystemRestoring && (
+      {/* Viser nu specifik status besked i stedet for bare "Synkroniserer..." */}
+      {restorationStatus && (
         <div className="absolute inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center flex-col gap-4">
           <Loader2 size={48} className="text-blue-500 animate-spin" />
           <div className="text-xl font-bold text-white animate-pulse">
-            Synkroniserer...
+            {restorationStatus}
           </div>
         </div>
       )}
@@ -712,7 +707,6 @@ export const Dashboard = () => {
               const tJ = window.sessionStorage.getItem("draggedTab");
               if (tJ) {
                 const tab = JSON.parse(tJ);
-                // Valid hvis ikke global, ELLER hvis global incognito (for at flytte til normal inbox)
                 const isValid =
                   tab.sourceWorkspaceId !== "global" || tab.isIncognito;
                 setInboxDropStatus(isValid ? "valid" : "invalid");

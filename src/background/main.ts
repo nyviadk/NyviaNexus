@@ -27,6 +27,7 @@ interface WinMapping {
 }
 
 let activeRestorations = 0;
+let restorationStatus = ""; // NY: Holder styr på tekst-status
 let lastDashboardTime = 0;
 let activeWindows = new Map<number, WinMapping>();
 const lockedWindowIds = new Set<number>();
@@ -44,6 +45,12 @@ const activeListeners = new Map<string, () => void>();
 const isDash = (url?: string) => url?.includes("dashboard.html");
 function broadcast(type: string, payload: any) {
   chrome.runtime.sendMessage({ type, payload }).catch(() => {});
+}
+
+function updateRestorationStatus(status: string) {
+  restorationStatus = status;
+  // Send besked direkte til UI så den ikke skal vente på poll
+  broadcast("RESTORATION_STATUS_CHANGE", status);
 }
 
 // --- FIREBASE LISTENERS ---
@@ -166,11 +173,8 @@ async function processInboxWindows(windows: chrome.windows.Window[]) {
   const inboxDocRef = doc(db, "inbox_data", "global");
   const inboxSnap = await getDoc(inboxDocRef);
 
-  // Vi bruger et Map for at merge DB-data og Live-data.
-  // URL er key. Dette sikrer vi ikke får dubletter, men bevarer data.
   const uniqueTabsMap = new Map<string, TabData>();
 
-  // 1. Indlæs eksisterende tabs fra DB først
   if (inboxSnap.exists()) {
     const data = inboxSnap.data();
     if (data.tabs && Array.isArray(data.tabs)) {
@@ -178,9 +182,6 @@ async function processInboxWindows(windows: chrome.windows.Window[]) {
     }
   }
 
-  // 2. Scan live vinduer og OVERSKRIV / TILFØJ til mappet
-  // Live status har altid præcedens (titel, favicon updates),
-  // men vi sletter ikke de gamle fra DB, bare fordi et nyt vindue åbnes.
   if (windows.length > 0) {
     for (const w of windows) {
       if (w.id) {
@@ -198,7 +199,6 @@ async function processInboxWindows(windows: chrome.windows.Window[]) {
             favIconUrl: t.favIconUrl || "",
             isIncognito: w.incognito,
           };
-          // Upsert: Tilføj eller opdater tab i mappet
           uniqueTabsMap.set(tabData.url, tabData);
           sessionKnownUrls.add(tabData.url);
         });
@@ -206,11 +206,8 @@ async function processInboxWindows(windows: chrome.windows.Window[]) {
     }
   }
 
-  // 3. Konverter Map tilbage til Array
-  // (Valgfrit: Du kan sortere her hvis du vil have en bestemt rækkefølge)
   const mergedTabs = Array.from(uniqueTabsMap.values());
 
-  // 4. Gem den samlede liste
   await setDoc(inboxDocRef, {
     tabs: mergedTabs,
     lastUpdate: serverTimestamp(),
@@ -381,7 +378,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     );
   if (type === "GET_ACTIVE_MAPPINGS")
     sendResponse(Array.from(activeWindows.entries()));
-  if (type === "GET_RESTORING_STATUS") sendResponse(activeRestorations > 0);
+
+  // RETURINER NU STRING I STEDET FOR BOOLEAN
+  if (type === "GET_RESTORING_STATUS") sendResponse(restorationStatus);
+
   if (type === "FORCE_SYNC_ACTIVE_WINDOW") handleForceSync(payload.windowId);
   if (type === "CREATE_NEW_WINDOW_IN_WORKSPACE")
     handleCreateNewWindowInWorkspace(payload.workspaceId, payload.name);
@@ -417,6 +417,9 @@ async function handleOpenWorkspace(
     return;
   }
   for (let i = 0; i < windowsToOpen.length; i++) {
+    updateRestorationStatus(
+      `Åbner vindue ${i + 1} af ${windowsToOpen.length}...`
+    );
     await handleOpenSpecificWindow(workspaceId, windowsToOpen[i], name, i + 1);
   }
 }
@@ -427,6 +430,7 @@ async function handleOpenSpecificWindow(
   name: string,
   index: number
 ) {
+  updateRestorationStatus("Finder eksisterende vinduer...");
   for (const [chromeId, map] of activeWindows.entries()) {
     if (
       map.workspaceId === workspaceId &&
@@ -434,6 +438,7 @@ async function handleOpenSpecificWindow(
     ) {
       try {
         await chrome.windows.update(chromeId, { focused: true });
+        updateRestorationStatus(""); // Færdig
         return;
       } catch (e) {
         activeWindows.delete(chromeId);
@@ -441,14 +446,15 @@ async function handleOpenSpecificWindow(
       }
     }
   }
+
   activeRestorations++;
   try {
     const urls = (winData.tabs || [])
       .map((t: any) => t.url)
       .filter((u: string) => u && !isDash(u));
 
-    // HER ER ÆNDRINGEN FOR DASHBOARD AUTO-ÅBNING:
-    // Vi sætter query params på dashboard.html
+    updateRestorationStatus(`Opretter vindue (${urls.length} faner)...`);
+
     const dashUrl = `dashboard.html?workspaceId=${workspaceId}&windowId=${winData.id}`;
 
     const newWin = await chrome.windows.create({
@@ -458,8 +464,11 @@ async function handleOpenSpecificWindow(
     if (newWin?.id) {
       const winId = newWin.id;
       lockedWindowIds.add(winId);
+
+      updateRestorationStatus("Konfigurerer dashboard...");
       const tabs = await chrome.tabs.query({ windowId: winId });
       if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
+
       const mapping = {
         workspaceId,
         internalWindowId: winData.id,
@@ -468,12 +477,19 @@ async function handleOpenSpecificWindow(
       };
       activeWindows.set(winId, mapping);
       await saveActiveWindowsToStorage();
+
+      updateRestorationStatus("Grupperer faner...");
       await updateWindowGrouping(winId, mapping);
-      if (urls.length > 0) await waitForWindowToLoad(winId);
+
+      if (urls.length > 0) {
+        updateRestorationStatus("Venter på indhold...");
+        await waitForWindowToLoad(winId);
+      }
       lockedWindowIds.delete(winId);
     }
   } finally {
     activeRestorations--;
+    if (activeRestorations === 0) updateRestorationStatus("");
   }
 }
 
@@ -482,8 +498,8 @@ async function handleCreateNewWindowInWorkspace(
   name: string
 ) {
   activeRestorations++;
+  updateRestorationStatus("Opretter nyt workspace vindue...");
   try {
-    // Også her sætter vi query params
     const dashUrl = `dashboard.html?workspaceId=${workspaceId}&newWindow=true`;
 
     const newWin = await chrome.windows.create({ url: dashUrl });
@@ -508,6 +524,7 @@ async function handleCreateNewWindowInWorkspace(
     }
   } finally {
     activeRestorations--;
+    if (activeRestorations === 0) updateRestorationStatus("");
   }
 }
 
@@ -516,6 +533,7 @@ async function handleForceSync(windowId: number) {
   if (!mapping) return;
   lockedWindowIds.add(windowId);
   activeRestorations++;
+  updateRestorationStatus("Tvinger synkronisering...");
   try {
     const snap = await getDoc(
       doc(
@@ -532,7 +550,11 @@ async function handleForceSync(windowId: number) {
         .map((t: any) => t.url)
         .filter((u: string) => u && !isDash(u));
       const currentTabs = await chrome.tabs.query({ windowId });
+
+      updateRestorationStatus(`Gendanner ${urls.length} faner...`);
       for (const url of urls) await chrome.tabs.create({ windowId, url });
+
+      updateRestorationStatus("Rydder op...");
       for (const tab of currentTabs) {
         if (tab.id && !isDash(tab.url) && !tab.pinned)
           await chrome.tabs.remove(tab.id);
@@ -544,6 +566,7 @@ async function handleForceSync(windowId: number) {
     lockedWindowIds.delete(windowId);
     activeRestorations--;
     saveToFirestore(windowId, false);
+    if (activeRestorations === 0) updateRestorationStatus("");
   }
 }
 
