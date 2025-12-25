@@ -27,7 +27,7 @@ interface WinMapping {
 }
 
 let activeRestorations = 0;
-let restorationStatus = ""; // NY: Holder styr på tekst-status
+let restorationStatus = "";
 let lastDashboardTime = 0;
 let activeWindows = new Map<number, WinMapping>();
 const lockedWindowIds = new Set<number>();
@@ -49,7 +49,6 @@ function broadcast(type: string, payload: any) {
 
 function updateRestorationStatus(status: string) {
   restorationStatus = status;
-  // Send besked direkte til UI så den ikke skal vente på poll
   broadcast("RESTORATION_STATUS_CHANGE", status);
 }
 
@@ -379,7 +378,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (type === "GET_ACTIVE_MAPPINGS")
     sendResponse(Array.from(activeWindows.entries()));
 
-  // RETURINER NU STRING I STEDET FOR BOOLEAN
   if (type === "GET_RESTORING_STATUS") sendResponse(restorationStatus);
 
   if (type === "FORCE_SYNC_ACTIVE_WINDOW") handleForceSync(payload.windowId);
@@ -418,7 +416,7 @@ async function handleOpenWorkspace(
   }
   for (let i = 0; i < windowsToOpen.length; i++) {
     updateRestorationStatus(
-      `Åbner vindue ${i + 1} af ${windowsToOpen.length}...`
+      `Klargør vindue ${i + 1} af ${windowsToOpen.length}...`
     );
     await handleOpenSpecificWindow(workspaceId, windowsToOpen[i], name, i + 1);
   }
@@ -430,7 +428,7 @@ async function handleOpenSpecificWindow(
   name: string,
   index: number
 ) {
-  updateRestorationStatus("Finder eksisterende vinduer...");
+  updateRestorationStatus("Tjekker eksisterende vinduer...");
   for (const [chromeId, map] of activeWindows.entries()) {
     if (
       map.workspaceId === workspaceId &&
@@ -438,7 +436,7 @@ async function handleOpenSpecificWindow(
     ) {
       try {
         await chrome.windows.update(chromeId, { focused: true });
-        updateRestorationStatus(""); // Færdig
+        updateRestorationStatus("");
         return;
       } catch (e) {
         activeWindows.delete(chromeId);
@@ -453,7 +451,7 @@ async function handleOpenSpecificWindow(
       .map((t: any) => t.url)
       .filter((u: string) => u && !isDash(u));
 
-    updateRestorationStatus(`Opretter vindue (${urls.length} faner)...`);
+    updateRestorationStatus(`Opretter vindue med ${urls.length} faner...`);
 
     const dashUrl = `dashboard.html?workspaceId=${workspaceId}&windowId=${winData.id}`;
 
@@ -465,7 +463,7 @@ async function handleOpenSpecificWindow(
       const winId = newWin.id;
       lockedWindowIds.add(winId);
 
-      updateRestorationStatus("Konfigurerer dashboard...");
+      updateRestorationStatus("Initialiserer...");
       const tabs = await chrome.tabs.query({ windowId: winId });
       if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
 
@@ -478,11 +476,11 @@ async function handleOpenSpecificWindow(
       activeWindows.set(winId, mapping);
       await saveActiveWindowsToStorage();
 
-      updateRestorationStatus("Grupperer faner...");
+      updateRestorationStatus("Organiserer...");
       await updateWindowGrouping(winId, mapping);
 
       if (urls.length > 0) {
-        updateRestorationStatus("Venter på indhold...");
+        // Her kalder vi den nye ventefunktion som opdaterer status løbende
         await waitForWindowToLoad(winId);
       }
       lockedWindowIds.delete(winId);
@@ -498,7 +496,7 @@ async function handleCreateNewWindowInWorkspace(
   name: string
 ) {
   activeRestorations++;
-  updateRestorationStatus("Opretter nyt workspace vindue...");
+  updateRestorationStatus("Opretter nyt tomt workspace...");
   try {
     const dashUrl = `dashboard.html?workspaceId=${workspaceId}&newWindow=true`;
 
@@ -533,7 +531,7 @@ async function handleForceSync(windowId: number) {
   if (!mapping) return;
   lockedWindowIds.add(windowId);
   activeRestorations++;
-  updateRestorationStatus("Tvinger synkronisering...");
+  updateRestorationStatus("Forbereder synkronisering...");
   try {
     const snap = await getDoc(
       doc(
@@ -551,10 +549,10 @@ async function handleForceSync(windowId: number) {
         .filter((u: string) => u && !isDash(u));
       const currentTabs = await chrome.tabs.query({ windowId });
 
-      updateRestorationStatus(`Gendanner ${urls.length} faner...`);
+      updateRestorationStatus(`Genindlæser ${urls.length} faner...`);
       for (const url of urls) await chrome.tabs.create({ windowId, url });
 
-      updateRestorationStatus("Rydder op...");
+      updateRestorationStatus("Fjerner gamle faner...");
       for (const tab of currentTabs) {
         if (tab.id && !isDash(tab.url) && !tab.pinned)
           await chrome.tabs.remove(tab.id);
@@ -624,16 +622,35 @@ async function getWorkspaceWindowIndex(
 
 async function waitForWindowToLoad(windowId: number) {
   return new Promise<void>((resolve) => {
+    let attempts = 0;
+    // 8 sekunder timeout (32 forsøg a 250ms).
+    // Dette sikrer at vi ikke venter for evigt på en fane der spinner.
+    const maxAttempts = 32;
+
     const check = async () => {
       try {
         const tabs = await chrome.tabs.query({ windowId });
-        if (!tabs.some((t) => t.status === "loading")) resolve();
-        else setTimeout(check, 500);
+        const total = tabs.length;
+        // Vi tæller hvor mange der stadig loader
+        const loadingCount = tabs.filter((t) => t.status === "loading").length;
+        const completeCount = total - loadingCount;
+
+        // OPDATER STATUS LIVE: "Indlæser indhold (12/45)..."
+        updateRestorationStatus(
+          `Indlæser indhold (${completeCount}/${total})...`
+        );
+
+        // Hvis alt er færdigt, eller vi har ventet for længe -> kør videre
+        if (loadingCount === 0 || attempts >= maxAttempts) {
+          resolve();
+        } else {
+          attempts++;
+          setTimeout(check, 250); // Tjek hurtigere (250ms) for snappy UI
+        }
       } catch (e) {
         resolve();
       }
     };
-    setTimeout(resolve, 10000);
     check();
   });
 }
