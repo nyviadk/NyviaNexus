@@ -81,7 +81,10 @@ export const NexusService = {
   ) {
     // Helper to resolve reference
     const getRef = (wsId: string, winId: string) => {
-      if (winId === "global") return doc(db, "inbox_data", "global");
+      // Sikkerhedsnet: Både "global" og "incognito" peger nu på samme dokument
+      if (winId === "global" || winId === "incognito") {
+        return doc(db, "inbox_data", "global");
+      }
       return doc(db, "workspaces_data", wsId, "windows", winId);
     };
 
@@ -89,6 +92,9 @@ export const NexusService = {
     const targetRef = getRef(targetWorkspaceId, targetWindowId);
 
     const batch = writeBatch(db);
+
+    // Vigtigt: arrayRemove fjerner kun hvis objektet matcher præcist (inkl. isIncognito feltet)
+    // Frontend skal sikre at 'tab' objektet matcher det der ligger i databasen
     batch.update(sourceRef, { tabs: arrayRemove(tab) });
     batch.update(targetRef, { tabs: arrayUnion(tab) });
     return await batch.commit();
