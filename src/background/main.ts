@@ -630,7 +630,7 @@ async function waitForWindowToLoad(windowId: number) {
     const check = async () => {
       try {
         const tabs = await chrome.tabs.query({ windowId });
-        const total = tabs.length;
+        const total = tabs.length - 1;
         // Vi tæller hvor mange der stadig loader
         const loadingCount = tabs.filter((t) => t.status === "loading").length;
         const completeCount = total - loadingCount;
