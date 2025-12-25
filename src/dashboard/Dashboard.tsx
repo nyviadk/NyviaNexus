@@ -224,6 +224,29 @@ export const Dashboard = () => {
     if (state.inbox) setInboxData(state.inbox);
   }, []);
 
+  // --- AUTO-OPEN WORKSPACE FROM URL PARAMS ---
+  useEffect(() => {
+    // Dette tjekker om dashboardet blev åbnet med ?workspaceId=XYZ
+    if (items.length > 0) {
+      const params = new URLSearchParams(window.location.search);
+      const wsId = params.get("workspaceId");
+      const winId = params.get("windowId"); // Intern ID
+
+      if (wsId) {
+        const targetWs = items.find((i) => i.id === wsId);
+        if (targetWs && selectedWorkspace?.id !== targetWs.id) {
+          handleWorkspaceClick(targetWs);
+          // Hvis vi også har et specifikt window ID, sæt det (når windows er loadet)
+          if (winId) {
+            // Bemærk: Vi sætter dette i en separat useEffect eller venter på windows load
+            // Men vi gemmer det i session storage eller state midlertidigt
+            setSelectedWindowId(winId);
+          }
+        }
+      }
+    }
+  }, [items]); // Kører når items er loadet
+
   useEffect(() => {
     onAuthStateChanged(auth, (u) => {
       setUser(u);
@@ -284,10 +307,18 @@ export const Dashboard = () => {
       windows.length > 0 &&
       !selectedWindowId
     ) {
-      const sorted = [...windows].sort(
-        (a: any, b: any) => (a.index || 0) - (b.index || 0)
-      );
-      if (sorted[0]?.id) setSelectedWindowId(sorted[0].id);
+      // Tjek URL params igen for safety, hvis den ikke blev sat før
+      const params = new URLSearchParams(window.location.search);
+      const preselect = params.get("windowId");
+
+      if (preselect && windows.some((w) => w.id === preselect)) {
+        setSelectedWindowId(preselect);
+      } else {
+        const sorted = [...windows].sort(
+          (a: any, b: any) => (a.index || 0) - (b.index || 0)
+        );
+        if (sorted[0]?.id) setSelectedWindowId(sorted[0].id);
+      }
     }
   }, [
     windows,
@@ -329,7 +360,12 @@ export const Dashboard = () => {
     const targetWorkspaceId =
       targetItem === "global" ? "global" : targetItem.id;
 
-    if (strictSourceId === "global" && targetWorkspaceId === "global") return;
+    // RETTET GUARD: Tillad global -> global HVIS status ændres (Incognito -> Inbox)
+    if (strictSourceId === "global" && targetWorkspaceId === "global") {
+      // Hvis vi trækker Incognito -> Inbox (Global), så fortsæt.
+      // Hvis begge er "Inbox" (normal), så stop.
+      if (!tab.isIncognito) return;
+    }
 
     setIsProcessingMove(true);
     if (targetItem === "global") setIsInboxSyncing(true);
@@ -339,7 +375,7 @@ export const Dashboard = () => {
         title: tab.title,
         url: tab.url,
         favIconUrl: tab.favIconUrl,
-        isIncognito: false, // Always remove incognito flag when moving to workspace
+        isIncognito: false, // Always remove incognito flag when moving to workspace/inbox
       };
 
       let targetPhysicalWindowId = null;
@@ -348,7 +384,13 @@ export const Dashboard = () => {
         // Drop to Inbox (always becomes normal inbox tab)
         const snap = await getDoc(doc(db, "inbox_data", "global"));
         const currentTabs = snap.exists() ? snap.data().tabs || [] : [];
-        if (!currentTabs.some((t: any) => t.url === cleanTab.url)) {
+
+        // Simpel dublet check på URL
+        if (
+          !currentTabs.some(
+            (t: any) => t.url === cleanTab.url && !t.isIncognito
+          )
+        ) {
           await setDoc(
             doc(db, "inbox_data", "global"),
             { tabs: [...currentTabs, cleanTab], lastUpdate: serverTimestamp() },
@@ -426,6 +468,7 @@ export const Dashboard = () => {
         }
       }
 
+      // Hvis vi trækker FRA incognito, skal vi lukke den fysiske fane hvis den findes
       chrome.runtime.sendMessage({
         type: "CLOSE_PHYSICAL_TABS",
         payload: { urls: [cleanTab.url], internalWindowId: strictSourceId },
@@ -667,13 +710,13 @@ export const Dashboard = () => {
             onDragOver={(e) => {
               e.preventDefault();
               const tJ = window.sessionStorage.getItem("draggedTab");
-              if (tJ)
-                setInboxDropStatus(
-                  JSON.parse(tJ).sourceWorkspaceId === "global"
-                    ? "invalid"
-                    : "valid"
-                );
-              else setDropTargetWinId("global");
+              if (tJ) {
+                const tab = JSON.parse(tJ);
+                // Valid hvis ikke global, ELLER hvis global incognito (for at flytte til normal inbox)
+                const isValid =
+                  tab.sourceWorkspaceId !== "global" || tab.isIncognito;
+                setInboxDropStatus(isValid ? "valid" : "invalid");
+              } else setDropTargetWinId("global");
             }}
             onDragEnter={() => {
               inboxDragCounter.current++;
@@ -694,7 +737,9 @@ export const Dashboard = () => {
                 setIsInboxDragOver(false);
                 setInboxDropStatus(null);
                 inboxDragCounter.current = 0;
-                if (JSON.parse(tJ).sourceWorkspaceId !== "global")
+
+                const tab = JSON.parse(tJ);
+                if (tab.sourceWorkspaceId !== "global" || tab.isIncognito)
                   handleSidebarTabDrop("global");
               } else handleTabDrop("global");
             }}

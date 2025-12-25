@@ -166,29 +166,24 @@ async function processInboxWindows(windows: chrome.windows.Window[]) {
   const inboxDocRef = doc(db, "inbox_data", "global");
   const inboxSnap = await getDoc(inboxDocRef);
 
-  // 1. Hent eksisterende incognito tabs fra DB (Stash strategi)
-  // Vi starter med disse, hvis vi IKKE kan se incognito vinduer live.
-  let collectedTabs: TabData[] = [];
+  // Vi bruger et Map for at merge DB-data og Live-data.
+  // URL er key. Dette sikrer vi ikke får dubletter, men bevarer data.
+  const uniqueTabsMap = new Map<string, TabData>();
+
+  // 1. Indlæs eksisterende tabs fra DB først
   if (inboxSnap.exists()) {
     const data = inboxSnap.data();
     if (data.tabs && Array.isArray(data.tabs)) {
-      collectedTabs = data.tabs.filter((t: any) => t.isIncognito);
+      data.tabs.forEach((t: any) => uniqueTabsMap.set(t.url, t));
     }
   }
 
-  // 2. Tjek om vi kan se live incognito vinduer
-  // Hvis vi kan det, stoler vi 100% på live state og smider DB-stashed incognito tabs væk
-  // for at undgå at vise dubletter (både stash og live version af samme tab).
-  const hasLiveIncognito = windows.some((w) => w.incognito);
-  if (hasLiveIncognito) {
-    collectedTabs = [];
-  }
-
-  // 3. Scan alle vinduer og TILFØJ tabs til listen (uden at filtrere dubletter på URL)
+  // 2. Scan live vinduer og OVERSKRIV / TILFØJ til mappet
+  // Live status har altid præcedens (titel, favicon updates),
+  // men vi sletter ikke de gamle fra DB, bare fordi et nyt vindue åbnes.
   if (windows.length > 0) {
     for (const w of windows) {
       if (w.id) {
-        // Vi grupperer kun normale vinduer i Chrome
         if (!w.incognito) await updateWindowGrouping(w.id, null);
 
         const winTabs = await chrome.tabs.query({ windowId: w.id });
@@ -203,18 +198,21 @@ async function processInboxWindows(windows: chrome.windows.Window[]) {
             favIconUrl: t.favIconUrl || "",
             isIncognito: w.incognito,
           };
-
-          // HER ER ÆNDRINGEN: Vi pusher bare til arrayet, ingen Map/overskrivning.
-          collectedTabs.push(tabData);
+          // Upsert: Tilføj eller opdater tab i mappet
+          uniqueTabsMap.set(tabData.url, tabData);
           sessionKnownUrls.add(tabData.url);
         });
       }
     }
   }
 
+  // 3. Konverter Map tilbage til Array
+  // (Valgfrit: Du kan sortere her hvis du vil have en bestemt rækkefølge)
+  const mergedTabs = Array.from(uniqueTabsMap.values());
+
   // 4. Gem den samlede liste
   await setDoc(inboxDocRef, {
-    tabs: collectedTabs,
+    tabs: mergedTabs,
     lastUpdate: serverTimestamp(),
   });
 }
@@ -294,7 +292,6 @@ chrome.tabs.onUpdated.addListener((_id, change, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener((_id, info) => {
-  // Gemmer kun hvis vinduet IKKE lukker (så vi ikke sletter tabs fra DB ved lukning)
   if (!info.isWindowClosing) saveToFirestore(info.windowId, true);
 });
 
@@ -333,9 +330,6 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
     await saveActiveWindowsToStorage();
   }
   lockedWindowIds.delete(windowId);
-
-  // VIGTIGT: Vi trigger IKKE saveToFirestore her for unmapped vinduer (Inbox).
-  // Det sikrer at tabs ikke slettes fra DB, når man lukker et Inbox-vindue.
 });
 
 // --- MESSAGING ---
@@ -452,8 +446,13 @@ async function handleOpenSpecificWindow(
     const urls = (winData.tabs || [])
       .map((t: any) => t.url)
       .filter((u: string) => u && !isDash(u));
+
+    // HER ER ÆNDRINGEN FOR DASHBOARD AUTO-ÅBNING:
+    // Vi sætter query params på dashboard.html
+    const dashUrl = `dashboard.html?workspaceId=${workspaceId}&windowId=${winData.id}`;
+
     const newWin = await chrome.windows.create({
-      url: ["dashboard.html", ...urls],
+      url: [dashUrl, ...urls],
       incognito: false,
     });
     if (newWin?.id) {
@@ -484,7 +483,10 @@ async function handleCreateNewWindowInWorkspace(
 ) {
   activeRestorations++;
   try {
-    const newWin = await chrome.windows.create({ url: "dashboard.html" });
+    // Også her sætter vi query params
+    const dashUrl = `dashboard.html?workspaceId=${workspaceId}&newWindow=true`;
+
+    const newWin = await chrome.windows.create({ url: dashUrl });
     if (newWin?.id) {
       const winId = newWin.id;
       const tabs = await chrome.tabs.query({ windowId: winId });
