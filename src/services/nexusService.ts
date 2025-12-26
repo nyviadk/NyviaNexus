@@ -1,8 +1,8 @@
 import {
-  arrayRemove,
   arrayUnion,
   collection,
   doc,
+  getDoc,
   getDocs,
   updateDoc,
   writeBatch,
@@ -98,17 +98,18 @@ export const NexusService = {
 
     const batch = writeBatch(db);
 
-    // BEMÆRK: arrayRemove virker KUN hvis objektet matcher 100%.
-    // Hvis 'tab' objektet fra frontend mangler felter som DB har, fejler det.
-    // Den mest robuste måde er at læse arrayet, filtrere og skrive tilbage.
-
-    // MEN for performance bruger vi arrayRemove, men vi stoler på at frontend sender det komplette objekt.
-    // Hvis source er DB-baseret, bør objektet være identisk.
-
-    // Hvis vi flytter TIL SAMME LISTE (reorder), skal vi håndtere det anderledes,
-    // men her flytter vi mellem vinduer.
-
-    batch.update(sourceRef, { tabs: arrayRemove(tab) }); // Fjern originalen (uden evt ny UID hvis den manglede)
+    // FIX: Brug ikke arrayRemove til objekter, det er for skrøbeligt.
+    // Vi henter kilden, filtrerer og opdaterer.
+    const sourceSnap = await getDoc(sourceRef);
+    if (sourceSnap.exists()) {
+      const currentTabs = sourceSnap.data().tabs || [];
+      // Filtrer baseret på UID hvis muligt, ellers URL
+      const newSourceTabs = currentTabs.filter((t: any) => {
+        if (tab.uid && t.uid) return t.uid !== tab.uid;
+        return t.url !== tab.url;
+      });
+      batch.update(sourceRef, { tabs: newSourceTabs });
+    }
 
     // Tilføj til target (med UID)
     batch.update(targetRef, { tabs: arrayUnion(tabToMove) });

@@ -24,7 +24,6 @@ interface Props {
   onDragStateChange: (id: string | null) => void;
   onDragEndCleanup: () => void;
   activeDragId: string | null;
-  // Opdateret type til at returnere Promise for loader-styring
   onTabDrop?: (targetItem: NexusItem) => Promise<void>;
 }
 
@@ -165,13 +164,12 @@ export const SidebarItem = ({
       }
 
       if (onTabDrop) {
-        setIsSyncing(true); // Start visuel loader
+        setIsSyncing(true);
         try {
           await onTabDrop(item);
-          // Tvungen pause på 500ms for visuel feedback, ligesom ved mappe-flyt
           await new Promise((resolve) => setTimeout(resolve, 500));
         } finally {
-          setIsSyncing(false); // Stop loader
+          setIsSyncing(false);
         }
       }
       return;
@@ -270,26 +268,26 @@ export const SidebarItem = ({
         onDragEnd={onDragEnd}
       >
         {isSyncing ? (
-          <Loader2 size={14} className="animate-spin text-blue-300" />
+          <Loader2 size={18} className="animate-spin text-blue-300" />
         ) : isFolder ? (
           isOpen ? (
             <ChevronDown
-              size={14}
+              size={18}
               className="text-slate-400 transition-transform"
             />
           ) : (
             <ChevronRight
-              size={14}
+              size={18}
               className="text-slate-400 transition-transform"
             />
           )
         ) : (
-          <Layout size={16} className="text-blue-300 shrink-0 shadow-sm" />
+          <Layout size={20} className="text-blue-300 shrink-0 shadow-sm" />
         )}
 
         {isFolder && !isSyncing && (
           <Folder
-            size={16}
+            size={20}
             className={`${
               tabDropStatus === "valid" || (isDragOver && !isInvalidItemDrop)
                 ? "text-blue-300"
@@ -324,7 +322,7 @@ export const SidebarItem = ({
                   title="Ny mappe"
                   className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-blue-300"
                 >
-                  <FolderPlus size={14} />
+                  <FolderPlus size={18} />
                 </button>
                 <button
                   onClick={(e) => {
@@ -335,7 +333,7 @@ export const SidebarItem = ({
                   title="Nyt space"
                   className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-blue-300"
                 >
-                  <Plus size={14} />
+                  <Plus size={18} />
                 </button>
               </>
             )}
@@ -344,14 +342,14 @@ export const SidebarItem = ({
               title="Omdøb"
               className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-blue-300"
             >
-              <Edit3 size={14} />
+              <Edit3 size={18} />
             </button>
             <button
               onClick={handleDelete}
               title="Slet"
               className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-red-400"
             >
-              <Trash2 size={14} />
+              <Trash2 size={18} />
             </button>
           </div>
         )}

@@ -33,7 +33,13 @@ import {
   VenetianMask,
   X,
 } from "lucide-react";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { CreateItemModal } from "../components/CreateItemModal";
 import { LoginForm } from "../components/LoginForm";
 import { SidebarItem } from "../components/SidebarItem";
@@ -91,14 +97,14 @@ const ProfileManagerModal = ({
     >
       <div className="bg-slate-800 border border-slate-600 w-full max-w-md rounded-3xl p-8 shadow-2xl space-y-6">
         <div className="flex justify-between items-center">
-          <h3 className="text-xl font-bold text-white uppercase tracking-tight">
+          <h3 className="text-2xl font-bold text-white uppercase tracking-tight">
             Profiler
           </h3>
           <button
             onClick={onClose}
             className="text-slate-400 hover:text-white outline-none focus:ring-2 ring-blue-500 rounded"
           >
-            <X size={20} />
+            <X size={24} />
           </button>
         </div>
 
@@ -113,7 +119,7 @@ const ProfileManagerModal = ({
             type="submit"
             className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl transition outline-none focus:ring-2 ring-blue-400"
           >
-            <PlusCircle size={20} />
+            <PlusCircle size={24} />
           </button>
         </form>
 
@@ -136,7 +142,7 @@ const ProfileManagerModal = ({
                     onClick={() => saveEdit(p.id)}
                     className="text-green-500"
                   >
-                    <Check size={18} />
+                    <Check size={20} />
                   </button>
                 </>
               ) : (
@@ -151,13 +157,13 @@ const ProfileManagerModal = ({
                     }}
                     className="text-slate-400 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition"
                   >
-                    <Edit2 size={16} />
+                    <Edit2 size={18} />
                   </button>
                   <button
                     onClick={() => removeProfile(p.id)}
                     className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={18} />
                   </button>
                 </>
               )}
@@ -196,8 +202,6 @@ export const Dashboard = () => {
     null
   );
 
-  // Vi gemmer nu UIDs i selectedUrls (eller URLs hvis UID mangler som fallback)
-  // Men navnet beholdes som 'selectedUrls' for at minimere refactoring støj
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
 
   const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
@@ -212,9 +216,34 @@ export const Dashboard = () => {
   const [isInboxSyncing, setIsInboxSyncing] = useState(false);
 
   const hasLoadedUrlParams = useRef(false);
-
   const rootDragCounter = useRef(0);
   const inboxDragCounter = useRef(0);
+
+  // --- MEMOIZED DATA & HELPERS ---
+  const filteredRootItems = useMemo(
+    () =>
+      items.filter(
+        (i) => i.profileId === activeProfile && i.parentId === "root"
+      ),
+    [items, activeProfile]
+  );
+
+  // FIX: Genskabt som funktion for at kunne hente begge lister (sidebar counts)
+  const getFilteredInboxTabs = useCallback(
+    (incognitoMode: boolean) => {
+      if (!inboxData?.tabs) return [];
+      return inboxData.tabs.filter((t: any) =>
+        incognitoMode ? t.isIncognito : !t.isIncognito
+      );
+    },
+    [inboxData]
+  );
+
+  const sortedWindows = useMemo(
+    () =>
+      [...windows].sort((a: any, b: any) => (a.index || 0) - (b.index || 0)),
+    [windows]
+  );
 
   // --- PERSISTENCE & INIT ---
   useEffect(() => {
@@ -312,225 +341,213 @@ export const Dashboard = () => {
       selectedWorkspace &&
       !isViewingInbox &&
       !isViewingIncognito &&
-      windows.length > 0 &&
+      sortedWindows.length > 0 &&
       !selectedWindowId
     ) {
       if (!hasLoadedUrlParams.current) return;
-
       const params = new URLSearchParams(window.location.search);
       const preselect = params.get("windowId");
 
-      if (preselect && windows.some((w) => w.id === preselect)) {
+      if (preselect && sortedWindows.some((w) => w.id === preselect)) {
         setSelectedWindowId(preselect);
       } else {
-        const sorted = [...windows].sort(
-          (a: any, b: any) => (a.index || 0) - (b.index || 0)
-        );
-        if (sorted[0]?.id) setSelectedWindowId(sorted[0].id);
+        if (sortedWindows[0]?.id) setSelectedWindowId(sortedWindows[0].id);
       }
     }
   }, [
-    windows,
+    sortedWindows,
     selectedWorkspace,
     isViewingInbox,
     isViewingIncognito,
     selectedWindowId,
   ]);
 
-  // --- FILTERED DATA HELPERS ---
-  const getFilteredInboxTabs = (incognitoMode: boolean) => {
-    if (!inboxData?.tabs) return [];
-    return inboxData.tabs.filter((t: any) =>
-      incognitoMode ? t.isIncognito : !t.isIncognito
-    );
-  };
-
   // --- ACTIONS ---
-  const handleWorkspaceClick = (item: NexusItem) => {
+  const handleWorkspaceClick = useCallback((item: NexusItem) => {
     setIsViewingInbox(false);
     setIsViewingIncognito(false);
     setSelectedWindowId(null);
     setWindows([]);
     setSelectedWorkspace(item);
-  };
+  }, []);
 
-  const handleSidebarTabDrop = async (targetItem: NexusItem | "global") => {
-    const tabJson = window.sessionStorage.getItem("draggedTab");
-    if (!tabJson) return;
-    const tab = JSON.parse(tabJson);
+  const handleSidebarTabDrop = useCallback(
+    async (targetItem: NexusItem | "global") => {
+      const tabJson = window.sessionStorage.getItem("draggedTab");
+      if (!tabJson) return;
+      const tab = JSON.parse(tabJson);
 
-    const strictSourceId =
-      isViewingInbox || isViewingIncognito
-        ? "global"
-        : selectedWindowId || "global";
+      const strictSourceId =
+        isViewingInbox || isViewingIncognito
+          ? "global"
+          : selectedWindowId || "global";
 
-    const targetWorkspaceId =
-      targetItem === "global" ? "global" : targetItem.id;
+      const targetWorkspaceId =
+        targetItem === "global" ? "global" : targetItem.id;
 
-    if (strictSourceId === "global" && targetWorkspaceId === "global") {
-      if (!tab.isIncognito) return;
-    }
+      if (strictSourceId === "global" && targetWorkspaceId === "global") {
+        if (!tab.isIncognito) return;
+      }
 
-    setIsProcessingMove(true);
-    if (targetItem === "global") setIsInboxSyncing(true);
+      setIsProcessingMove(true);
+      if (targetItem === "global") setIsInboxSyncing(true);
 
-    try {
-      const cleanTab = {
-        uid: crypto.randomUUID(), // Ny instans
-        title: tab.title,
-        url: tab.url,
-        favIconUrl: tab.favIconUrl,
-        isIncognito: false,
-      };
+      try {
+        const cleanTab = {
+          uid: crypto.randomUUID(),
+          title: tab.title,
+          url: tab.url,
+          favIconUrl: tab.favIconUrl,
+          isIncognito: false,
+        };
 
-      let targetPhysicalWindowId = null;
+        let targetPhysicalWindowId = null;
 
-      if (targetWorkspaceId === "global") {
-        const snap = await getDoc(doc(db, "inbox_data", "global"));
-        const currentTabs = snap.exists() ? snap.data().tabs || [] : [];
-
-        // Dubletter tillades nu, da de har unikke UIDs
-        await setDoc(
-          doc(db, "inbox_data", "global"),
-          { tabs: [...currentTabs, cleanTab], lastUpdate: serverTimestamp() },
-          { merge: true }
-        );
-      } else {
-        const snap = await getDocs(
-          collection(db, "workspaces_data", targetWorkspaceId, "windows")
-        );
-        let targetInternalId = "";
-
-        if (!snap.empty) {
-          const firstWin = snap.docs[0];
-          targetInternalId = firstWin.id;
-          await updateDoc(firstWin.ref, {
-            tabs: [...(firstWin.data().tabs || []), cleanTab],
-          });
+        if (targetWorkspaceId === "global") {
+          const snap = await getDoc(doc(db, "inbox_data", "global"));
+          const currentTabs = snap.exists() ? snap.data().tabs || [] : [];
+          await setDoc(
+            doc(db, "inbox_data", "global"),
+            { tabs: [...currentTabs, cleanTab], lastUpdate: serverTimestamp() },
+            { merge: true }
+          );
         } else {
-          const newRef = doc(
+          const snap = await getDocs(
             collection(db, "workspaces_data", targetWorkspaceId, "windows")
           );
-          targetInternalId = newRef.id;
-          await setDoc(newRef, {
-            id: newRef.id,
-            tabs: [cleanTab],
-            isActive: false,
-            lastActive: serverTimestamp(),
-          });
+          let targetInternalId = "";
+
+          if (!snap.empty) {
+            const firstWin = snap.docs[0];
+            targetInternalId = firstWin.id;
+            await updateDoc(firstWin.ref, {
+              tabs: [...(firstWin.data().tabs || []), cleanTab],
+            });
+          } else {
+            const newRef = doc(
+              collection(db, "workspaces_data", targetWorkspaceId, "windows")
+            );
+            targetInternalId = newRef.id;
+            await setDoc(newRef, {
+              id: newRef.id,
+              tabs: [cleanTab],
+              isActive: false,
+              lastActive: serverTimestamp(),
+            });
+          }
+
+          const mapping = activeMappings.find(
+            ([_id, mapData]: any) =>
+              mapData.workspaceId === targetWorkspaceId &&
+              mapData.internalWindowId === targetInternalId
+          );
+
+          if (mapping) {
+            targetPhysicalWindowId = mapping[0];
+            await chrome.tabs.create({
+              windowId: targetPhysicalWindowId,
+              url: cleanTab.url,
+              active: false,
+            });
+          }
         }
 
-        const mapping = activeMappings.find(
-          ([_id, mapData]: any) =>
-            mapData.workspaceId === targetWorkspaceId &&
-            mapData.internalWindowId === targetInternalId
-        );
-
-        if (mapping) {
-          targetPhysicalWindowId = mapping[0];
-          await chrome.tabs.create({
-            windowId: targetPhysicalWindowId,
-            url: cleanTab.url,
-            active: false,
-          });
-        }
-      }
-
-      // SLET KILDEN
-      if (strictSourceId === "global") {
-        const snap = await getDoc(doc(db, "inbox_data", "global"));
-        if (snap.exists()) {
-          const filtered = (snap.data().tabs || []).filter((t: any) => {
-            if (tab.uid) return t.uid !== tab.uid; // Slet specifikt UID
-            return (
-              t.url !== tab.url ||
-              (t.isIncognito || false) !== (tab.isIncognito || false)
-            ); // Fallback
-          });
-          await updateDoc(doc(db, "inbox_data", "global"), { tabs: filtered });
-        }
-      } else if (selectedWorkspace && selectedWindowId) {
-        const winRef = doc(
-          db,
-          "workspaces_data",
-          selectedWorkspace.id,
-          "windows",
-          selectedWindowId
-        );
-        const snap = await getDoc(winRef);
-        if (snap.exists()) {
-          const filtered = (snap.data().tabs || []).filter((t: any) => {
-            if (tab.uid) return t.uid !== tab.uid;
-            return t.url !== cleanTab.url;
-          });
-          await updateDoc(winRef, { tabs: filtered });
-        }
-      }
-
-      chrome.runtime.sendMessage({
-        type: "CLOSE_PHYSICAL_TABS",
-        payload: { urls: [cleanTab.url], internalWindowId: strictSourceId },
-      });
-    } finally {
-      setIsProcessingMove(false);
-      setIsInboxSyncing(false);
-      window.sessionStorage.removeItem("draggedTab");
-    }
-  };
-
-  const handleTabDrop = async (targetWinId: string) => {
-    setDropTargetWinId(null);
-    const tabJson = window.sessionStorage.getItem("draggedTab");
-    if (!tabJson) return;
-    const tab = JSON.parse(tabJson);
-
-    const strictSourceId =
-      isViewingInbox || isViewingIncognito ? "global" : selectedWindowId;
-
-    if (!strictSourceId || strictSourceId === targetWinId) return;
-
-    setIsProcessingMove(true);
-    try {
-      const sourceMapping = activeMappings.find(
-        ([_, m]) => m.internalWindowId === strictSourceId
-      );
-      const targetMapping = activeMappings.find(
-        ([_, m]) => m.internalWindowId === targetWinId
-      );
-
-      const cleanTab = {
-        ...tab,
-        isIncognito: false,
-        uid: tab.uid || crypto.randomUUID(),
-      };
-
-      if (sourceMapping && targetMapping) {
-        const tabs = await chrome.tabs.query({ windowId: sourceMapping[0] });
-        const targetTab = tabs.find((t) => t.url === tab.url);
-        if (targetTab?.id)
-          await chrome.tabs.move(targetTab.id, {
-            windowId: targetMapping[0],
-            index: -1,
-          });
-      } else {
+        // SLET KILDEN - Aggressiv oprydning
         await NexusService.moveTabBetweenWindows(
-          cleanTab,
+          tab,
           selectedWorkspace?.id || "global",
           strictSourceId,
-          selectedWorkspace?.id || "global",
-          targetWinId
+          targetWorkspaceId,
+          targetWorkspaceId === "global" ? "global" : "unknown" // Target is handled above manually for sidebar drop, but we need delete logic
         );
-        if (sourceMapping)
+
+        // Fjern fysisk fane
+        chrome.runtime.sendMessage({
+          type: "CLOSE_PHYSICAL_TABS",
+          payload: { urls: [cleanTab.url], internalWindowId: strictSourceId },
+        });
+      } finally {
+        setIsProcessingMove(false);
+        setIsInboxSyncing(false);
+        window.sessionStorage.removeItem("draggedTab");
+      }
+    },
+    [
+      activeMappings,
+      isViewingInbox,
+      isViewingIncognito,
+      selectedWindowId,
+      selectedWorkspace,
+    ]
+  );
+
+  const handleTabDrop = useCallback(
+    async (targetWinId: string) => {
+      setDropTargetWinId(null);
+      const tabJson = window.sessionStorage.getItem("draggedTab");
+      if (!tabJson) return;
+      const tab = JSON.parse(tabJson);
+
+      // Bestem kilde-ID (intern ID)
+      const strictSourceId =
+        isViewingInbox || isViewingIncognito ? "global" : selectedWindowId;
+
+      if (!strictSourceId || strictSourceId === targetWinId) return;
+
+      setIsProcessingMove(true);
+      try {
+        const sourceMapping = activeMappings.find(
+          ([_, m]) => m.internalWindowId === strictSourceId
+        );
+        const targetMapping = activeMappings.find(
+          ([_, m]) => m.internalWindowId === targetWinId
+        );
+
+        const cleanTab = {
+          ...tab,
+          isIncognito: false,
+          uid: tab.uid || crypto.randomUUID(),
+        };
+
+        if (sourceMapping && targetMapping) {
+          // Hvis begge vinduer er åbne i Chrome
+          const tabs = await chrome.tabs.query({ windowId: sourceMapping[0] });
+          const targetTab = tabs.find((t) => t.url === tab.url);
+          if (targetTab?.id)
+            await chrome.tabs.move(targetTab.id, {
+              windowId: targetMapping[0],
+              index: -1,
+            });
+        } else {
+          // Database flytning
+          await NexusService.moveTabBetweenWindows(
+            cleanTab,
+            selectedWorkspace?.id || "global",
+            strictSourceId,
+            selectedWorkspace?.id || "global",
+            targetWinId
+          );
+
+          // VIGTIGT: Luk fysisk fane i kilden, hvis den findes.
+          // Dette løser buggen hvor fanen forbliver i kilde-vinduet ved drag-drop.
           chrome.runtime.sendMessage({
             type: "CLOSE_PHYSICAL_TABS",
             payload: { urls: [tab.url], internalWindowId: strictSourceId },
           });
+        }
+      } finally {
+        window.sessionStorage.removeItem("draggedTab");
+        setIsProcessingMove(false);
       }
-    } finally {
-      window.sessionStorage.removeItem("draggedTab");
-      setIsProcessingMove(false);
-    }
-  };
+    },
+    [
+      activeMappings,
+      isViewingInbox,
+      isViewingIncognito,
+      selectedWindowId,
+      selectedWorkspace,
+    ]
+  );
 
   const isViewingCurrent = activeMappings.some(
     ([id, m]: any) =>
@@ -548,8 +565,8 @@ export const Dashboard = () => {
     <div className="flex h-screen bg-slate-900 text-slate-200 overflow-hidden font-sans relative">
       {restorationStatus && (
         <div className="absolute inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center flex-col gap-4">
-          <Loader2 size={48} className="text-blue-500 animate-spin" />
-          <div className="text-xl font-bold text-white animate-pulse">
+          <Loader2 size={64} className="text-blue-500 animate-spin" />
+          <div className="text-2xl font-bold text-white animate-pulse">
             {restorationStatus}
           </div>
         </div>
@@ -585,7 +602,7 @@ export const Dashboard = () => {
               onClick={() => setModalType("profiles")}
               className="p-2 text-slate-400 hover:text-blue-400 bg-slate-700 rounded-xl border border-slate-600"
             >
-              <Settings size={18} />
+              <Settings size={22} />
             </button>
           </div>
 
@@ -620,10 +637,10 @@ export const Dashboard = () => {
                 }`}
               >
                 {isSyncingRoot ? (
-                  <Loader2 size={20} className="animate-spin text-blue-400" />
+                  <Loader2 size={24} className="animate-spin text-blue-400" />
                 ) : (
                   <ArrowUpCircle
-                    size={20}
+                    size={24}
                     className={isDragOverRoot ? "animate-bounce" : ""}
                   />
                 )}
@@ -656,7 +673,7 @@ export const Dashboard = () => {
                       }
                     }}
                   >
-                    <LifeBuoy size={14} className="hover:text-red-400" />
+                    <LifeBuoy size={18} className="hover:text-red-400" />
                   </button>
                   <button
                     onClick={() => {
@@ -664,7 +681,7 @@ export const Dashboard = () => {
                       setModalType("folder");
                     }}
                   >
-                    <FolderPlus size={14} className="hover:text-white" />
+                    <FolderPlus size={18} className="hover:text-white" />
                   </button>
                   <button
                     onClick={() => {
@@ -672,37 +689,32 @@ export const Dashboard = () => {
                       setModalType("workspace");
                     }}
                   >
-                    <PlusCircle size={14} className="hover:text-white" />
+                    <PlusCircle size={18} className="hover:text-white" />
                   </button>
                 </div>
               </div>
               <div className="space-y-0.5">
-                {items
-                  .filter(
-                    (i) =>
-                      i.profileId === activeProfile && i.parentId === "root"
-                  )
-                  .map((item) => (
-                    <SidebarItem
-                      key={item.id}
-                      item={item}
-                      allItems={items}
-                      onRefresh={() => {}}
-                      onSelect={handleWorkspaceClick}
-                      onAddChild={(pid, type) => {
-                        setModalParentId(pid);
-                        setModalType(type);
-                      }}
-                      onDragStateChange={setActiveDragId}
-                      onDragEndCleanup={() => {
-                        setActiveDragId(null);
-                        setIsDragOverRoot(false);
-                        rootDragCounter.current = 0;
-                      }}
-                      activeDragId={activeDragId}
-                      onTabDrop={handleSidebarTabDrop}
-                    />
-                  ))}
+                {filteredRootItems.map((item) => (
+                  <SidebarItem
+                    key={item.id}
+                    item={item}
+                    allItems={items}
+                    onRefresh={() => {}}
+                    onSelect={handleWorkspaceClick}
+                    onAddChild={(pid, type) => {
+                      setModalParentId(pid);
+                      setModalType(type);
+                    }}
+                    onDragStateChange={setActiveDragId}
+                    onDragEndCleanup={() => {
+                      setActiveDragId(null);
+                      setIsDragOverRoot(false);
+                      rootDragCounter.current = 0;
+                    }}
+                    activeDragId={activeDragId}
+                    onTabDrop={handleSidebarTabDrop}
+                  />
+                ))}
               </div>
             </div>
           </nav>
@@ -766,9 +778,9 @@ export const Dashboard = () => {
               }`}
             >
               {isInboxSyncing ? (
-                <Loader2 size={16} className="animate-spin text-blue-400" />
+                <Loader2 size={20} className="animate-spin text-blue-400" />
               ) : (
-                <InboxIcon size={16} />
+                <InboxIcon size={20} />
               )}
               <span>Inbox ({getFilteredInboxTabs(false).length})</span>
             </div>
@@ -786,7 +798,7 @@ export const Dashboard = () => {
                   : "hover:bg-slate-700 text-slate-400 border-transparent"
               }`}
             >
-              <VenetianMask size={16} />
+              <VenetianMask size={20} />
               <span>Incognito ({getFilteredInboxTabs(true).length})</span>
             </div>
           </nav>
@@ -794,13 +806,13 @@ export const Dashboard = () => {
 
         <div className="p-4 border-t border-slate-700 bg-slate-800/50 flex flex-col gap-3 text-sm">
           <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase">
-            <Activity size={12} className="animate-pulse" /> Live Sync
+            <Activity size={14} className="animate-pulse" /> Live Sync
           </div>
           <button
             onClick={() => auth.signOut()}
             className="flex items-center gap-2 text-slate-500 hover:text-red-500"
           >
-            <LogOut size={16} /> Log ud
+            <LogOut size={20} /> Log ud
           </button>
         </div>
       </aside>
@@ -833,14 +845,14 @@ export const Dashboard = () => {
                     !isViewingInbox &&
                     !isViewingIncognito && (
                       <span className="text-[10px] bg-blue-600/20 text-blue-400 px-2.5 py-1 rounded-full border border-blue-500/20 font-bold uppercase tracking-widest">
-                        <Monitor size={10} className="inline mr-1" /> Dette
+                        <Monitor size={12} className="inline mr-1" /> Dette
                         Vindue
                       </span>
                     )}
                 </div>
                 {!isViewingInbox && !isViewingIncognito && (
-                  <div className="flex gap-4 items-center">
-                    {windows.map((win, idx) => (
+                  <div className="flex gap-4 items-center flex-wrap">
+                    {sortedWindows.map((win, idx) => (
                       <div
                         key={win.id}
                         className="flex flex-col gap-1 items-center"
@@ -903,7 +915,7 @@ export const Dashboard = () => {
                             }}
                             className="absolute -top-2 -right-2 p-1.5 bg-slate-800 border border-slate-600 rounded-full text-slate-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition shadow-sm z-10"
                           >
-                            <Trash2 size={12} />
+                            <Trash2 size={14} />
                           </button>
                         </div>
                       </div>
@@ -920,7 +932,7 @@ export const Dashboard = () => {
                       }
                       className="h-14 w-14 flex items-center justify-center rounded-xl border border-dashed border-slate-700 hover:border-blue-500 text-slate-500 transition"
                     >
-                      <PlusCircle size={24} />
+                      <PlusCircle size={28} />
                     </button>
                   </div>
                 )}
@@ -936,7 +948,6 @@ export const Dashboard = () => {
                         windows.find((w) => w.id === selectedWindowId)?.tabs ||
                         [];
 
-                    // Bruger nu UID hvis muligt, ellers URL fallback
                     const allU = list.map((t: any) => t.uid || t.url);
                     setSelectedUrls(
                       selectedUrls.length === allU.length ? [] : allU
@@ -948,7 +959,7 @@ export const Dashboard = () => {
                       : "border-slate-700 hover:text-blue-400"
                   }`}
                 >
-                  <CheckSquare size={20} />
+                  <CheckSquare size={24} />
                 </button>
                 {selectedUrls.length > 0 && (
                   <button
@@ -959,14 +970,6 @@ export const Dashboard = () => {
                             ? "global"
                             : selectedWindowId;
 
-                        // Physical Delete (her sender vi URLs, da chrome.tabs.remove ikke kender vores UIDs)
-                        // Vi skal mappe UIDs tilbage til URLs for fysisk sletning
-                        // Dette er en approksimation, da vi sletter alle tabs med den URL
-
-                        let urlsToDelete: string[] = [];
-
-                        // Find URLs baseret på selected IDs (som kan være UIDs eller URLs)
-                        // Vi søger i den aktuelle liste
                         let currentList = [];
                         if (isViewingIncognito)
                           currentList = getFilteredInboxTabs(true);
@@ -977,7 +980,7 @@ export const Dashboard = () => {
                             windows.find((w) => w.id === selectedWindowId)
                               ?.tabs || [];
 
-                        urlsToDelete = currentList
+                        const urlsToDelete = currentList
                           .filter(
                             (t: any) =>
                               selectedUrls.includes(t.uid) ||
@@ -993,7 +996,7 @@ export const Dashboard = () => {
                           },
                         });
 
-                        // DB Delete (her bruger vi UID)
+                        // DB Delete
                         if (isViewingInbox || isViewingIncognito) {
                           const f = inboxData.tabs.filter(
                             (t: any) =>
@@ -1030,7 +1033,7 @@ export const Dashboard = () => {
                     }}
                     className="flex items-center gap-2 bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition"
                   >
-                    <Trash2 size={16} /> Slet ({selectedUrls.length})
+                    <Trash2 size={20} /> Slet ({selectedUrls.length})
                   </button>
                 )}
 
@@ -1040,7 +1043,7 @@ export const Dashboard = () => {
                     onClick={async () => {
                       if (confirm("Ryd Inbox?")) {
                         const normalTabs = getFilteredInboxTabs(false);
-                        const incognitoTabs = getFilteredInboxTabs(true); // Keep these
+                        const incognitoTabs = getFilteredInboxTabs(true);
 
                         chrome.runtime.sendMessage({
                           type: "CLOSE_PHYSICAL_TABS",
@@ -1051,13 +1054,13 @@ export const Dashboard = () => {
                         });
 
                         await updateDoc(doc(db, "inbox_data", "global"), {
-                          tabs: incognitoTabs, // Restore only incognito tabs
+                          tabs: incognitoTabs,
                         });
                       }
                     }}
                     className="flex items-center gap-2 bg-orange-600/20 text-orange-400 hover:bg-orange-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition"
                   >
-                    <Eraser size={16} /> Ryd Inbox
+                    <Eraser size={20} /> Ryd Inbox
                   </button>
                 )}
 
@@ -1067,7 +1070,7 @@ export const Dashboard = () => {
                     <button
                       onClick={async () => {
                         if (confirm("Ryd Incognito liste?")) {
-                          const normalTabs = getFilteredInboxTabs(false); // Keep these
+                          const normalTabs = getFilteredInboxTabs(false);
                           const incognitoTabs = getFilteredInboxTabs(true);
 
                           chrome.runtime.sendMessage({
@@ -1079,13 +1082,13 @@ export const Dashboard = () => {
                           });
 
                           await updateDoc(doc(db, "inbox_data", "global"), {
-                            tabs: normalTabs, // Restore only normal tabs
+                            tabs: normalTabs,
                           });
                         }
                       }}
                       className="flex items-center gap-2 bg-purple-600/20 text-purple-400 hover:bg-purple-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition"
                     >
-                      <Eraser size={16} /> Ryd Incognito
+                      <Eraser size={20} /> Ryd Incognito
                     </button>
                   )}
 
@@ -1096,7 +1099,7 @@ export const Dashboard = () => {
                         type: "OPEN_WORKSPACE",
                         payload: {
                           workspaceId: selectedWorkspace?.id,
-                          windows,
+                          windows: sortedWindows,
                           name: selectedWorkspace?.name,
                         },
                       })
@@ -1111,10 +1114,8 @@ export const Dashboard = () => {
 
             <div className="flex-1 overflow-y-auto p-8">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-                {(isViewingInbox
-                  ? getFilteredInboxTabs(false)
-                  : isViewingIncognito
-                  ? getFilteredInboxTabs(true)
+                {(isViewingInbox || isViewingIncognito
+                  ? getFilteredInboxTabs(isViewingIncognito)
                   : windows.find((w) => w.id === selectedWindowId)?.tabs || []
                 ).map((tab: any, i: number) => (
                   <div key={tab.uid || i} className="group relative">
@@ -1161,7 +1162,7 @@ export const Dashboard = () => {
                       }}
                       className="absolute -top-2 -right-2 z-30 bg-slate-700 border border-slate-600 text-slate-300 hover:text-red-400 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition shadow-xl cursor-pointer"
                     >
-                      <X size={12} />
+                      <X size={14} />
                     </button>
                     <div
                       className="absolute top-2 left-2 cursor-pointer z-20 text-slate-500 hover:text-blue-400"
@@ -1178,18 +1179,18 @@ export const Dashboard = () => {
                       {selectedUrls.includes(tab.uid) ||
                       selectedUrls.includes(tab.url) ? (
                         <CheckSquare
-                          size={16}
+                          size={20}
                           className="text-blue-500 bg-slate-900 rounded"
                         />
                       ) : (
                         <Square
-                          size={16}
+                          size={20}
                           className="opacity-0 group-hover:opacity-100 bg-slate-900/50 rounded"
                         />
                       )}
                     </div>
                     <div
-                      draggable={true} // ENABLED DRAG
+                      draggable={true}
                       onDragStart={(e) => {
                         e.dataTransfer.setData("nexus/tab", "true");
                         window.sessionStorage.setItem(
@@ -1214,12 +1215,11 @@ export const Dashboard = () => {
                         className="flex items-center gap-3 cursor-pointer select-none"
                         onClick={(e) => {
                           e.stopPropagation();
-                          // Opens as standard tab (converted to normal)
                           chrome.tabs.create({ url: tab.url, active: true });
                         }}
                       >
                         <Globe
-                          size={14}
+                          size={18}
                           className={`${
                             tab.isIncognito
                               ? "text-purple-400"
@@ -1243,8 +1243,8 @@ export const Dashboard = () => {
           </>
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-slate-600 gap-4">
-            <Monitor size={48} className="opacity-20" />
-            <p className="text-lg font-medium">Vælg et space</p>
+            <Monitor size={64} className="opacity-20" />
+            <p className="text-xl font-medium">Vælg et space</p>
           </div>
         )}
       </main>
