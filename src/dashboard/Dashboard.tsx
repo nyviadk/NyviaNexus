@@ -487,6 +487,7 @@ export const Dashboard = () => {
       if (!tabJson) return;
       const tab = JSON.parse(tabJson);
 
+      // Bestem kilde-ID (intern ID)
       const strictSourceId =
         isViewingInbox || isViewingIncognito ? "global" : selectedWindowId;
 
@@ -507,30 +508,34 @@ export const Dashboard = () => {
           uid: tab.uid || crypto.randomUUID(),
         };
 
+        // 1. FYSISK FLYTNING (hvis muligt)
         if (sourceMapping && targetMapping) {
-          // Hvis begge vinduer er åbne i Chrome
           const tabs = await chrome.tabs.query({ windowId: sourceMapping[0] });
           const targetTab = tabs.find((t) => t.url === tab.url);
-          if (targetTab?.id)
+          if (targetTab?.id) {
             await chrome.tabs.move(targetTab.id, {
               windowId: targetMapping[0],
               index: -1,
             });
+          }
         } else {
-          // Database flytning
-          await NexusService.moveTabBetweenWindows(
-            cleanTab,
-            selectedWorkspace?.id || "global",
-            strictSourceId,
-            selectedWorkspace?.id || "global",
-            targetWinId
-          );
-
+          // Hvis vi IKKE flytter fysisk (f.eks. fra et gemt space til et åbent),
+          // så skal vi huske at lukke den gamle fane, hvis den findes fysisk i et "inaktivt" vindue.
           chrome.runtime.sendMessage({
             type: "CLOSE_PHYSICAL_TABS",
             payload: { urls: [tab.url], internalWindowId: strictSourceId },
           });
         }
+
+        // 2. DATABASE OPZATERING (Sker ALTID nu)
+        // Dette tvinger UI til at opdatere, da Dashboard lytter på Firestore.
+        await NexusService.moveTabBetweenWindows(
+          cleanTab,
+          selectedWorkspace?.id || "global",
+          strictSourceId,
+          selectedWorkspace?.id || "global",
+          targetWinId
+        );
       } finally {
         window.sessionStorage.removeItem("draggedTab");
         setIsProcessingMove(false);
@@ -1200,8 +1205,6 @@ export const Dashboard = () => {
                           })
                         );
                       }}
-                      // Rettelse her: Fjernet gennemsigtighed (/60) og brugt solid bg-slate-800
-                      // Samt en solid farve for selected state (ingen /10)
                       className={`bg-slate-800 p-4 rounded-2xl border cursor-grab active:cursor-grabbing transform-gpu ${
                         selectedUrls.includes(tab.uid) ||
                         selectedUrls.includes(tab.url)
