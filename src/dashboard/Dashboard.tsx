@@ -228,7 +228,6 @@ export const Dashboard = () => {
     [items, activeProfile]
   );
 
-  // FIX: Genskabt som funktion for at kunne hente begge lister (sidebar counts)
   const getFilteredInboxTabs = useCallback(
     (incognitoMode: boolean) => {
       if (!inboxData?.tabs) return [];
@@ -458,7 +457,7 @@ export const Dashboard = () => {
           selectedWorkspace?.id || "global",
           strictSourceId,
           targetWorkspaceId,
-          targetWorkspaceId === "global" ? "global" : "unknown" // Target is handled above manually for sidebar drop, but we need delete logic
+          targetWorkspaceId === "global" ? "global" : "unknown"
         );
 
         // Fjern fysisk fane
@@ -488,7 +487,6 @@ export const Dashboard = () => {
       if (!tabJson) return;
       const tab = JSON.parse(tabJson);
 
-      // Bestem kilde-ID (intern ID)
       const strictSourceId =
         isViewingInbox || isViewingIncognito ? "global" : selectedWindowId;
 
@@ -528,8 +526,6 @@ export const Dashboard = () => {
             targetWinId
           );
 
-          // VIGTIGT: Luk fysisk fane i kilden, hvis den findes.
-          // Dette løser buggen hvor fanen forbliver i kilde-vinduet ved drag-drop.
           chrome.runtime.sendMessage({
             type: "CLOSE_PHYSICAL_TABS",
             payload: { urls: [tab.url], internalWindowId: strictSourceId },
@@ -1204,10 +1200,12 @@ export const Dashboard = () => {
                           })
                         );
                       }}
-                      className={`bg-slate-800/60 p-4 rounded-2xl border cursor-grab active:cursor-grabbing ${
+                      // Rettelse her: Fjernet gennemsigtighed (/60) og brugt solid bg-slate-800
+                      // Samt en solid farve for selected state (ingen /10)
+                      className={`bg-slate-800 p-4 rounded-2xl border cursor-grab active:cursor-grabbing transform-gpu ${
                         selectedUrls.includes(tab.uid) ||
                         selectedUrls.includes(tab.url)
-                          ? "border-blue-500 bg-blue-500/10"
+                          ? "border-blue-500 bg-slate-750 shadow-blue-900/20"
                           : "border-slate-700 hover:border-slate-500"
                       } flex flex-col gap-2 hover:bg-slate-800 transition group shadow-md pl-8`}
                     >
