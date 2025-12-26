@@ -192,12 +192,14 @@ export const Dashboard = () => {
   const [activeMappings, setActiveMappings] = useState<any[]>([]);
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
 
-  // ÆNDRING: Nu en string for at vise status beskeder
   const [restorationStatus, setRestorationStatus] = useState<string | null>(
     null
   );
 
+  // Vi gemmer nu UIDs i selectedUrls (eller URLs hvis UID mangler som fallback)
+  // Men navnet beholdes som 'selectedUrls' for at minimere refactoring støj
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
+
   const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
@@ -208,6 +210,8 @@ export const Dashboard = () => {
     "valid" | "invalid" | null
   >(null);
   const [isInboxSyncing, setIsInboxSyncing] = useState(false);
+
+  const hasLoadedUrlParams = useRef(false);
 
   const rootDragCounter = useRef(0);
   const inboxDragCounter = useRef(0);
@@ -229,9 +233,8 @@ export const Dashboard = () => {
     if (state.inbox) setInboxData(state.inbox);
   }, []);
 
-  // --- AUTO-OPEN WORKSPACE FROM URL PARAMS ---
   useEffect(() => {
-    if (items.length > 0) {
+    if (items.length > 0 && !hasLoadedUrlParams.current) {
       const params = new URLSearchParams(window.location.search);
       const wsId = params.get("workspaceId");
       const winId = params.get("windowId");
@@ -245,6 +248,7 @@ export const Dashboard = () => {
           }
         }
       }
+      hasLoadedUrlParams.current = true;
     }
   }, [items]);
 
@@ -272,7 +276,6 @@ export const Dashboard = () => {
           setWindows(msg.payload.windows);
         }
       }
-      // HÅNDTER STATUS ÆNDRINGER INSTANT
       if (msg.type === "RESTORATION_STATUS_CHANGE") {
         setRestorationStatus(msg.payload || null);
       }
@@ -284,7 +287,6 @@ export const Dashboard = () => {
         { type: "GET_ACTIVE_MAPPINGS" },
         (m) => m && setActiveMappings(m)
       );
-      // HENT STATUS (POLL)
       chrome.runtime.sendMessage({ type: "GET_RESTORING_STATUS" }, (res) =>
         setRestorationStatus(res || null)
       );
@@ -313,6 +315,8 @@ export const Dashboard = () => {
       windows.length > 0 &&
       !selectedWindowId
     ) {
+      if (!hasLoadedUrlParams.current) return;
+
       const params = new URLSearchParams(window.location.search);
       const preselect = params.get("windowId");
 
@@ -343,7 +347,6 @@ export const Dashboard = () => {
 
   // --- ACTIONS ---
   const handleWorkspaceClick = (item: NexusItem) => {
-    if (selectedWorkspace?.id === item.id) return;
     setIsViewingInbox(false);
     setIsViewingIncognito(false);
     setSelectedWindowId(null);
@@ -373,6 +376,7 @@ export const Dashboard = () => {
 
     try {
       const cleanTab = {
+        uid: crypto.randomUUID(), // Ny instans
         title: tab.title,
         url: tab.url,
         favIconUrl: tab.favIconUrl,
@@ -385,17 +389,12 @@ export const Dashboard = () => {
         const snap = await getDoc(doc(db, "inbox_data", "global"));
         const currentTabs = snap.exists() ? snap.data().tabs || [] : [];
 
-        if (
-          !currentTabs.some(
-            (t: any) => t.url === cleanTab.url && !t.isIncognito
-          )
-        ) {
-          await setDoc(
-            doc(db, "inbox_data", "global"),
-            { tabs: [...currentTabs, cleanTab], lastUpdate: serverTimestamp() },
-            { merge: true }
-          );
-        }
+        // Dubletter tillades nu, da de har unikke UIDs
+        await setDoc(
+          doc(db, "inbox_data", "global"),
+          { tabs: [...currentTabs, cleanTab], lastUpdate: serverTimestamp() },
+          { merge: true }
+        );
       } else {
         const snap = await getDocs(
           collection(db, "workspaces_data", targetWorkspaceId, "windows")
@@ -437,14 +436,17 @@ export const Dashboard = () => {
         }
       }
 
+      // SLET KILDEN
       if (strictSourceId === "global") {
         const snap = await getDoc(doc(db, "inbox_data", "global"));
         if (snap.exists()) {
-          const filtered = (snap.data().tabs || []).filter(
-            (t: any) =>
+          const filtered = (snap.data().tabs || []).filter((t: any) => {
+            if (tab.uid) return t.uid !== tab.uid; // Slet specifikt UID
+            return (
               t.url !== tab.url ||
               (t.isIncognito || false) !== (tab.isIncognito || false)
-          );
+            ); // Fallback
+          });
           await updateDoc(doc(db, "inbox_data", "global"), { tabs: filtered });
         }
       } else if (selectedWorkspace && selectedWindowId) {
@@ -457,9 +459,10 @@ export const Dashboard = () => {
         );
         const snap = await getDoc(winRef);
         if (snap.exists()) {
-          const filtered = (snap.data().tabs || []).filter(
-            (t: any) => t.url !== cleanTab.url
-          );
+          const filtered = (snap.data().tabs || []).filter((t: any) => {
+            if (tab.uid) return t.uid !== tab.uid;
+            return t.url !== cleanTab.url;
+          });
           await updateDoc(winRef, { tabs: filtered });
         }
       }
@@ -495,7 +498,11 @@ export const Dashboard = () => {
         ([_, m]) => m.internalWindowId === targetWinId
       );
 
-      const cleanTab = { ...tab, isIncognito: false };
+      const cleanTab = {
+        ...tab,
+        isIncognito: false,
+        uid: tab.uid || crypto.randomUUID(),
+      };
 
       if (sourceMapping && targetMapping) {
         const tabs = await chrome.tabs.query({ windowId: sourceMapping[0] });
@@ -539,7 +546,6 @@ export const Dashboard = () => {
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-200 overflow-hidden font-sans relative">
-      {/* Viser nu specifik status besked i stedet for bare "Synkroniserer..." */}
       {restorationStatus && (
         <div className="absolute inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center flex-col gap-4">
           <Loader2 size={48} className="text-blue-500 animate-spin" />
@@ -930,7 +936,8 @@ export const Dashboard = () => {
                         windows.find((w) => w.id === selectedWindowId)?.tabs ||
                         [];
 
-                    const allU = list.map((t: any) => t.url);
+                    // Bruger nu UID hvis muligt, ellers URL fallback
+                    const allU = list.map((t: any) => t.uid || t.url);
                     setSelectedUrls(
                       selectedUrls.length === allU.length ? [] : allU
                     );
@@ -952,19 +959,46 @@ export const Dashboard = () => {
                             ? "global"
                             : selectedWindowId;
 
-                        // Physical Delete
+                        // Physical Delete (her sender vi URLs, da chrome.tabs.remove ikke kender vores UIDs)
+                        // Vi skal mappe UIDs tilbage til URLs for fysisk sletning
+                        // Dette er en approksimation, da vi sletter alle tabs med den URL
+
+                        let urlsToDelete: string[] = [];
+
+                        // Find URLs baseret på selected IDs (som kan være UIDs eller URLs)
+                        // Vi søger i den aktuelle liste
+                        let currentList = [];
+                        if (isViewingIncognito)
+                          currentList = getFilteredInboxTabs(true);
+                        else if (isViewingInbox)
+                          currentList = getFilteredInboxTabs(false);
+                        else
+                          currentList =
+                            windows.find((w) => w.id === selectedWindowId)
+                              ?.tabs || [];
+
+                        urlsToDelete = currentList
+                          .filter(
+                            (t: any) =>
+                              selectedUrls.includes(t.uid) ||
+                              selectedUrls.includes(t.url)
+                          )
+                          .map((t: any) => t.url);
+
                         chrome.runtime.sendMessage({
                           type: "CLOSE_PHYSICAL_TABS",
                           payload: {
-                            urls: selectedUrls,
+                            urls: urlsToDelete,
                             internalWindowId: sId,
                           },
                         });
 
-                        // DB Delete
+                        // DB Delete (her bruger vi UID)
                         if (isViewingInbox || isViewingIncognito) {
                           const f = inboxData.tabs.filter(
-                            (t: any) => !selectedUrls.includes(t.url)
+                            (t: any) =>
+                              !selectedUrls.includes(t.uid) &&
+                              !selectedUrls.includes(t.url)
                           );
                           await updateDoc(doc(db, "inbox_data", "global"), {
                             tabs: f,
@@ -975,7 +1009,9 @@ export const Dashboard = () => {
                           );
                           if (w) {
                             const f = w.tabs.filter(
-                              (t: any) => !selectedUrls.includes(t.url)
+                              (t: any) =>
+                                !selectedUrls.includes(t.uid) &&
+                                !selectedUrls.includes(t.url)
                             );
                             await updateDoc(
                               doc(
@@ -1081,7 +1117,7 @@ export const Dashboard = () => {
                   ? getFilteredInboxTabs(true)
                   : windows.find((w) => w.id === selectedWindowId)?.tabs || []
                 ).map((tab: any, i: number) => (
-                  <div key={i} className="group relative">
+                  <div key={tab.uid || i} className="group relative">
                     <button
                       onClick={async (e) => {
                         e.stopPropagation();
@@ -1101,12 +1137,14 @@ export const Dashboard = () => {
 
                           if (isViewingInbox || isViewingIncognito) {
                             const currentList = inboxData.tabs || [];
-                            const f = currentList.filter(
-                              (t2: any) =>
+                            const f = currentList.filter((t2: any) => {
+                              if (tab.uid) return t2.uid !== tab.uid;
+                              return (
                                 t2.url !== tab.url ||
                                 (t2.isIncognito || false) !==
                                   (tab.isIncognito || false)
-                            );
+                              );
+                            });
                             await updateDoc(doc(db, "inbox_data", "global"), {
                               tabs: f,
                             });
@@ -1129,14 +1167,16 @@ export const Dashboard = () => {
                       className="absolute top-2 left-2 cursor-pointer z-20 text-slate-500 hover:text-blue-400"
                       onClick={(e) => {
                         e.stopPropagation();
+                        const idToSelect = tab.uid || tab.url;
                         setSelectedUrls((prev) =>
-                          prev.includes(tab.url)
-                            ? prev.filter((u) => u !== tab.url)
-                            : [...prev, tab.url]
+                          prev.includes(idToSelect)
+                            ? prev.filter((u) => u !== idToSelect)
+                            : [...prev, idToSelect]
                         );
                       }}
                     >
-                      {selectedUrls.includes(tab.url) ? (
+                      {selectedUrls.includes(tab.uid) ||
+                      selectedUrls.includes(tab.url) ? (
                         <CheckSquare
                           size={16}
                           className="text-blue-500 bg-slate-900 rounded"
@@ -1164,6 +1204,7 @@ export const Dashboard = () => {
                         );
                       }}
                       className={`bg-slate-800/60 p-4 rounded-2xl border cursor-grab active:cursor-grabbing ${
+                        selectedUrls.includes(tab.uid) ||
                         selectedUrls.includes(tab.url)
                           ? "border-blue-500 bg-blue-500/10"
                           : "border-slate-700 hover:border-slate-500"

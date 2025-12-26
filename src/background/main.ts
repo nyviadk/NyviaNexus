@@ -13,12 +13,15 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 
+// --- TYPES ---
 interface TabData {
+  uid: string; // Unikt ID for hver instans
   title: string;
   url: string;
   favIconUrl: string;
   isIncognito?: boolean;
 }
+
 interface WinMapping {
   workspaceId: string;
   internalWindowId: string;
@@ -26,12 +29,21 @@ interface WinMapping {
   index: number;
 }
 
+interface TrackerData {
+  uid: string;
+  url: string;
+}
+
+// --- STATE ---
 let activeRestorations = 0;
 let restorationStatus = "";
 let lastDashboardTime = 0;
 let activeWindows = new Map<number, WinMapping>();
 const lockedWindowIds = new Set<number>();
-let sessionKnownUrls = new Set<string>();
+
+// VIGTIGT: Tracker nu både UID og URL.
+// tabId (Chrome) -> { uid: string (Firestore), url: string }
+let inboxTabTracker = new Map<number, TrackerData>();
 
 let globalState = {
   profiles: [] as any[],
@@ -43,6 +55,7 @@ let globalState = {
 const activeListeners = new Map<string, () => void>();
 
 const isDash = (url?: string) => url?.includes("dashboard.html");
+
 function broadcast(type: string, payload: any) {
   chrome.runtime.sendMessage({ type, payload }).catch(() => {});
 }
@@ -106,6 +119,7 @@ async function loadAndVerifyWindows() {
         await chrome.windows.get(winId);
         activeWindows.set(winId, mapping);
       } catch (e) {
+        // Vinduet findes ikke fysisk mere, marker som inaktivt i DB
         const docRef = doc(
           db,
           "workspaces_data",
@@ -118,7 +132,49 @@ async function loadAndVerifyWindows() {
     }
     await saveActiveWindowsToStorage();
   }
+
+  rebuildInboxTracker();
 }
+
+// Hjælpefunktion: Forsøger at matche fysiske tabs med DB tabs for at genskabe trackeren
+async function rebuildInboxTracker() {
+  const allWindows = await chrome.windows.getAll();
+  const unmappedWindows = allWindows.filter(
+    (w) => w.id && !activeWindows.has(w.id) && !lockedWindowIds.has(w.id)
+  );
+
+  if (unmappedWindows.length === 0) return;
+
+  const inboxSnap = await getDoc(doc(db, "inbox_data", "global"));
+  if (!inboxSnap.exists()) return;
+  const dbTabs = (inboxSnap.data().tabs || []) as TabData[];
+
+  const availableDbTabs = [...dbTabs];
+
+  for (const w of unmappedWindows) {
+    if (w.id) {
+      const tabs = await chrome.tabs.query({ windowId: w.id });
+      for (const t of tabs) {
+        if (t.id && t.url && !isDash(t.url) && !t.url.startsWith("chrome")) {
+          // Find en matchende tab i DB (samme URL)
+          const matchIndex = availableDbTabs.findIndex(
+            (dt) => dt.url === t.url && dt.isIncognito === t.incognito
+          );
+
+          if (matchIndex !== -1) {
+            const matchedDbTab = availableDbTabs[matchIndex];
+            inboxTabTracker.set(t.id, {
+              uid: matchedDbTab.uid,
+              url: matchedDbTab.url,
+            });
+            availableDbTabs.splice(matchIndex, 1);
+          }
+        }
+      }
+    }
+  }
+}
+
 loadAndVerifyWindows();
 
 async function updateWindowGrouping(
@@ -168,49 +224,40 @@ async function updateWindowGrouping(
   } catch (e) {}
 }
 
-async function processInboxWindows(windows: chrome.windows.Window[]) {
+async function registerNewInboxWindow(windowId: number) {
+  const tabs = await chrome.tabs.query({ windowId });
+  const tabsToAdd: TabData[] = [];
+
   const inboxDocRef = doc(db, "inbox_data", "global");
   const inboxSnap = await getDoc(inboxDocRef);
+  let currentTabs = inboxSnap.exists() ? inboxSnap.data().tabs || [] : [];
 
-  const uniqueTabsMap = new Map<string, TabData>();
+  for (const t of tabs) {
+    if (t.id && t.url && !isDash(t.url) && !t.url.startsWith("chrome")) {
+      if (!inboxTabTracker.has(t.id)) {
+        const newUid = crypto.randomUUID();
+        inboxTabTracker.set(t.id, {
+          uid: newUid,
+          url: t.url,
+        });
 
-  if (inboxSnap.exists()) {
-    const data = inboxSnap.data();
-    if (data.tabs && Array.isArray(data.tabs)) {
-      data.tabs.forEach((t: any) => uniqueTabsMap.set(t.url, t));
-    }
-  }
-
-  if (windows.length > 0) {
-    for (const w of windows) {
-      if (w.id) {
-        if (!w.incognito) await updateWindowGrouping(w.id, null);
-
-        const winTabs = await chrome.tabs.query({ windowId: w.id });
-        const filtered = winTabs.filter(
-          (t) => t.url && !t.url.startsWith("chrome") && !isDash(t.url)
-        );
-
-        filtered.forEach((t) => {
-          const tabData: TabData = {
-            title: t.title || "Ny fane",
-            url: t.url || "",
-            favIconUrl: t.favIconUrl || "",
-            isIncognito: w.incognito,
-          };
-          uniqueTabsMap.set(tabData.url, tabData);
-          sessionKnownUrls.add(tabData.url);
+        tabsToAdd.push({
+          uid: newUid,
+          title: t.title || "Ny fane",
+          url: t.url,
+          favIconUrl: t.favIconUrl || "",
+          isIncognito: t.incognito,
         });
       }
     }
   }
 
-  const mergedTabs = Array.from(uniqueTabsMap.values());
-
-  await setDoc(inboxDocRef, {
-    tabs: mergedTabs,
-    lastUpdate: serverTimestamp(),
-  });
+  if (tabsToAdd.length > 0) {
+    await updateDoc(inboxDocRef, {
+      tabs: [...currentTabs, ...tabsToAdd],
+      lastUpdate: serverTimestamp(),
+    });
+  }
 }
 
 async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
@@ -230,13 +277,15 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       // --- WORKSPACE LOGIK ---
       if (!windowExists) return;
       const tabs = await chrome.tabs.query({ windowId });
+
       const validTabs: TabData[] = tabs
         .filter((t) => t.url && !t.url.startsWith("chrome") && !isDash(t.url))
         .map((t) => ({
+          uid: crypto.randomUUID(),
           title: t.title || "Ny fane",
           url: t.url || "",
           favIconUrl: t.favIconUrl || "",
-          isIncognito: false, // Workspaces er altid normal
+          isIncognito: false,
         }));
 
       await updateWindowGrouping(windowId, mapping);
@@ -270,11 +319,11 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       );
     } else {
       // --- INBOX LOGIK ---
-      const allWindows = await chrome.windows.getAll();
-      const unmappedWindows = allWindows.filter(
-        (w) => w.id && !activeWindows.has(w.id) && !lockedWindowIds.has(w.id)
-      );
-      await processInboxWindows(unmappedWindows);
+      // Kun visual grouping. Gem sker via events.
+      if (windowExists) {
+        const win = await chrome.windows.get(windowId);
+        if (!win.incognito) await updateWindowGrouping(windowId, null);
+      }
     }
   } catch (e) {
     console.error("Save error:", e);
@@ -282,13 +331,106 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
 }
 
 // --- EVENT LISTENERS ---
-chrome.tabs.onUpdated.addListener((_id, change, tab) => {
-  if (change.status === "complete" && tab.windowId)
-    saveToFirestore(tab.windowId, false);
+
+// 1. OnUpdated: Håndter URL ændringer via UID
+chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
+  if (change.status === "complete" && tab.windowId) {
+    // Workspace -> Fuld sync
+    if (activeWindows.has(tab.windowId)) {
+      saveToFirestore(tab.windowId, false);
+    }
+    // Inbox -> Opdater specifik UID
+    else if (!tab.url?.startsWith("chrome") && !isDash(tab.url)) {
+      const tracked = inboxTabTracker.get(tabId);
+      const newUrl = tab.url || "";
+
+      if (tracked) {
+        if (tracked.url !== newUrl) {
+          const inboxRef = doc(db, "inbox_data", "global");
+          const snap = await getDoc(inboxRef);
+
+          if (snap.exists()) {
+            const data = snap.data();
+            let tabs: TabData[] = data.tabs || [];
+
+            const idx = tabs.findIndex((t) => t.uid === tracked.uid);
+
+            if (idx !== -1) {
+              tabs[idx].url = newUrl;
+              tabs[idx].title = tab.title || "Ny Fane";
+              tabs[idx].favIconUrl = tab.favIconUrl || "";
+
+              await updateDoc(inboxRef, {
+                tabs,
+                lastUpdate: serverTimestamp(),
+              });
+              inboxTabTracker.set(tabId, { uid: tracked.uid, url: newUrl });
+            }
+          }
+        }
+      } else {
+        // Ny fane
+        const newUid = crypto.randomUUID();
+        inboxTabTracker.set(tabId, { uid: newUid, url: newUrl });
+
+        const inboxRef = doc(db, "inbox_data", "global");
+        const snap = await getDoc(inboxRef);
+        let tabs = snap.exists() ? snap.data().tabs || [] : [];
+
+        tabs.push({
+          uid: newUid,
+          title: tab.title || "Ny Fane",
+          url: newUrl,
+          favIconUrl: tab.favIconUrl || "",
+          isIncognito: tab.incognito,
+        });
+
+        await updateDoc(inboxRef, { tabs, lastUpdate: serverTimestamp() });
+      }
+    }
+  }
 });
 
-chrome.tabs.onRemoved.addListener((_id, info) => {
-  if (!info.isWindowClosing) saveToFirestore(info.windowId, true);
+// 2. OnRemoved: Slet specifik UID - MEN KUN HVIS VINDUET IKKE LUKKER
+chrome.tabs.onRemoved.addListener(async (tabId, info) => {
+  // Hvis det er et Workspace-vindue
+  if (activeWindows.has(info.windowId)) {
+    if (!info.isWindowClosing) saveToFirestore(info.windowId, true);
+  }
+  // Hvis det er et Inbox-vindue (normal eller incognito)
+  else {
+    // Vi rydder ALTID op i trackeren for at undgå memory leaks
+    const tracked = inboxTabTracker.get(tabId);
+    inboxTabTracker.delete(tabId);
+
+    // MEN vi sletter KUN fra databasen, hvis det IKKE er fordi vinduet lukker.
+    // "isWindowClosing" er true, hvis brugeren lukkede hele vinduet.
+    if (tracked && !info.isWindowClosing) {
+      const inboxRef = doc(db, "inbox_data", "global");
+      const snap = await getDoc(inboxRef);
+
+      if (snap.exists()) {
+        const data = snap.data();
+        let tabs: TabData[] = data.tabs || [];
+
+        // Filtrer baseret på UID
+        const newTabs = tabs.filter((t) => t.uid !== tracked.uid);
+
+        if (newTabs.length !== tabs.length) {
+          await updateDoc(inboxRef, {
+            tabs: newTabs,
+            lastUpdate: serverTimestamp(),
+          });
+        }
+      }
+    }
+  }
+});
+
+chrome.windows.onCreated.addListener(async (win) => {
+  if (win.id && !activeWindows.has(win.id)) {
+    setTimeout(() => registerNewInboxWindow(win.id!), 1000);
+  }
 });
 
 chrome.windows.onFocusChanged.addListener(async (winId) => {
@@ -383,8 +525,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (type === "FORCE_SYNC_ACTIVE_WINDOW") handleForceSync(payload.windowId);
   if (type === "CREATE_NEW_WINDOW_IN_WORKSPACE")
     handleCreateNewWindowInWorkspace(payload.workspaceId, payload.name);
-  if (type === "CLOSE_PHYSICAL_TABS")
+
+  if (type === "CLOSE_PHYSICAL_TABS") {
     handleClosePhysicalTabs(payload.urls, payload.internalWindowId);
+  }
+
   if (type === "CLAIM_WINDOW") {
     if (activeRestorations === 0) {
       getWorkspaceWindowIndex(
@@ -404,7 +549,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true;
 });
 
-// --- HELPERS (Simplified) ---
+// --- HELPERS ---
 async function handleOpenWorkspace(
   workspaceId: string,
   windowsToOpen: any[],
@@ -480,7 +625,6 @@ async function handleOpenSpecificWindow(
       await updateWindowGrouping(winId, mapping);
 
       if (urls.length > 0) {
-        // Her kalder vi den nye ventefunktion som opdaterer status løbende
         await waitForWindowToLoad(winId);
       }
       lockedWindowIds.delete(winId);
@@ -595,6 +739,7 @@ async function handleClosePhysicalTabs(
 
     for (const winId of unmappedIds) {
       const tabs = await chrome.tabs.query({ windowId: winId });
+      // Hvis du kun vil slette specifikke, skal du sende UIDs med ned her.
       const tabIds = tabs
         .filter((t) => t.id && urls.includes(t.url || ""))
         .map((t) => t.id as number);
@@ -623,29 +768,24 @@ async function getWorkspaceWindowIndex(
 async function waitForWindowToLoad(windowId: number) {
   return new Promise<void>((resolve) => {
     let attempts = 0;
-    // 8 sekunder timeout (32 forsøg a 250ms).
-    // Dette sikrer at vi ikke venter for evigt på en fane der spinner.
     const maxAttempts = 32;
 
     const check = async () => {
       try {
         const tabs = await chrome.tabs.query({ windowId });
         const total = tabs.length - 1;
-        // Vi tæller hvor mange der stadig loader
         const loadingCount = tabs.filter((t) => t.status === "loading").length;
         const completeCount = total - loadingCount;
 
-        // OPDATER STATUS LIVE: "Indlæser indhold (12/45)..."
         updateRestorationStatus(
           `Indlæser indhold (${completeCount}/${total})...`
         );
 
-        // Hvis alt er færdigt, eller vi har ventet for længe -> kør videre
         if (loadingCount === 0 || attempts >= maxAttempts) {
           resolve();
         } else {
           attempts++;
-          setTimeout(check, 250); // Tjek hurtigere (250ms) for snappy UI
+          setTimeout(check, 250);
         }
       } catch (e) {
         resolve();

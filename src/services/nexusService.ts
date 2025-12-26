@@ -1,13 +1,13 @@
-import { db } from "../lib/firebase";
 import {
-  writeBatch,
-  doc,
-  collection,
-  getDocs,
-  updateDoc,
   arrayRemove,
   arrayUnion,
+  collection,
+  doc,
+  getDocs,
+  updateDoc,
+  writeBatch,
 } from "firebase/firestore";
+import { db } from "../lib/firebase";
 import { NexusItem } from "../types";
 
 export const NexusService = {
@@ -81,7 +81,6 @@ export const NexusService = {
   ) {
     // Helper to resolve reference
     const getRef = (wsId: string, winId: string) => {
-      // Sikkerhedsnet: Både "global" og "incognito" peger nu på samme dokument
       if (winId === "global" || winId === "incognito") {
         return doc(db, "inbox_data", "global");
       }
@@ -91,12 +90,29 @@ export const NexusService = {
     const sourceRef = getRef(sourceWorkspaceId, sourceWindowId);
     const targetRef = getRef(targetWorkspaceId, targetWindowId);
 
+    // Sikr at tab har en UID (hvis det er gamle data)
+    const tabToMove = {
+      ...tab,
+      uid: tab.uid || crypto.randomUUID(),
+    };
+
     const batch = writeBatch(db);
 
-    // Vigtigt: arrayRemove fjerner kun hvis objektet matcher præcist (inkl. isIncognito feltet)
-    // Frontend skal sikre at 'tab' objektet matcher det der ligger i databasen
-    batch.update(sourceRef, { tabs: arrayRemove(tab) });
-    batch.update(targetRef, { tabs: arrayUnion(tab) });
+    // BEMÆRK: arrayRemove virker KUN hvis objektet matcher 100%.
+    // Hvis 'tab' objektet fra frontend mangler felter som DB har, fejler det.
+    // Den mest robuste måde er at læse arrayet, filtrere og skrive tilbage.
+
+    // MEN for performance bruger vi arrayRemove, men vi stoler på at frontend sender det komplette objekt.
+    // Hvis source er DB-baseret, bør objektet være identisk.
+
+    // Hvis vi flytter TIL SAMME LISTE (reorder), skal vi håndtere det anderledes,
+    // men her flytter vi mellem vinduer.
+
+    batch.update(sourceRef, { tabs: arrayRemove(tab) }); // Fjern originalen (uden evt ny UID hvis den manglede)
+
+    // Tilføj til target (med UID)
+    batch.update(targetRef, { tabs: arrayUnion(tabToMove) });
+
     return await batch.commit();
   },
 
@@ -109,6 +125,13 @@ export const NexusService = {
     tabs: any[];
   }) {
     const batch = writeBatch(db);
+
+    // Sikr UIDs på alle tabs
+    const tabsWithUid = data.tabs.map((t) => ({
+      ...t,
+      uid: t.uid || crypto.randomUUID(),
+    }));
+
     batch.set(doc(db, "items", data.id), {
       id: data.id,
       name: data.name,
@@ -120,7 +143,7 @@ export const NexusService = {
     batch.set(
       doc(db, "workspaces_data", data.id, "windows", data.internalWindowId),
       {
-        tabs: data.tabs,
+        tabs: tabsWithUid,
         lastActive: Date.now(),
         isActive: true,
       }
