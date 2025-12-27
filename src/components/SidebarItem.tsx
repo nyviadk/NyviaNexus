@@ -214,8 +214,9 @@ export const SidebarItem = ({
     }
   };
 
+  // Tilføjet 'group' klasse for at håndtere hover på parent
   let containerClasses =
-    "relative z-10 flex items-center gap-2 p-2 rounded-xl mb-1 cursor-grab active:cursor-grabbing transition-all border ";
+    "relative z-10 flex items-center gap-2 p-2 rounded-xl mb-1 cursor-grab active:cursor-grabbing transition-all border group ";
 
   if (tabDropStatus === "valid") {
     containerClasses +=
@@ -273,12 +274,12 @@ export const SidebarItem = ({
           isOpen ? (
             <ChevronDown
               size={18}
-              className="text-slate-400 transition-transform"
+              className="text-slate-400 transition-transform cursor-pointer"
             />
           ) : (
             <ChevronRight
               size={18}
-              className="text-slate-400 transition-transform"
+              className="text-slate-400 transition-transform cursor-pointer"
             />
           )
         ) : (
@@ -310,7 +311,8 @@ export const SidebarItem = ({
         </span>
 
         {!isSyncing && (
-          <div className="flex gap-1 opacity-0 hover:opacity-100 transition-opacity bg-slate-800/50 rounded-lg px-1">
+          // Ændret fra hover:opacity-100 til group-hover:opacity-100
+          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800/50 rounded-lg px-1">
             {isFolder && (
               <>
                 <button
@@ -320,7 +322,7 @@ export const SidebarItem = ({
                     onAddChild?.(item.id, "folder");
                   }}
                   title="Ny mappe"
-                  className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-blue-300"
+                  className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-blue-300 cursor-pointer"
                 >
                   <FolderPlus size={18} />
                 </button>
@@ -331,7 +333,7 @@ export const SidebarItem = ({
                     onAddChild?.(item.id, "workspace");
                   }}
                   title="Nyt space"
-                  className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-blue-300"
+                  className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-blue-300 cursor-pointer"
                 >
                   <Plus size={18} />
                 </button>
@@ -340,14 +342,14 @@ export const SidebarItem = ({
             <button
               onClick={handleRename}
               title="Omdøb"
-              className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-blue-300"
+              className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-blue-300 cursor-pointer"
             >
               <Edit3 size={18} />
             </button>
             <button
               onClick={handleDelete}
               title="Slet"
-              className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-red-400"
+              className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-red-400 cursor-pointer"
             >
               <Trash2 size={18} />
             </button>

@@ -72,6 +72,29 @@ export const NexusService = {
     return await updateDoc(doc(db, "items", itemId), { parentId: newParentId });
   },
 
+  // NY FUNKTION: Dedikeret sletning
+  async deleteTab(tab: any, workspaceId: string, windowId: string) {
+    const getRef = (wsId: string, winId: string) => {
+      if (winId === "global" || winId === "incognito") {
+        return doc(db, "inbox_data", "global");
+      }
+      return doc(db, "workspaces_data", wsId, "windows", winId);
+    };
+
+    const sourceRef = getRef(workspaceId, windowId);
+    const sourceSnap = await getDoc(sourceRef);
+
+    if (sourceSnap.exists()) {
+      const currentTabs = sourceSnap.data().tabs || [];
+      // Filtrer baseret på UID (hvis tilgængelig) ellers URL
+      const newTabs = currentTabs.filter((t: any) => {
+        if (tab.uid && t.uid) return t.uid !== tab.uid;
+        return t.url !== tab.url;
+      });
+      await updateDoc(sourceRef, { tabs: newTabs });
+    }
+  },
+
   async moveTabBetweenWindows(
     tab: any,
     sourceWorkspaceId: string,
@@ -98,12 +121,10 @@ export const NexusService = {
 
     const batch = writeBatch(db);
 
-    // FIX: Brug ikke arrayRemove til objekter, det er for skrøbeligt.
     // Vi henter kilden, filtrerer og opdaterer.
     const sourceSnap = await getDoc(sourceRef);
     if (sourceSnap.exists()) {
       const currentTabs = sourceSnap.data().tabs || [];
-      // Filtrer baseret på UID hvis muligt, ellers URL
       const newSourceTabs = currentTabs.filter((t: any) => {
         if (tab.uid && t.uid) return t.uid !== tab.uid;
         return t.url !== tab.url;

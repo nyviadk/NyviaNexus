@@ -175,6 +175,101 @@ const ProfileManagerModal = ({
   );
 };
 
+// --- OPTIMIZED TAB ITEM COMPONENT ---
+const TabItem = React.memo(
+  ({
+    tab,
+    isSelected,
+    onSelect,
+    onDelete,
+    sourceWorkspaceId,
+    onDragStart,
+  }: any) => {
+    return (
+      <div className="group relative w-full">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(tab);
+          }}
+          className="absolute -top-2 -right-2 z-30 bg-slate-700 border border-slate-600 text-slate-300 hover:text-red-400 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition shadow-xl cursor-pointer"
+        >
+          <X size={14} />
+        </button>
+        <div
+          className="absolute top-2 left-2 cursor-pointer z-20 text-slate-500 hover:text-blue-400"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect(tab);
+          }}
+        >
+          {isSelected ? (
+            <CheckSquare
+              size={20}
+              className="text-blue-500 bg-slate-900 rounded cursor-pointer"
+            />
+          ) : (
+            <Square
+              size={20}
+              className="opacity-0 group-hover:opacity-100 bg-slate-900/50 rounded cursor-pointer"
+            />
+          )}
+        </div>
+        <div
+          draggable={true}
+          onDragStart={(e) => {
+            e.dataTransfer.setData("nexus/tab", "true");
+            window.sessionStorage.setItem(
+              "draggedTab",
+              JSON.stringify({
+                ...tab,
+                sourceWorkspaceId: sourceWorkspaceId,
+              })
+            );
+            if (onDragStart) onDragStart();
+          }}
+          className={`bg-slate-800 p-4 rounded-2xl border cursor-grab active:cursor-grabbing transform-gpu ${
+            isSelected
+              ? "border-blue-500 bg-slate-750 shadow-blue-900/20"
+              : "border-slate-700 hover:border-slate-500"
+          } flex flex-col gap-2 hover:bg-slate-800 transition group shadow-md pl-8 overflow-hidden`}
+        >
+          <div
+            className="flex items-center gap-3 cursor-pointer select-none min-w-0"
+            onClick={(e) => {
+              e.stopPropagation();
+              chrome.tabs.create({ url: tab.url, active: true });
+            }}
+          >
+            <Globe
+              size={18}
+              className={`${
+                tab.isIncognito ? "text-purple-400" : "text-slate-500"
+              } group-hover:text-blue-400 shrink-0`}
+            />
+            <div className="min-w-0 flex-1 pr-12">
+              <div className="truncate text-sm font-semibold text-slate-200 pointer-events-none w-full">
+                {tab.title}
+              </div>
+              <div className="truncate text-[10px] text-slate-500 italic font-mono pointer-events-none w-full">
+                {tab.url}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.isSelected === next.isSelected &&
+      prev.tab.url === next.tab.url &&
+      prev.tab.title === next.tab.title &&
+      prev.tab.uid === next.tab.uid
+    );
+  }
+);
+
 export const Dashboard = () => {
   const [user, setUser] = useState<any>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -202,7 +297,7 @@ export const Dashboard = () => {
     null
   );
 
-  const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
+  const [selectedUrls, setSelectedUrls] = useState<string[]>([]); // Note: This stores UIDs actually
 
   const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -550,10 +645,89 @@ export const Dashboard = () => {
     ]
   );
 
+  // --- STABLE CALLBACKS FOR TABS (Vigtigt for performance) ---
+  const handleTabDelete = useCallback(
+    async (tab: any) => {
+      if (confirm("Slet tab?")) {
+        const sId =
+          isViewingInbox || isViewingIncognito ? "global" : selectedWindowId!;
+
+        // 1. Luk fysisk fane (VIGTIGT: Send UID nu)
+        chrome.runtime.sendMessage({
+          type: "CLOSE_PHYSICAL_TABS",
+          payload: {
+            uids: [tab.uid],
+            internalWindowId: sId,
+          },
+        });
+
+        // 2. Slet fra Database (uden at flytte til Inbox!)
+        await NexusService.deleteTab(
+          tab,
+          selectedWorkspace?.id || "global",
+          sId
+        );
+      }
+    },
+    [
+      isViewingInbox,
+      isViewingIncognito,
+      selectedWindowId,
+      selectedWorkspace,
+      inboxData,
+    ]
+  );
+
+  const handleTabSelect = useCallback((tab: any) => {
+    // VIGTIGT: Vi gemmer UID nu, ikke URL, da UID er unikt.
+    const idToSelect = tab.uid;
+    setSelectedUrls((prev) =>
+      prev.includes(idToSelect)
+        ? prev.filter((u) => u !== idToSelect)
+        : [...prev, idToSelect]
+    );
+  }, []);
+
   const isViewingCurrent = activeMappings.some(
     ([id, m]: any) =>
       id === currentWindowId && m.internalWindowId === selectedWindowId
   );
+
+  // --- USEMEMO FOR TABS LISTE ---
+  const renderedTabs = useMemo(() => {
+    let list: any[] = [];
+    if (isViewingIncognito) list = getFilteredInboxTabs(true);
+    else if (isViewingInbox) list = getFilteredInboxTabs(false);
+    else list = windows.find((w) => w.id === selectedWindowId)?.tabs || [];
+
+    const sourceWSId =
+      isViewingInbox || isViewingIncognito ? "global" : selectedWorkspace?.id;
+
+    return list.map((tab: any, i: number) => {
+      // Match på UID
+      const isSelected = selectedUrls.includes(tab.uid);
+      return (
+        <TabItem
+          key={tab.uid || i}
+          tab={tab}
+          isSelected={isSelected}
+          onSelect={handleTabSelect}
+          onDelete={handleTabDelete}
+          sourceWorkspaceId={sourceWSId}
+        />
+      );
+    });
+  }, [
+    isViewingIncognito,
+    isViewingInbox,
+    windows,
+    selectedWindowId,
+    getFilteredInboxTabs,
+    selectedWorkspace,
+    selectedUrls,
+    handleTabSelect,
+    handleTabDelete,
+  ]);
 
   if (!user)
     return (
@@ -581,6 +755,7 @@ export const Dashboard = () => {
           NyviaNexus
         </div>
 
+        {/* ... (Sidebar kode uændret) ... */}
         <div className="p-4 flex-1 overflow-y-auto space-y-6">
           <div className="flex items-center gap-2">
             <select
@@ -591,7 +766,7 @@ export const Dashboard = () => {
                 setIsViewingInbox(false);
                 setIsViewingIncognito(false);
               }}
-              className="flex-1 bg-slate-700 p-2 rounded-xl border border-slate-600 text-sm outline-none text-white"
+              className="flex-1 bg-slate-700 p-2 rounded-xl border border-slate-600 text-sm outline-none text-white cursor-pointer"
             >
               {profiles.map((p: Profile) => (
                 <option key={p.id} value={p.id}>
@@ -601,7 +776,7 @@ export const Dashboard = () => {
             </select>
             <button
               onClick={() => setModalType("profiles")}
-              className="p-2 text-slate-400 hover:text-blue-400 bg-slate-700 rounded-xl border border-slate-600"
+              className="p-2 text-slate-400 hover:text-blue-400 bg-slate-700 rounded-xl border border-slate-600 cursor-pointer"
             >
               <Settings size={22} />
             </button>
@@ -673,6 +848,7 @@ export const Dashboard = () => {
                         await b.commit();
                       }
                     }}
+                    className="cursor-pointer"
                   >
                     <LifeBuoy size={18} className="hover:text-red-400" />
                   </button>
@@ -681,6 +857,7 @@ export const Dashboard = () => {
                       setModalParentId("root");
                       setModalType("folder");
                     }}
+                    className="cursor-pointer"
                   >
                     <FolderPlus size={18} className="hover:text-white" />
                   </button>
@@ -689,6 +866,7 @@ export const Dashboard = () => {
                       setModalParentId("root");
                       setModalType("workspace");
                     }}
+                    className="cursor-pointer"
                   >
                     <PlusCircle size={18} className="hover:text-white" />
                   </button>
@@ -811,7 +989,7 @@ export const Dashboard = () => {
           </div>
           <button
             onClick={() => auth.signOut()}
-            className="flex items-center gap-2 text-slate-500 hover:text-red-500"
+            className="flex items-center gap-2 text-slate-500 hover:text-red-500 cursor-pointer"
           >
             <LogOut size={20} /> Log ud
           </button>
@@ -898,7 +1076,7 @@ export const Dashboard = () => {
                                 },
                               });
                             }}
-                            className="p-1.5 hover:bg-blue-500/20 rounded-lg text-slate-400 hover:text-blue-400"
+                            className="p-1.5 hover:bg-blue-500/20 rounded-lg text-slate-400 hover:text-blue-400 cursor-pointer"
                           >
                             <ExternalLink size={20} />
                           </button>
@@ -914,7 +1092,7 @@ export const Dashboard = () => {
                                   )
                                 );
                             }}
-                            className="absolute -top-2 -right-2 p-1.5 bg-slate-800 border border-slate-600 rounded-full text-slate-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition shadow-sm z-10"
+                            className="absolute -top-2 -right-2 p-1.5 bg-slate-800 border border-slate-600 rounded-full text-slate-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition shadow-sm z-10 cursor-pointer"
                           >
                             <Trash2 size={14} />
                           </button>
@@ -931,7 +1109,7 @@ export const Dashboard = () => {
                           },
                         })
                       }
-                      className="h-14 w-14 flex items-center justify-center rounded-xl border border-dashed border-slate-700 hover:border-blue-500 text-slate-500 transition"
+                      className="h-14 w-14 flex items-center justify-center rounded-xl border border-dashed border-slate-700 hover:border-blue-500 text-slate-500 transition cursor-pointer"
                     >
                       <PlusCircle size={28} />
                     </button>
@@ -949,12 +1127,13 @@ export const Dashboard = () => {
                         windows.find((w) => w.id === selectedWindowId)?.tabs ||
                         [];
 
-                    const allU = list.map((t: any) => t.uid || t.url);
+                    // VIGTIGT: Vi samler UIDs her nu, ikke URLs
+                    const allU = list.map((t: any) => t.uid);
                     setSelectedUrls(
                       selectedUrls.length === allU.length ? [] : allU
                     );
                   }}
-                  className={`p-2.5 bg-slate-800 border rounded-xl transition ${
+                  className={`p-2.5 bg-slate-800 border rounded-xl transition cursor-pointer ${
                     selectedUrls.length > 0
                       ? "border-blue-500 text-blue-400"
                       : "border-slate-700 hover:text-blue-400"
@@ -971,38 +1150,20 @@ export const Dashboard = () => {
                             ? "global"
                             : selectedWindowId;
 
-                        let currentList = [];
-                        if (isViewingIncognito)
-                          currentList = getFilteredInboxTabs(true);
-                        else if (isViewingInbox)
-                          currentList = getFilteredInboxTabs(false);
-                        else
-                          currentList =
-                            windows.find((w) => w.id === selectedWindowId)
-                              ?.tabs || [];
-
-                        const urlsToDelete = currentList
-                          .filter(
-                            (t: any) =>
-                              selectedUrls.includes(t.uid) ||
-                              selectedUrls.includes(t.url)
-                          )
-                          .map((t: any) => t.url);
-
+                        // VIGTIG ÆNDRING: Send UIDs til baggrundsprocessen
                         chrome.runtime.sendMessage({
                           type: "CLOSE_PHYSICAL_TABS",
                           payload: {
-                            urls: urlsToDelete,
+                            uids: selectedUrls, // UIDs, ikke URLs!
                             internalWindowId: sId,
                           },
                         });
 
-                        // DB Delete
+                        // Vi sletter dem én ad gangen fra DB (lidt tungt, men sikkert)
+                        // Eller smartere: Opdater dokumentet direkte her som før, men korrekt.
                         if (isViewingInbox || isViewingIncognito) {
                           const f = inboxData.tabs.filter(
-                            (t: any) =>
-                              !selectedUrls.includes(t.uid) &&
-                              !selectedUrls.includes(t.url)
+                            (t: any) => !selectedUrls.includes(t.uid)
                           );
                           await updateDoc(doc(db, "inbox_data", "global"), {
                             tabs: f,
@@ -1013,9 +1174,7 @@ export const Dashboard = () => {
                           );
                           if (w) {
                             const f = w.tabs.filter(
-                              (t: any) =>
-                                !selectedUrls.includes(t.uid) &&
-                                !selectedUrls.includes(t.url)
+                              (t: any) => !selectedUrls.includes(t.uid)
                             );
                             await updateDoc(
                               doc(
@@ -1029,10 +1188,11 @@ export const Dashboard = () => {
                             );
                           }
                         }
+
                         setSelectedUrls([]);
                       }
                     }}
-                    className="flex items-center gap-2 bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition"
+                    className="flex items-center gap-2 bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
                   >
                     <Trash2 size={20} /> Slet ({selectedUrls.length})
                   </button>
@@ -1046,10 +1206,11 @@ export const Dashboard = () => {
                         const normalTabs = getFilteredInboxTabs(false);
                         const incognitoTabs = getFilteredInboxTabs(true);
 
+                        // Slet alle normal tabs via UID
                         chrome.runtime.sendMessage({
                           type: "CLOSE_PHYSICAL_TABS",
                           payload: {
-                            urls: normalTabs.map((t: any) => t.url),
+                            uids: normalTabs.map((t: any) => t.uid),
                             internalWindowId: "global",
                           },
                         });
@@ -1059,7 +1220,7 @@ export const Dashboard = () => {
                         });
                       }
                     }}
-                    className="flex items-center gap-2 bg-orange-600/20 text-orange-400 hover:bg-orange-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition"
+                    className="flex items-center gap-2 bg-orange-600/20 text-orange-400 hover:bg-orange-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
                   >
                     <Eraser size={20} /> Ryd Inbox
                   </button>
@@ -1074,10 +1235,11 @@ export const Dashboard = () => {
                           const normalTabs = getFilteredInboxTabs(false);
                           const incognitoTabs = getFilteredInboxTabs(true);
 
+                          // Slet alle incognito tabs via UID
                           chrome.runtime.sendMessage({
                             type: "CLOSE_PHYSICAL_TABS",
                             payload: {
-                              urls: incognitoTabs.map((t: any) => t.url),
+                              uids: incognitoTabs.map((t: any) => t.uid),
                               internalWindowId: "global",
                             },
                           });
@@ -1087,7 +1249,7 @@ export const Dashboard = () => {
                           });
                         }
                       }}
-                      className="flex items-center gap-2 bg-purple-600/20 text-purple-400 hover:bg-purple-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition"
+                      className="flex items-center gap-2 bg-purple-600/20 text-purple-400 hover:bg-purple-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
                     >
                       <Eraser size={20} /> Ryd Incognito
                     </button>
@@ -1105,7 +1267,7 @@ export const Dashboard = () => {
                         },
                       })
                     }
-                    className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 text-white active:scale-95 transition"
+                    className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 text-white active:scale-95 transition cursor-pointer"
                   >
                     Åbn Space
                   </button>
@@ -1114,131 +1276,9 @@ export const Dashboard = () => {
             </header>
 
             <div className="flex-1 overflow-y-auto p-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-                {(isViewingInbox || isViewingIncognito
-                  ? getFilteredInboxTabs(isViewingIncognito)
-                  : windows.find((w) => w.id === selectedWindowId)?.tabs || []
-                ).map((tab: any, i: number) => (
-                  <div key={tab.uid || i} className="group relative">
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        if (confirm("Slet tab?")) {
-                          const sId =
-                            isViewingInbox || isViewingIncognito
-                              ? "global"
-                              : selectedWindowId!;
-
-                          await NexusService.moveTabBetweenWindows(
-                            tab,
-                            selectedWorkspace?.id || "global",
-                            sId,
-                            "",
-                            "global"
-                          );
-
-                          if (isViewingInbox || isViewingIncognito) {
-                            const currentList = inboxData.tabs || [];
-                            const f = currentList.filter((t2: any) => {
-                              if (tab.uid) return t2.uid !== tab.uid;
-                              return (
-                                t2.url !== tab.url ||
-                                (t2.isIncognito || false) !==
-                                  (tab.isIncognito || false)
-                              );
-                            });
-                            await updateDoc(doc(db, "inbox_data", "global"), {
-                              tabs: f,
-                            });
-
-                            chrome.runtime.sendMessage({
-                              type: "CLOSE_PHYSICAL_TABS",
-                              payload: {
-                                urls: [tab.url],
-                                internalWindowId: "global",
-                              },
-                            });
-                          }
-                        }
-                      }}
-                      className="absolute -top-2 -right-2 z-30 bg-slate-700 border border-slate-600 text-slate-300 hover:text-red-400 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition shadow-xl cursor-pointer"
-                    >
-                      <X size={14} />
-                    </button>
-                    <div
-                      className="absolute top-2 left-2 cursor-pointer z-20 text-slate-500 hover:text-blue-400"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const idToSelect = tab.uid || tab.url;
-                        setSelectedUrls((prev) =>
-                          prev.includes(idToSelect)
-                            ? prev.filter((u) => u !== idToSelect)
-                            : [...prev, idToSelect]
-                        );
-                      }}
-                    >
-                      {selectedUrls.includes(tab.uid) ||
-                      selectedUrls.includes(tab.url) ? (
-                        <CheckSquare
-                          size={20}
-                          className="text-blue-500 bg-slate-900 rounded"
-                        />
-                      ) : (
-                        <Square
-                          size={20}
-                          className="opacity-0 group-hover:opacity-100 bg-slate-900/50 rounded"
-                        />
-                      )}
-                    </div>
-                    <div
-                      draggable={true}
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData("nexus/tab", "true");
-                        window.sessionStorage.setItem(
-                          "draggedTab",
-                          JSON.stringify({
-                            ...tab,
-                            sourceWorkspaceId:
-                              isViewingInbox || isViewingIncognito
-                                ? "global"
-                                : selectedWorkspace?.id,
-                          })
-                        );
-                      }}
-                      className={`bg-slate-800 p-4 rounded-2xl border cursor-grab active:cursor-grabbing transform-gpu ${
-                        selectedUrls.includes(tab.uid) ||
-                        selectedUrls.includes(tab.url)
-                          ? "border-blue-500 bg-slate-750 shadow-blue-900/20"
-                          : "border-slate-700 hover:border-slate-500"
-                      } flex flex-col gap-2 hover:bg-slate-800 transition group shadow-md pl-8`}
-                    >
-                      <div
-                        className="flex items-center gap-3 cursor-pointer select-none"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          chrome.tabs.create({ url: tab.url, active: true });
-                        }}
-                      >
-                        <Globe
-                          size={18}
-                          className={`${
-                            tab.isIncognito
-                              ? "text-purple-400"
-                              : "text-slate-500"
-                          } group-hover:text-blue-400 shrink-0`}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-semibold text-slate-200 pointer-events-none">
-                            {tab.title}
-                          </div>
-                          <div className="truncate text-[10px] text-slate-500 italic font-mono pointer-events-none">
-                            {tab.url}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+              {/* HER ER DEN STORE ÆNDRING: Tilbage til grid-cols-3 */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {renderedTabs}
               </div>
             </div>
           </>
