@@ -35,6 +35,7 @@ interface TrackerData {
 }
 
 // --- STATE ---
+// VIGTIGT: Dette tal styrer vores "Global Lock". Er den > 0, ignorerer vi events.
 let activeRestorations = 0;
 let restorationStatus = "";
 let lastDashboardTime = 0;
@@ -119,6 +120,7 @@ async function loadAndVerifyWindows() {
         await chrome.windows.get(winId);
         activeWindows.set(winId, mapping);
       } catch (e) {
+        // Vinduet findes ikke længere, marker som inaktivt
         const docRef = doc(
           db,
           "workspaces_data",
@@ -253,12 +255,9 @@ async function updateWindowGrouping(
 }
 
 // --- REGISTRER NYE TABS ---
-// Denne funktion sørger for, at vi genbruger UIDs hvis vi kender dem, ellers laver vi nye.
 function getOrAssignUid(tabId: number, url: string): string {
   const tracked = tabTracker.get(tabId);
-  // Hvis URL er den samme, genbrug UID. Hvis URL har ændret sig, beholder vi stadig UID (navigation).
   if (tracked) {
-    // Opdater URL i trackeren
     if (tracked.url !== url) {
       tabTracker.set(tabId, { uid: tracked.uid, url });
     }
@@ -270,6 +269,9 @@ function getOrAssignUid(tabId: number, url: string): string {
 }
 
 async function registerNewInboxWindow(windowId: number) {
+  // LÅS: Hvis vi er midt i en restore, skal vi IKKE registrere noget som inbox
+  if (activeRestorations > 0) return;
+
   const tabs = await chrome.tabs.query({ windowId });
   const tabsToAdd: TabData[] = [];
 
@@ -279,10 +281,7 @@ async function registerNewInboxWindow(windowId: number) {
 
   for (const t of tabs) {
     if (t.id && t.url && !isDash(t.url) && !t.url.startsWith("chrome")) {
-      // TJEK TRACKER FØRST
       const uid = getOrAssignUid(t.id, t.url);
-
-      // Tilføj kun hvis den ikke allerede findes i DB (dublet-check på UID)
       if (!currentTabs.some((ct: any) => ct.uid === uid)) {
         tabsToAdd.push({
           uid: uid,
@@ -304,6 +303,7 @@ async function registerNewInboxWindow(windowId: number) {
 }
 
 async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
+  // Dobbelt sikring, men den vigtige er i event-listeneren
   if (lockedWindowIds.has(windowId) || activeRestorations > 0) return;
 
   try {
@@ -321,7 +321,6 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       if (!windowExists) return;
       const tabs = await chrome.tabs.query({ windowId });
 
-      // Her bruger vi trackeren til at sikre konsistente UIDs
       const validTabs: TabData[] = [];
       for (const t of tabs) {
         if (t.id && t.url && !t.url.startsWith("chrome") && !isDash(t.url)) {
@@ -377,16 +376,19 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
   }
 }
 
-// --- EVENT LISTENERS ---
+// --- EVENT LISTENERS (MED GLOBAL LOCK FIX) ---
 
 chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
+  // FIX: Hvis vi restorerer, ignorer ALT. Vi håndterer staten manuelt i restore-funktionen.
+  if (activeRestorations > 0) return;
+
   if (change.status === "complete" && tab.windowId) {
     if (activeWindows.has(tab.windowId)) {
       saveToFirestore(tab.windowId, false);
     } else if (!tab.url?.startsWith("chrome") && !isDash(tab.url)) {
       // INBOX LOGIK
       const url = tab.url || "";
-      const uid = getOrAssignUid(tabId, url); // Sikrer at tabId er i tracker
+      const uid = getOrAssignUid(tabId, url);
 
       const inboxRef = doc(db, "inbox_data", "global");
       const snap = await getDoc(inboxRef);
@@ -396,7 +398,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
         const idx = tabs.findIndex((t) => t.uid === uid);
 
         if (idx !== -1) {
-          // Opdater eksisterende
           tabs[idx].url = url;
           tabs[idx].title = tab.title || "Ny Fane";
           tabs[idx].favIconUrl = tab.favIconUrl || "";
@@ -405,7 +406,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
             lastUpdate: serverTimestamp(),
           });
         } else {
-          // Tilføj ny
           tabs.push({
             uid: uid,
             title: tab.title || "Ny Fane",
@@ -424,7 +424,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId, info) => {
-  // Gemmer referencen før vi sletter fra trackeren
+  // FIX: Hvis vi restorerer, gør ingenting.
+  if (activeRestorations > 0) return;
+
   const tracked = tabTracker.get(tabId);
   tabTracker.delete(tabId);
 
@@ -438,7 +440,6 @@ chrome.tabs.onRemoved.addListener(async (tabId, info) => {
       if (snap.exists()) {
         const data = snap.data();
         let tabs: TabData[] = data.tabs || [];
-        // Brug UID til at filtrere præcist
         const newTabs = tabs.filter((t) => t.uid !== tracked.uid);
         if (newTabs.length !== tabs.length) {
           await updateDoc(inboxRef, {
@@ -452,13 +453,18 @@ chrome.tabs.onRemoved.addListener(async (tabId, info) => {
 });
 
 chrome.windows.onCreated.addListener(async (win) => {
+  // FIX: Ignorer onCreated hvis vi restorerer
+  if (activeRestorations > 0) return;
+
   if (win.id && !activeWindows.has(win.id)) {
     setTimeout(() => registerNewInboxWindow(win.id!), 1000);
   }
 });
 
 chrome.windows.onFocusChanged.addListener(async (winId) => {
+  // FIX: Inkluderet activeRestorations > 0 tjekket
   if (winId === chrome.windows.WINDOW_ID_NONE || activeRestorations > 0) return;
+
   const now = Date.now();
   if (now - lastDashboardTime < 1500) return;
   try {
@@ -478,6 +484,8 @@ chrome.windows.onFocusChanged.addListener(async (winId) => {
 });
 
 chrome.windows.onRemoved.addListener(async (windowId) => {
+  // Her må vi gerne køre logikken, medmindre vinduet specifikt er locked,
+  // men normalt lukker man ikke vinduer midt i en restore.
   const mapping = activeWindows.get(windowId);
   if (mapping) {
     const docRef = doc(
@@ -550,7 +558,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (type === "CREATE_NEW_WINDOW_IN_WORKSPACE")
     handleCreateNewWindowInWorkspace(payload.workspaceId, payload.name);
 
-  // HER ER FIXET: Modtager nu uids og sletter baseret på trackeren
   if (type === "CLOSE_PHYSICAL_TABS") {
     handleClosePhysicalTabs(payload.uids);
   }
@@ -615,6 +622,7 @@ async function handleOpenSpecificWindow(
     }
   }
 
+  // HER SÆTTER VI LÅSEN
   activeRestorations++;
   try {
     const urls = (winData.tabs || [])
@@ -625,10 +633,13 @@ async function handleOpenSpecificWindow(
 
     const dashUrl = `dashboard.html?workspaceId=${workspaceId}&windowId=${winData.id}`;
 
+    // Chrome events fyrer HER, mens activeRestorations er > 0.
+    // Derfor ignoreres de i listeners, og vi undgår Inbox-dumping.
     const newWin = await chrome.windows.create({
       url: [dashUrl, ...urls],
       incognito: false,
     });
+
     if (newWin?.id) {
       const winId = newWin.id;
       lockedWindowIds.add(winId);
@@ -637,15 +648,13 @@ async function handleOpenSpecificWindow(
       const tabs = await chrome.tabs.query({ windowId: winId });
       if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
 
-      // TRACKER: Registrer de nyåbnede tabs i trackeren med deres DB UIDs
-      // Dette er en "best effort" match baseret på rækkefølge/URL ved åbning
       if (winData.tabs && winData.tabs.length > 0) {
-        let tabIndex = 1; // Start efter dashboard (index 0)
+        let tabIndex = 1;
         for (const tData of winData.tabs) {
           if (!tData.url || isDash(tData.url)) continue;
           if (tabs[tabIndex]) {
             tabTracker.set(tabs[tabIndex].id!, {
-              uid: tData.uid, // VIGTIGT: Brug UID fra databasen
+              uid: tData.uid,
               url: tData.url,
             });
             tabIndex++;
@@ -671,6 +680,7 @@ async function handleOpenSpecificWindow(
       lockedWindowIds.delete(winId);
     }
   } finally {
+    // HER HÆVER VI LÅSEN
     activeRestorations--;
     if (activeRestorations === 0) updateRestorationStatus("");
   }
@@ -753,21 +763,17 @@ async function handleForceSync(windowId: number) {
   }
 }
 
-// NY SLETTE LOGIK: Bruger UIDs til at finde de præcise fysiske tabs
 async function handleClosePhysicalTabs(uids: string[]) {
   if (!uids || uids.length === 0) return;
 
   const tabsToRemove: number[] = [];
 
-  // Gennemløb trackeren for at finde matchende Chrome Tab IDs
   for (const [chromeTabId, data] of tabTracker.entries()) {
     if (uids.includes(data.uid)) {
-      // Tjek om tabben stadig findes fysisk før vi tilføjer den
       try {
         await chrome.tabs.get(chromeTabId);
         tabsToRemove.push(chromeTabId);
       } catch (e) {
-        // Tabben findes ikke fysisk, fjern fra tracker
         tabTracker.delete(chromeTabId);
       }
     }
