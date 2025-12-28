@@ -43,7 +43,7 @@ let lastDashboardTime = 0;
 let activeWindows = new Map<number, WinMapping>();
 const lockedWindowIds = new Set<number>();
 
-// VIGTIGT: Debounce Set for at forhindre kø-spam
+// Memory Debounce (Stopper spam fra samme fane inden for 10 sek)
 const recentQueueAdds = new Set<string>();
 
 let tabTracker = new Map<number, TrackerData>();
@@ -218,7 +218,7 @@ async function rebuildTabTracker() {
   }
 }
 
-// --- AI QUEUE SYSTEM ---
+// --- AI QUEUE SYSTEM (REFACTORED FOR ATOMICITY) ---
 
 interface QueueItem {
   uid: string;
@@ -226,22 +226,16 @@ interface QueueItem {
   title: string;
   tabId: number;
   attempts: number;
-}
-
-interface LockData {
-  isProcessing: boolean;
-  timestamp: number;
+  processingStartedAt?: number; // NYT FELT: Bruges til at låse itemet
 }
 
 interface StorageResponse {
   [key: string]: any;
   nexus_ai_queue?: QueueItem[];
-  nexus_ai_lock?: LockData;
   nexus_ai_last_call?: number;
 }
 
 const AI_STORAGE_KEY = "nexus_ai_queue";
-const AI_LOCK_KEY = "nexus_ai_lock";
 const AI_LAST_CALL_KEY = "nexus_ai_last_call";
 
 async function extractMetadata(tabId: number): Promise<string> {
@@ -275,37 +269,45 @@ async function processAiQueue() {
   }
 
   try {
-    // 1. Initial Read
+    // 1. Hent kø og rate limit
     const storage = (await chrome.storage.local.get([
       AI_STORAGE_KEY,
-      AI_LOCK_KEY,
       AI_LAST_CALL_KEY,
     ])) as StorageResponse;
 
     let queue: QueueItem[] = Array.isArray(storage[AI_STORAGE_KEY])
       ? storage[AI_STORAGE_KEY]
       : [];
-    const lock = storage[AI_LOCK_KEY];
     const lastCall: number = storage[AI_LAST_CALL_KEY] || 0;
 
     if (queue.length === 0) return;
 
+    // 2. Find et ledigt item (ikke låst, eller lås udløbet > 30s)
     const now = Date.now();
-    if (lock?.isProcessing && now - lock.timestamp < 30000) return;
+    const itemIndex = queue.findIndex(
+      (item) =>
+        !item.processingStartedAt || now - item.processingStartedAt > 30000
+    );
 
-    // Rate limit
+    if (itemIndex === -1) {
+      // Alt er i gang med at blive behandlet af andre instanser
+      return;
+    }
+
+    const item = queue[itemIndex];
+
+    // 3. Tjek Rate Limit
     if (now - lastCall < 2000) {
       const delay = 2000 - (now - lastCall);
       chrome.alarms.create("process_ai_next", { when: now + delay });
       return;
     }
 
-    // Lock
-    await chrome.storage.local.set({
-      [AI_LOCK_KEY]: { isProcessing: true, timestamp: now },
-    });
+    // 4. LÅS ITEMET I STORAGE STRAKS (Atomisk markering)
+    queue[itemIndex].processingStartedAt = now;
+    await chrome.storage.local.set({ [AI_STORAGE_KEY]: queue });
 
-    const item = queue[0];
+    // Nu "ejer" denne instans itemet. Ingen andre vil røre det.
     broadcast("AI_STATUS_UPDATE", { uid: item.uid, status: "processing" });
 
     // Hent data
@@ -344,7 +346,8 @@ async function processAiQueue() {
       console.log("⚠️ AI Analysis failed or returned null");
     }
 
-    // --- CRITICAL FIX: RE-FETCH QUEUE TO AVOID RACE CONDITIONS ---
+    // 5. FJERN ITEMET FRA KØEN (Clean up)
+    // Hent frisk kø igen, i tilfælde af at nye items er kommet til i bunden
     const freshStorage = (await chrome.storage.local.get(
       AI_STORAGE_KEY
     )) as StorageResponse;
@@ -352,24 +355,21 @@ async function processAiQueue() {
       ? freshStorage[AI_STORAGE_KEY]
       : [];
 
-    // Vi fjerner KUN det item vi lige har behandlet (og eventuelle dubletter af det)
+    // Fjern det specifikke item baseret på UID
     const updatedQueue = freshQueue.filter((q) => q.uid !== item.uid);
 
     await chrome.storage.local.set({
       [AI_STORAGE_KEY]: updatedQueue,
-      [AI_LOCK_KEY]: { isProcessing: false, timestamp: Date.now() },
       [AI_LAST_CALL_KEY]: Date.now(),
     });
 
-    // Recursion
+    // 6. Kør næste
     if (updatedQueue.length > 0) {
       chrome.alarms.create("process_ai_next", { when: Date.now() + 100 });
     }
   } catch (error) {
     console.error("AI Queue Error", error);
-    await chrome.storage.local.set({
-      [AI_LOCK_KEY]: { isProcessing: false, timestamp: 0 },
-    });
+    // Fejl? Vi lader låsen udløbe (30s) eller fjerner manuelt hvis nødvendigt.
   }
 }
 
@@ -379,7 +379,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-// --- SAFE QUEUE ADDER (DEBOUNCED) ---
 async function addToAiQueue(items: QueueItem[]) {
   try {
     const data = (await chrome.storage.local.get(
@@ -389,25 +388,20 @@ async function addToAiQueue(items: QueueItem[]) {
       ? data[AI_STORAGE_KEY]
       : [];
 
-    // 1. Filtrer dubletter der allerede er i køen
-    // 2. Filtrer items der "lige" er blevet tilføjet (memory debounce)
     const newItems = items.filter((i) => {
+      // Tjek om den allerede er i køen
       const inQueue = currentQueue.some((q) => q.uid === i.uid);
+      // Tjek om vi lige har tilføjet den (debounce)
       const recentlyAdded = recentQueueAdds.has(i.uid);
       return !inQueue && !recentlyAdded;
     });
 
-    if (newItems.length === 0) {
-      // console.log("⚠️ Items skipped (duplicate or debounced)");
-      return;
-    }
+    if (newItems.length === 0) return;
 
     console.log(`📥 Adding ${newItems.length} items to AI Queue`);
 
-    // Opdater memory set
     newItems.forEach((i) => {
       recentQueueAdds.add(i.uid);
-      // Frigiv UID efter 10 sekunder
       setTimeout(() => recentQueueAdds.delete(i.uid), 10000);
     });
 
@@ -587,6 +581,11 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
 }
 
 chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
+  // DEBUGGING AF URL SKIFT
+  if (change.url || change.status) {
+    console.log(`🌐 Tab Update [${tabId}]:`, change);
+  }
+
   if (activeRestorations > 0) return;
 
   if (change.status === "complete" && tab.windowId) {
@@ -619,11 +618,16 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
             needsUpdate = true;
             // Hvis URL er ændret, reset AI status
             if (oldUrl !== url) {
+              console.log(`🔄 URL changed: "${oldUrl}" -> "${url}"`);
               console.log(
-                "🔄 URL changed, resetting AI status for:",
+                "✨ Resetting AI status and clearing debounce for:",
                 tab.title
               );
+
               tabs[idx].aiData = { status: "pending" };
+
+              // VIGTIGT: Fjerner fra debounce så den kan køre med det samme!
+              recentQueueAdds.delete(uid);
             }
           }
         } else {
@@ -647,13 +651,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
 
           // --- TRIGGER AI AUTOMATISK ---
           const currentTab = idx !== -1 ? tabs[idx] : tabs[tabs.length - 1];
-          // Kør kun hvis status ikke er completed (eller lige er blevet reset til pending)
-          // TJEK OGSÅ AT VI IKKE ER PROCESSING I FORVEJEN
           if (
             currentTab.aiData?.status !== "completed" &&
             currentTab.aiData?.status !== "processing"
           ) {
-            // DEBOUNCE CHECK HAPPENS INSIDE addToAiQueue
             console.log("🤖 Attempting to queue AI for tab:", tab.title);
             addToAiQueue([
               {
