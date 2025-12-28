@@ -1,7 +1,7 @@
 import { AiSettings } from "../types";
 
 // Denne service håndterer kommunikationen med Cerebras
-// Nu fuldstændig dynamisk baseret på brugerens indstillinger
+// Nu med Context Awareness (Workspace Navn)
 
 const API_URL = "https://api.cerebras.ai/v1/chat/completions";
 
@@ -49,9 +49,14 @@ export const AiService = {
   async analyzeTab(
     title: string,
     url: string,
-    metadata: string
+    metadata: string,
+    workspaceContext?: string // NYT: Context argument
   ): Promise<AiAnalysisResult | null> {
-    console.log(`🤖 AI Service: Analyserer tab: "${title}"`);
+    console.log(
+      `🤖 AI Service: Analyserer tab: "${title}" [Context: ${
+        workspaceContext || "None"
+      }]`
+    );
 
     const apiKey = await this.getApiKey();
     const settings = await this.getSettings();
@@ -93,8 +98,7 @@ Output Format (JSON Only):
         allowedList.push("Ukategoriseret");
       }
 
-      // Hvis listen er helt tom, tvinger vi den til dynamisk alligevel for at undgå crash,
-      // eller vi giver en fallback.
+      // Hvis listen er helt tom, tvinger vi den til dynamisk alligevel for at undgå crash
       if (allowedList.length === 0) {
         allowedList = ["Ukategoriseret"];
       }
@@ -118,11 +122,24 @@ Output Format (JSON Only):
 `;
     }
 
+    // NYT: Håndtering af Context Logic
+    let contextInstruction = "";
+    if (workspaceContext && workspaceContext !== "Inbox") {
+      contextInstruction = `
+VIGTIGT KONTEKST:
+Denne fane befinder sig i et workspace navngivet: "${workspaceContext}".
+Lad navnet på workspacet guide din kategorisering.
+Eks: Hvis workspace hedder "Eksamen", er en nyhedsside måske "Research" snarere end "Nyheder".
+Hvis workspace hedder "Gaver", er en produktside "Shopping".
+`;
+    }
+
     const userPrompt = `
 Analyser denne fane:
 URL: ${url}
 Titel: ${title}
 Metadata: ${metadata.substring(0, 400)}
+${contextInstruction}
 `;
 
     try {

@@ -232,6 +232,7 @@ interface QueueItem {
   title: string;
   tabId: number;
   attempts: number;
+  workspaceName?: string; // NYT: Context support
 }
 
 interface LockData {
@@ -271,6 +272,30 @@ async function extractMetadata(tabId: number): Promise<string> {
     return result[0]?.result || "";
   } catch (e) {
     return "";
+  }
+}
+
+// HELPER: Sletter item fra køen og kører videre
+async function cleanupQueueItem(uid: string) {
+  const freshStorage = (await chrome.storage.local.get(
+    AI_STORAGE_KEY
+  )) as StorageResponse;
+  const freshQueue = Array.isArray(freshStorage[AI_STORAGE_KEY])
+    ? freshStorage[AI_STORAGE_KEY]
+    : [];
+
+  const updatedQueue = freshQueue.filter((q) => q.uid !== uid);
+
+  await chrome.storage.local.set({
+    [AI_STORAGE_KEY]: updatedQueue,
+    [AI_LOCK_KEY]: { isProcessing: false, timestamp: Date.now() },
+    [AI_LAST_CALL_KEY]: Date.now(),
+  });
+
+  currentlyProcessing.delete(uid);
+
+  if (updatedQueue.length > 0) {
+    chrome.alarms.create("process_ai_next", { when: Date.now() + 100 });
   }
 }
 
@@ -323,15 +348,32 @@ async function processAiQueue() {
 
     broadcast("AI_STATUS_UPDATE", { uid: item.uid, status: "processing" });
 
-    // Hent data
-    let metadata = "";
+    // --- FIX 1: TJEK OM FANEN STADIG EKSISTERER ---
     try {
       await chrome.tabs.get(item.tabId);
-      metadata = await extractMetadata(item.tabId);
-    } catch (e) {}
+    } catch (e) {
+      console.log(
+        `🚫 Tab ${item.tabId} seems closed. Removing from AI queue to save tokens.`
+      );
+      await cleanupQueueItem(item.uid);
+      return;
+    }
 
-    // Kør AI
-    const result = await AiService.analyzeTab(item.title, item.url, metadata);
+    // Hent data (Hvis vi er her, findes fanen)
+    let metadata = "";
+    try {
+      metadata = await extractMetadata(item.tabId);
+    } catch (e) {
+      console.warn("Could not extract metadata, using URL/Title only");
+    }
+
+    // Kør AI - FIX 2: Send workspaceName med
+    const result = await AiService.analyzeTab(
+      item.title,
+      item.url,
+      metadata,
+      item.workspaceName
+    );
 
     if (result) {
       console.log(`✅ AI Categorized: ${result.category}`);
@@ -348,7 +390,6 @@ async function processAiQueue() {
 
       // 1. Tjek om tabben tilhører et aktivt Space
       try {
-        // Vi prøver at slå vinduet op direkte via tabben
         const tabInfo = await chrome.tabs.get(item.tabId);
         if (tabInfo && activeWindows.has(tabInfo.windowId)) {
           const mapping = activeWindows.get(tabInfo.windowId);
@@ -376,9 +417,7 @@ async function processAiQueue() {
           }
         }
       } catch (e) {
-        console.log(
-          "⚠️ Could not determine window for AI update (Space check)"
-        );
+        // Tab kan være lukket i mellemtiden
       }
 
       // 2. Hvis ikke håndteret i Space, tjek Inbox
@@ -400,28 +439,8 @@ async function processAiQueue() {
       console.log("⚠️ AI Analysis failed or returned null");
     }
 
-    // Release Memory Lock
-    currentlyProcessing.delete(item.uid);
-
-    // Re-fetch queue (Race Condition Fix)
-    const freshStorage = (await chrome.storage.local.get(
-      AI_STORAGE_KEY
-    )) as StorageResponse;
-    const freshQueue = Array.isArray(freshStorage[AI_STORAGE_KEY])
-      ? freshStorage[AI_STORAGE_KEY]
-      : [];
-
-    const updatedQueue = freshQueue.filter((q) => q.uid !== item.uid);
-
-    await chrome.storage.local.set({
-      [AI_STORAGE_KEY]: updatedQueue,
-      [AI_LOCK_KEY]: { isProcessing: false, timestamp: Date.now() },
-      [AI_LAST_CALL_KEY]: Date.now(),
-    });
-
-    if (updatedQueue.length > 0) {
-      chrome.alarms.create("process_ai_next", { when: Date.now() + 100 });
-    }
+    // Release & Next
+    await cleanupQueueItem(item.uid);
   } catch (error) {
     console.error("AI Queue Error", error);
     await chrome.storage.local.set({
@@ -613,15 +632,14 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       }
 
       const validTabs: TabData[] = [];
-      const tabsToQueue: QueueItem[] = []; // NYT: Saml tabs der skal til AI
+      const tabsToQueue: QueueItem[] = [];
 
       for (const t of tabs) {
         if (t.id && t.url && !t.url.startsWith("chrome") && !isDash(t.url)) {
           const uid = getOrAssignUid(t.id, t.url);
-          // Hent eksisterende AI data eller sæt til pending
           const aiData = existingAiData.get(uid) || { status: "pending" };
 
-          // NYT: TRIGGER LOGIK HER
+          // NYT: TRIGGER LOGIK MED CONTEXT (mapping.workspaceName)
           if (aiData.status === "pending" || !aiData.status) {
             console.log("🤖 Queuing Space tab for AI:", t.title);
             tabsToQueue.push({
@@ -630,6 +648,7 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
               title: t.title || "Ny fane",
               tabId: t.id,
               attempts: 0,
+              workspaceName: mapping.workspaceName, // HER SENDER VI SPACE NAVN
             });
           }
 
@@ -660,7 +679,6 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
         { merge: true }
       );
 
-      // Trigger AI køen til sidst
       if (tabsToQueue.length > 0) {
         addToAiQueue(tabsToQueue);
       }
@@ -680,10 +698,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
 
   if (change.status === "complete" && tab.windowId) {
     if (activeWindows.has(tab.windowId)) {
-      // Space: saveToFirestore håndterer nu også AI køen
       saveToFirestore(tab.windowId, false);
     } else if (!tab.url?.startsWith("chrome") && !isDash(tab.url)) {
-      // Inbox logik (uændret)
       const url = tab.url || "";
       const uid = getOrAssignUid(tabId, url);
 
@@ -742,6 +758,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
                 title: tab.title || "Ny Fane",
                 tabId: tabId,
                 attempts: 0,
+                workspaceName: "Inbox", // Explicit inbox context
               },
             ]);
           }
@@ -850,6 +867,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
               title: t.title,
               tabId: physId,
               attempts: 0,
+              workspaceName: "Inbox",
             });
           }
         }
@@ -914,7 +932,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       payload.windows,
       payload.name
     ).finally(() => {
-      // Frigiv låsen efter lidt tid (sikkerhedsventil)
       setTimeout(() => openingWorkspaces.delete(payload.workspaceId), 2000);
     });
   }
