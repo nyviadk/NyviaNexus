@@ -63,6 +63,16 @@ import {
   UserCategory,
 } from "../types";
 
+// --- HELPER: CONTRAST CHECKER ---
+const getContrastYIQ = (hexcolor: string) => {
+  const hex = hexcolor.replace("#", "");
+  const r = parseInt(hex.substr(0, 2), 16);
+  const g = parseInt(hex.substr(2, 2), 16);
+  const b = parseInt(hex.substr(4, 2), 16);
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  return yiq >= 128 ? "#1e293b" : "#ffffff";
+};
+
 // --- REASONING MODAL ---
 const ReasoningModal = ({
   data,
@@ -576,7 +586,7 @@ const TabItem = React.memo(
       if (userCat) {
         return {
           backgroundColor: userCat.color,
-          color: "#fff",
+          color: getContrastYIQ(userCat.color),
           borderColor: userCat.color,
           boxShadow: `0 2px 4px ${userCat.color}40`,
         };
@@ -1453,6 +1463,7 @@ export const Dashboard = () => {
                     </span>
                   )}
                 </div>
+
                 {viewMode === "workspace" && (
                   <div className="flex gap-4 items-center flex-wrap">
                     {sortedWindows.map((win, idx) => (
@@ -1541,7 +1552,6 @@ export const Dashboard = () => {
                 )}
               </div>
               <div className="flex gap-3 mb-1">
-                {/* AI SORTERING KNAP (KUN INBOX) */}
                 {viewMode === "inbox" && (
                   <button
                     onClick={() => {
@@ -1642,7 +1652,6 @@ export const Dashboard = () => {
                   </button>
                 )}
 
-                {/* Ryd Inbox (Normal) */}
                 {viewMode === "inbox" &&
                   getFilteredInboxTabs(false).length > 0 && (
                     <button
@@ -1670,7 +1679,6 @@ export const Dashboard = () => {
                     </button>
                   )}
 
-                {/* Ryd Incognito */}
                 {viewMode === "incognito" &&
                   getFilteredInboxTabs(true).length > 0 && (
                     <button
@@ -1756,7 +1764,6 @@ export const Dashboard = () => {
         />
       )}
 
-      {/* SHOW REASONING MODAL */}
       {reasoningData && (
         <ReasoningModal
           data={reasoningData}
