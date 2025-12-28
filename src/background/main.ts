@@ -43,6 +43,9 @@ let lastDashboardTime = 0;
 let activeWindows = new Map<number, WinMapping>();
 const lockedWindowIds = new Set<number>();
 
+// ANTI-SPAM: Forhindrer at man åbner samme workspace flere gange oven i hinanden
+const openingWorkspaces = new Set<string>();
+
 // VIGTIGT: Debounce Set for at forhindre kø-spam (ADD protection)
 const recentQueueAdds = new Set<string>();
 
@@ -306,7 +309,7 @@ async function processAiQueue() {
 
     const item = queue[0];
 
-    // MEMORY LOCK CHECK (Fixer dobbelt log i samme sekund)
+    // MEMORY LOCK CHECK
     if (currentlyProcessing.has(item.uid)) {
       console.log("🔒 Skipping duplicate execution for:", item.title);
       return;
@@ -340,16 +343,57 @@ async function processAiQueue() {
         lastChecked: Date.now(),
       };
 
-      const inboxRef = doc(db, "inbox_data", "global");
-      const inboxSnap = await getDoc(inboxRef);
+      // --- LOGIC FIX: Check både Spaces og Inbox ---
+      let handled = false;
 
-      if (inboxSnap.exists()) {
-        const tabs = inboxSnap.data().tabs || [];
-        const idx = tabs.findIndex((t: any) => t.uid === item.uid);
-        if (idx !== -1) {
-          tabs[idx].aiData = aiData;
-          await updateDoc(inboxRef, { tabs });
-          console.log("💾 Firestore successfully updated!");
+      // 1. Tjek om tabben tilhører et aktivt Space
+      try {
+        // Vi prøver at slå vinduet op direkte via tabben
+        const tabInfo = await chrome.tabs.get(item.tabId);
+        if (tabInfo && activeWindows.has(tabInfo.windowId)) {
+          const mapping = activeWindows.get(tabInfo.windowId);
+          if (mapping) {
+            const winRef = doc(
+              db,
+              "workspaces_data",
+              mapping.workspaceId,
+              "windows",
+              mapping.internalWindowId
+            );
+            const winSnap = await getDoc(winRef);
+            if (winSnap.exists()) {
+              const tabs = winSnap.data().tabs || [];
+              const idx = tabs.findIndex((t: any) => t.uid === item.uid);
+              if (idx !== -1) {
+                tabs[idx].aiData = aiData;
+                await updateDoc(winRef, { tabs });
+                console.log(
+                  `💾 Space Firestore updated! (${mapping.workspaceName})`
+                );
+                handled = true;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.log(
+          "⚠️ Could not determine window for AI update (Space check)"
+        );
+      }
+
+      // 2. Hvis ikke håndteret i Space, tjek Inbox
+      if (!handled) {
+        const inboxRef = doc(db, "inbox_data", "global");
+        const inboxSnap = await getDoc(inboxRef);
+
+        if (inboxSnap.exists()) {
+          const tabs = inboxSnap.data().tabs || [];
+          const idx = tabs.findIndex((t: any) => t.uid === item.uid);
+          if (idx !== -1) {
+            tabs[idx].aiData = aiData;
+            await updateDoc(inboxRef, { tabs });
+            console.log("💾 Inbox Firestore updated!");
+          }
         }
       }
     } else {
@@ -383,7 +427,6 @@ async function processAiQueue() {
     await chrome.storage.local.set({
       [AI_LOCK_KEY]: { isProcessing: false, timestamp: 0 },
     });
-    // Ensure memory lock is cleared on error
     const storage = (await chrome.storage.local.get(
       AI_STORAGE_KEY
     )) as StorageResponse;
@@ -411,7 +454,6 @@ async function addToAiQueue(items: QueueItem[]) {
       // Tjek om den allerede er i køen
       const inQueue = currentQueue.some((q) => q.uid === i.uid);
       const recentlyAdded = recentQueueAdds.has(i.uid);
-      // Tjek også om den allerede behandles
       const isProcessing = currentlyProcessing.has(i.uid);
       return !inQueue && !recentlyAdded && !isProcessing;
     });
@@ -548,37 +590,7 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       if (!windowExists) return;
       const tabs = await chrome.tabs.query({ windowId });
 
-      const validTabs: TabData[] = [];
-      for (const t of tabs) {
-        if (t.id && t.url && !t.url.startsWith("chrome") && !isDash(t.url)) {
-          const uid = getOrAssignUid(t.id, t.url);
-          validTabs.push({
-            uid: uid,
-            title: t.title || "Ny fane",
-            url: t.url,
-            favIconUrl: t.favIconUrl || "",
-            isIncognito: false,
-          });
-        }
-      }
-
-      await updateWindowGrouping(windowId, mapping);
-
-      if (validTabs.length === 0 && isRemoval) {
-        const docRef = doc(
-          db,
-          "workspaces_data",
-          mapping.workspaceId,
-          "windows",
-          mapping.internalWindowId
-        );
-        await deleteDoc(docRef);
-        activeWindows.delete(windowId);
-        await saveActiveWindowsToStorage();
-        chrome.windows.remove(windowId);
-        return;
-      }
-
+      // Hent eksisterende data for at bevare AI kategorier
       const docRef = doc(
         db,
         "workspaces_data",
@@ -586,11 +598,72 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
         "windows",
         mapping.internalWindowId
       );
+
+      let existingAiData = new Map<string, any>();
+      try {
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          const oldTabs = (snap.data().tabs || []) as TabData[];
+          oldTabs.forEach((t) => {
+            if (t.aiData) existingAiData.set(t.uid, t.aiData);
+          });
+        }
+      } catch (e) {
+        console.error("Failed to fetch existing AI data for merge", e);
+      }
+
+      const validTabs: TabData[] = [];
+      const tabsToQueue: QueueItem[] = []; // NYT: Saml tabs der skal til AI
+
+      for (const t of tabs) {
+        if (t.id && t.url && !t.url.startsWith("chrome") && !isDash(t.url)) {
+          const uid = getOrAssignUid(t.id, t.url);
+          // Hent eksisterende AI data eller sæt til pending
+          const aiData = existingAiData.get(uid) || { status: "pending" };
+
+          // NYT: TRIGGER LOGIK HER
+          if (aiData.status === "pending" || !aiData.status) {
+            console.log("🤖 Queuing Space tab for AI:", t.title);
+            tabsToQueue.push({
+              uid,
+              url: t.url,
+              title: t.title || "Ny fane",
+              tabId: t.id,
+              attempts: 0,
+            });
+          }
+
+          validTabs.push({
+            uid: uid,
+            title: t.title || "Ny fane",
+            url: t.url,
+            favIconUrl: t.favIconUrl || "",
+            isIncognito: false,
+            aiData: aiData,
+          });
+        }
+      }
+
+      await updateWindowGrouping(windowId, mapping);
+
+      if (validTabs.length === 0 && isRemoval) {
+        await deleteDoc(docRef);
+        activeWindows.delete(windowId);
+        await saveActiveWindowsToStorage();
+        chrome.windows.remove(windowId);
+        return;
+      }
+
       await setDoc(
         docRef,
         { tabs: validTabs, lastActive: serverTimestamp(), isActive: true },
         { merge: true }
       );
+
+      // Trigger AI køen til sidst
+      if (tabsToQueue.length > 0) {
+        addToAiQueue(tabsToQueue);
+      }
     } else {
       if (windowExists) {
         const win = await chrome.windows.get(windowId);
@@ -607,8 +680,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
 
   if (change.status === "complete" && tab.windowId) {
     if (activeWindows.has(tab.windowId)) {
+      // Space: saveToFirestore håndterer nu også AI køen
       saveToFirestore(tab.windowId, false);
     } else if (!tab.url?.startsWith("chrome") && !isDash(tab.url)) {
+      // Inbox logik (uændret)
       const url = tab.url || "";
       const uid = getOrAssignUid(tabId, url);
 
@@ -622,33 +697,21 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
         let needsUpdate = false;
 
         if (idx !== -1) {
-          const oldUrl = tabs[idx].url; // GEM GAMMEL URL
+          const oldUrl = tabs[idx].url;
           const oldTitle = tabs[idx].title;
 
-          // Opdater data i memory
           tabs[idx].url = url;
           tabs[idx].title = tab.title || "Ny Fane";
           tabs[idx].favIconUrl = tab.favIconUrl || "";
 
-          // Tjek om der er ændringer
           if (oldUrl !== url || oldTitle !== tab.title) {
             needsUpdate = true;
-            // Hvis URL er ændret, reset AI status
             if (oldUrl !== url) {
-              console.log(`🔄 URL changed: "${oldUrl}" -> "${url}"`);
-              console.log(
-                "✨ Resetting AI status and clearing debounce for:",
-                tab.title
-              );
-
               tabs[idx].aiData = { status: "pending" };
-
-              // VIGTIGT: Fjerner fra debounce så den kan køre med det samme!
               recentQueueAdds.delete(uid);
             }
           }
         } else {
-          // Ny fane
           tabs.push({
             uid: uid,
             title: tab.title || "Ny Fane",
@@ -666,13 +729,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
             lastUpdate: serverTimestamp(),
           });
 
-          // --- TRIGGER AI AUTOMATISK ---
           const currentTab = idx !== -1 ? tabs[idx] : tabs[tabs.length - 1];
           if (
             currentTab.aiData?.status !== "completed" &&
             currentTab.aiData?.status !== "processing"
           ) {
-            console.log("🤖 Attempting to queue AI for tab:", tab.title);
+            console.log("🤖 Attempting to queue AI for Inbox tab:", tab.title);
             addToAiQueue([
               {
                 uid: uid,
@@ -772,13 +834,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const tabs = (snap.data().tabs || []) as TabData[];
         const queueItems: QueueItem[] = [];
 
-        console.log(
-          `🔍 Found ${tabs.length} tabs in inbox. Checking for candidates...`
-        );
-
         for (const t of tabs) {
           if (t.aiData?.status === "completed") continue;
-
           let physId = -1;
           for (const [pid, data] of tabTracker.entries()) {
             if (data.uid === t.uid) {
@@ -786,7 +843,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
               break;
             }
           }
-
           if (physId !== -1) {
             queueItems.push({
               uid: t.uid,
@@ -798,17 +854,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           }
         }
 
-        console.log(
-          `📋 Found ${queueItems.length} valid candidates for AI processing.`
-        );
-
         if (queueItems.length > 0) {
           addToAiQueue(queueItems);
           sendResponse({ success: true, count: queueItems.length });
         } else {
-          console.warn(
-            "⚠️ No physical tabs matched. Are the tabs open in Chrome?"
-          );
           sendResponse({ success: false, reason: "No processable tabs" });
         }
       }
@@ -850,8 +899,26 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
 
-  if (type === "OPEN_WORKSPACE")
-    handleOpenWorkspace(payload.workspaceId, payload.windows, payload.name);
+  if (type === "OPEN_WORKSPACE") {
+    // ANTI-SPAM CHECK
+    if (openingWorkspaces.has(payload.workspaceId)) {
+      console.warn(
+        "⚠️ Already opening this workspace, skipping duplicate request."
+      );
+      return true;
+    }
+    openingWorkspaces.add(payload.workspaceId);
+
+    handleOpenWorkspace(
+      payload.workspaceId,
+      payload.windows,
+      payload.name
+    ).finally(() => {
+      // Frigiv låsen efter lidt tid (sikkerhedsventil)
+      setTimeout(() => openingWorkspaces.delete(payload.workspaceId), 2000);
+    });
+  }
+
   if (type === "OPEN_SPECIFIC_WINDOW")
     handleOpenSpecificWindow(
       payload.workspaceId,
@@ -891,7 +958,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true;
 });
 
-// --- HELPERS (Samme som før) ---
+// --- HELPERS ---
 async function handleOpenWorkspace(
   workspaceId: string,
   windowsToOpen: any[],
