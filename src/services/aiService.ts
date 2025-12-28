@@ -1,20 +1,15 @@
+import { AiSettings } from "../types";
+
 // Denne service håndterer kommunikationen med Cerebras
-// Nøglen hentes nu fra chrome.storage.local (User Provided)
+// Nu fuldstændig dynamisk baseret på brugerens indstillinger
 
 const API_URL = "https://api.cerebras.ai/v1/chat/completions";
 
-// Standard kategorier (Bruges som fallback/base)
-const SUGGESTED_CATEGORIES = [
-  "Arbejde & Produktivitet",
-  "Udvikling & Kode",
-  "Nyheder & Læsning",
-  "Sociale Medier",
-  "Shopping & E-handel",
-  "Underholdning & Video",
-  "Finans & Bank",
-  "Rejser & Transport",
-  "Værktøjer & Utilities",
-];
+const DEFAULT_SETTINGS: AiSettings = {
+  allowDynamic: true,
+  useUncategorized: false,
+  userCategories: [],
+};
 
 export interface AiAnalysisResult {
   category: string;
@@ -23,18 +18,32 @@ export interface AiAnalysisResult {
 }
 
 export const AiService = {
+  // Hent API nøgle
   async getApiKey(): Promise<string | null> {
     const data = (await chrome.storage.local.get("cerebras_api_key")) as {
       cerebras_api_key?: string;
     };
     const key = data.cerebras_api_key || null;
-    if (!key) console.warn("🤖 AI Service: Ingen API nøgle fundet i storage!");
+    if (!key) console.warn("🤖 AI Service: Ingen API nøgle fundet!");
     return key;
   },
 
+  // Gem API nøgle
   async saveApiKey(key: string): Promise<void> {
-    console.log("🤖 AI Service: Gemmer ny API nøgle...");
     await chrome.storage.local.set({ cerebras_api_key: key });
+  },
+
+  // Hent AI Indstillinger og Kategorier
+  async getSettings(): Promise<AiSettings> {
+    const data = (await chrome.storage.local.get("nexus_ai_settings")) as {
+      nexus_ai_settings?: AiSettings;
+    };
+    return data.nexus_ai_settings || DEFAULT_SETTINGS;
+  },
+
+  // Gem Indstillinger (Kaldes fra Dashboard)
+  async saveSettings(settings: AiSettings): Promise<void> {
+    await chrome.storage.local.set({ nexus_ai_settings: settings });
   },
 
   async analyzeTab(
@@ -45,41 +54,69 @@ export const AiService = {
     console.log(`🤖 AI Service: Analyserer tab: "${title}"`);
 
     const apiKey = await this.getApiKey();
+    const settings = await this.getSettings();
 
     if (!apiKey) {
       console.error("🤖 AI Service ABORT: Mangler API nøgle.");
       return null;
     }
 
-    // DEN NYE "INTELLIGENTE" PROMPT MED NETVÆRK FIX
-    const systemPrompt = `
+    // Byg prompten baseret på indstillinger
+    let systemPrompt = "";
+    const userCatNames = settings.userCategories.map((c) => c.name);
+
+    // Scenarie 1: Dynamisk (AI må opfinde, men skal prioritere brugerens liste)
+    if (settings.allowDynamic) {
+      systemPrompt = `
 Du er en intelligent assistent til browser-organisering.
 Din opgave er at tildele den mest præcise kategori til en fane.
 
-LOGIK FOR KATEGORISERING:
-1. Tjek først om fanen passer PERFEKT i en af disse generiske kategorier:
-${JSON.stringify(SUGGESTED_CATEGORIES)}
+BRUGERENS FORETRUKNE KATEGORIER:
+${JSON.stringify(userCatNames)}
 
-2. HVIS fanen er specifik og ikke passer godt i ovenstående, SKAL du opfinde en ny kategori.
+INSTRUKSER:
+1. Tjek FØRST om fanen passer PERFEKT i en af brugerens kategorier ovenfor. Prioritér dem højt.
+2. HVIS fanen er specifik og slet ikke passer i brugerens kategorier, så SKAL du opfinde en ny, passende kategori.
+3. Vær præcis. En opskrift er "Mad & Drikke", ikke "Læsning".
    - Kategorien skal være på Dansk.
    - Den skal være kort (1-3 ord).
    - Den skal beskrive indholdets emne.
 
-EKSEMPLER PÅ DIN TANKEGANG:
-- "Valdemarsro Opskrifter" -> Passer ikke i "Nyheder". Lav ny: "Mad & Drikke".
-- "Sundhed.dk" / "Netdoktor" -> Lav ny: "Sundhed".
-- "Speedtest" / "Router Login" -> Lav ny: "Netværk".
-- "Boligsiden" -> Passer ikke i "E-handel". Lav ny: "Bolig & Hus".
-- "Google Docs" -> Passer ikke i "Værktøjer". Lav ny: "Dokumenter".
-- "Københavns Universitet" -> Lav ny: "Uddannelse".
+Output Format (JSON Only):
+{ "category": "String", "confidence": Number (0-100), "reasoning": "Kort forklaring på dansk" }
+`;
+    }
+    // Scenarie 2: Strict (AI SKAL vælge fra listen)
+    else {
+      let allowedList = [...userCatNames];
+      if (settings.useUncategorized) {
+        allowedList.push("Ukategoriseret");
+      }
+
+      // Hvis listen er helt tom, tvinger vi den til dynamisk alligevel for at undgå crash,
+      // eller vi giver en fallback.
+      if (allowedList.length === 0) {
+        allowedList = ["Ukategoriseret"];
+      }
+
+      systemPrompt = `
+Du er en streng kategoriserings-bot.
+Du MÅ KUN vælge en kategori fra denne eksakte liste:
+${JSON.stringify(allowedList)}
+
+INSTRUKSER:
+1. Analyser fanen og vælg den kategori fra listen, der passer bedst.
+2. Du må IKKE opfinde nye kategorier. Du SKAL bruge en streng fra listen.
+${
+  settings.useUncategorized
+    ? '3. Hvis intet passer, vælg "Ukategoriseret".'
+    : "3. Vælg det tætteste match, selvom det ikke er perfekt."
+}
 
 Output Format (JSON Only):
-{
-  "category": "String (Den kategori du vælger)",
-  "confidence": Number (0-100),
-  "reasoning": "Kort forklaring på dansk"
-}
+{ "category": "String (Eksakt match fra listen)", "confidence": Number (0-100), "reasoning": "Kort forklaring på dansk" }
 `;
+    }
 
     const userPrompt = `
 Analyser denne fane:
@@ -120,13 +157,10 @@ Metadata: ${metadata.substring(0, 400)}
       const rawContent = data.choices[0]?.message?.content || "";
 
       const parsed = this.parseResponse(rawContent);
-
-      // LOG TANKERNE HER
       if (parsed) {
         console.log("🧠 AI Tanker:", parsed.reasoning);
         console.log("🏷️ AI Valg:", parsed.category);
       }
-
       return parsed;
     } catch (e) {
       console.error("🤖 AI Service Fejl:", e);
@@ -147,7 +181,7 @@ Metadata: ${metadata.substring(0, 400)}
         }
       }
       return {
-        category: "Ukendt",
+        category: "Fejl",
         confidence: 0,
         reasoning: "Kunne ikke læse AI svar",
       };

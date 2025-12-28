@@ -23,12 +23,12 @@ export interface AiData {
 }
 
 export interface TabData {
-  uid: string; // Gør uid obligatorisk fremadrettet
+  uid: string;
   title: string;
   url: string;
-  favIconUrl?: string;
+  favIconUrl: string;
   isIncognito?: boolean;
-  aiData?: AiData; // Ny felt til AI data
+  aiData?: AiData;
 }
 
 export interface WorkspaceWindow {
@@ -36,4 +36,17 @@ export interface WorkspaceWindow {
   tabs: TabData[];
   isActive?: boolean;
   lastActive?: any;
+}
+
+// NYE TYPES TIL INDSTILLINGER
+export interface UserCategory {
+  id: string;
+  name: string;
+  color: string; // Hex code
+}
+
+export interface AiSettings {
+  allowDynamic: boolean; // Må AI opfinde nye kategorier?
+  useUncategorized: boolean; // Skal vi bruge "Ukategoriseret" hvis intet passer (kun hvis allowDynamic = false)
+  userCategories: UserCategory[];
 }

@@ -36,6 +36,9 @@ import {
   Key,
   Save,
   Tag,
+  ToggleLeft,
+  ToggleRight,
+  Plus,
 } from "lucide-react";
 import React, {
   useCallback,
@@ -50,37 +53,111 @@ import { SidebarItem } from "../components/SidebarItem";
 import { auth, db } from "../lib/firebase";
 import { NexusService } from "../services/nexusService";
 import { AiService } from "../services/aiService";
-import { NexusItem, Profile, WorkspaceWindow } from "../types";
+import {
+  NexusItem,
+  Profile,
+  WorkspaceWindow,
+  AiSettings,
+  UserCategory,
+} from "../types";
 
-// --- Settings Modal ---
+// --- SETTINGS MODAL ---
 const SettingsModal = ({
   profiles,
   onClose,
   activeProfile,
   setActiveProfile,
 }: any) => {
+  // Profile State
   const [newProfileName, setNewProfileName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+
+  // API Key State
   const [apiKey, setApiKey] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
+
+  // Category & AI Settings State
+  const [aiSettings, setAiSettings] = useState<AiSettings>({
+    allowDynamic: true,
+    useUncategorized: false,
+    userCategories: [],
+  });
+
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatColor, setNewCatColor] = useState("#3b82f6"); // Default Blue
+
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     if (dialogRef.current && !dialogRef.current.open) {
       dialogRef.current.showModal();
     }
+    // Load API Key
     AiService.getApiKey().then((key) => {
       if (key) setApiKey(key);
     });
+    // Load Settings
+    AiService.getSettings().then((settings) => {
+      setAiSettings(settings);
+    });
   }, []);
 
+  // --- API Key Handlers ---
   const handleSaveApiKey = async () => {
     setIsSavingKey(true);
     await AiService.saveApiKey(apiKey.trim());
     setTimeout(() => setIsSavingKey(false), 500);
   };
 
+  // --- Category Handlers ---
+  const saveAiSettings = async (newSettings: AiSettings) => {
+    setAiSettings(newSettings);
+    await AiService.saveSettings(newSettings);
+  };
+
+  const addCategory = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!newCatName.trim()) return;
+
+    const newCat: UserCategory = {
+      id: crypto.randomUUID(),
+      name: newCatName.trim(),
+      color: newCatColor,
+    };
+
+    const newSettings = {
+      ...aiSettings,
+      userCategories: [...aiSettings.userCategories, newCat],
+    };
+
+    await saveAiSettings(newSettings);
+    setNewCatName("");
+  };
+
+  const removeCategory = async (id: string) => {
+    const newSettings = {
+      ...aiSettings,
+      userCategories: aiSettings.userCategories.filter((c) => c.id !== id),
+    };
+    await saveAiSettings(newSettings);
+  };
+
+  const toggleDynamic = async () => {
+    await saveAiSettings({
+      ...aiSettings,
+      allowDynamic: !aiSettings.allowDynamic,
+    });
+  };
+
+  const toggleUncategorized = async () => {
+    await saveAiSettings({
+      ...aiSettings,
+      useUncategorized: !aiSettings.useUncategorized,
+    });
+  };
+
+  // --- Profile Handlers ---
   const addProfile = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!newProfileName.trim()) return;
@@ -111,8 +188,8 @@ const SettingsModal = ({
       onClick={(e) => e.target === dialogRef.current && onClose()}
       className="bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm open:animate-in open:fade-in open:zoom-in-95 m-auto"
     >
-      <div className="bg-slate-800 border border-slate-600 w-full max-w-md rounded-3xl p-8 shadow-2xl space-y-8">
-        <div className="flex justify-between items-center">
+      <div className="bg-slate-800 border border-slate-600 w-full max-w-2xl rounded-3xl p-8 shadow-2xl space-y-8 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center sticky top-0 bg-slate-800 z-10 pb-4 border-b border-slate-700">
           <h3 className="text-2xl font-bold text-white uppercase tracking-tight flex items-center gap-2">
             <Settings className="text-slate-400" /> Indstillinger
           </h3>
@@ -124,189 +201,220 @@ const SettingsModal = ({
           </button>
         </div>
 
-        <div className="space-y-4 border-b border-slate-700 pb-8">
-          <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-            <Wand2 size={16} /> AI Konfiguration (Cerebras)
-          </h4>
-          <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-700 space-y-3">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Key
-                  size={16}
-                  className="absolute left-3 top-3 text-slate-500"
-                />
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Indsæt Cerebras API Key..."
-                  className="w-full bg-slate-800 border border-slate-600 rounded-xl pl-10 pr-4 py-2 text-sm outline-none focus:ring-2 ring-blue-500/50 text-white placeholder:text-slate-600"
-                />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* LEFT COLUMN: AI & KEYS */}
+          <div className="space-y-8">
+            {/* API KEY */}
+            <div className="space-y-4">
+              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <Key size={16} /> API Adgang
+              </h4>
+              <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-700 space-y-3">
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="Cerebras API Key..."
+                    className="flex-1 bg-slate-800 border border-slate-600 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 ring-blue-500/50 text-white placeholder:text-slate-600"
+                  />
+                  <button
+                    onClick={handleSaveApiKey}
+                    className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-xl transition outline-none focus:ring-2 ring-blue-400 flex items-center justify-center min-w-11"
+                  >
+                    {isSavingKey ? <Check size={20} /> : <Save size={20} />}
+                  </button>
+                </div>
               </div>
-              <button
-                onClick={handleSaveApiKey}
-                className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-xl transition outline-none focus:ring-2 ring-blue-400 flex items-center justify-center min-w-11"
-              >
-                {isSavingKey ? <Check size={20} /> : <Save size={20} />}
-              </button>
             </div>
-            <p className="text-[10px] text-slate-500">
-              Nøglen gemmes lokalt i din browser. Få en nøgle på{" "}
-              <a
-                href="https://cloud.cerebras.ai"
-                target="_blank"
-                className="text-blue-400 hover:underline"
-              >
-                cloud.cerebras.ai
-              </a>
-              .
-            </p>
-          </div>
-        </div>
 
-        <div className="space-y-4">
-          <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-            <Monitor size={16} /> Profiler
-          </h4>
-          <form onSubmit={addProfile} className="flex gap-2">
-            <input
-              value={newProfileName}
-              onChange={(e) => setNewProfileName(e.target.value)}
-              placeholder="Ny profil navn..."
-              className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 ring-blue-500/50 text-white"
-            />
-            <button
-              type="submit"
-              className="bg-slate-600 hover:bg-slate-500 text-white px-4 py-2 rounded-xl transition outline-none focus:ring-2 ring-slate-400"
-            >
-              <PlusCircle size={24} />
-            </button>
-          </form>
-          <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
-            {profiles.map((p: Profile) => (
-              <div
-                key={p.id}
-                className="flex items-center gap-2 p-3 bg-slate-700/50 rounded-2xl border border-slate-600 group"
-              >
-                {editingId === p.id ? (
-                  <>
-                    <input
-                      autoFocus
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && saveEdit(p.id)}
-                      className="flex-1 bg-slate-600 border-none rounded px-2 py-1 text-sm outline-none text-white"
-                    />
-                    <button
-                      onClick={() => saveEdit(p.id)}
-                      className="text-green-500"
-                    >
-                      <Check size={20} />
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <span className="flex-1 text-sm font-medium text-slate-200">
-                      {p.name}
-                    </span>
-                    <button
-                      onClick={() => {
-                        setEditingId(p.id);
-                        setEditName(p.name);
-                      }}
-                      className="text-slate-400 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition"
-                    >
-                      <Edit2 size={18} />
-                    </button>
-                    <button
-                      onClick={() => removeProfile(p.id)}
-                      className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </>
+            {/* AI LOGIC TOGGLES */}
+            <div className="space-y-4">
+              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <Wand2 size={16} /> AI Logik
+              </h4>
+              <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-700 space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-200 font-medium">
+                    Dynamisk Kategorisering
+                  </span>
+                  <button
+                    onClick={toggleDynamic}
+                    className="text-blue-400 hover:text-blue-300"
+                  >
+                    {aiSettings.allowDynamic ? (
+                      <ToggleRight size={32} />
+                    ) : (
+                      <ToggleLeft size={32} className="text-slate-600" />
+                    )}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Hvis slået til: AI må opfinde nye kategorier, der passer bedre
+                  end din liste.
+                  <br />
+                  Hvis slået fra: AI vælger <strong>kun</strong> fra din liste.
+                </p>
+
+                {!aiSettings.allowDynamic && (
+                  <div className="pt-2 border-t border-slate-700/50 mt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-slate-200 font-medium">
+                        Tilføj "Ukategoriseret"
+                      </span>
+                      <button
+                        onClick={toggleUncategorized}
+                        className="text-blue-400 hover:text-blue-300"
+                      >
+                        {aiSettings.useUncategorized ? (
+                          <ToggleRight size={32} />
+                        ) : (
+                          <ToggleLeft size={32} className="text-slate-600" />
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Bruges som fallback hvis ingen af dine kategorier passer.
+                    </p>
+                  </div>
                 )}
               </div>
-            ))}
+            </div>
+          </div>
+
+          {/* RIGHT COLUMN: CATEGORIES & PROFILES */}
+          <div className="space-y-8">
+            {/* CATEGORY MANAGER */}
+            <div className="space-y-4">
+              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <Tag size={16} /> Dine Kategorier
+              </h4>
+
+              <form onSubmit={addCategory} className="flex gap-2">
+                <input
+                  type="color"
+                  value={newCatColor}
+                  onChange={(e) => setNewCatColor(e.target.value)}
+                  className="w-10 h-10 rounded-xl cursor-pointer bg-transparent border-0 p-0"
+                />
+                <input
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  placeholder="Ny kategori..."
+                  className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 ring-blue-500/50 text-white"
+                />
+                <button
+                  type="submit"
+                  className="bg-slate-600 hover:bg-slate-500 text-white px-3 rounded-xl"
+                >
+                  <Plus size={20} />
+                </button>
+              </form>
+
+              <div className="bg-slate-900/50 rounded-2xl border border-slate-700 max-h-64 overflow-y-auto p-2 space-y-1">
+                {aiSettings.userCategories.length === 0 && (
+                  <div className="text-center text-xs text-slate-500 py-4 italic">
+                    Ingen bruger-kategorier. AI kører på frihjul.
+                  </div>
+                )}
+                {aiSettings.userCategories.map((cat) => (
+                  <div
+                    key={cat.id}
+                    className="flex items-center gap-3 p-2 bg-slate-800/50 rounded-lg group hover:bg-slate-800 transition"
+                  >
+                    <div
+                      className="w-3 h-3 rounded-full shadow-sm"
+                      style={{ backgroundColor: cat.color }}
+                    ></div>
+                    <span className="flex-1 text-sm text-slate-200 font-medium">
+                      {cat.name}
+                    </span>
+                    <button
+                      onClick={() => removeCategory(cat.id)}
+                      className="text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* PROFILES */}
+            <div className="space-y-4">
+              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <Monitor size={16} /> Profiler
+              </h4>
+              <form onSubmit={addProfile} className="flex gap-2">
+                <input
+                  value={newProfileName}
+                  onChange={(e) => setNewProfileName(e.target.value)}
+                  placeholder="Ny profil..."
+                  className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 ring-blue-500/50 text-white"
+                />
+                <button
+                  type="submit"
+                  className="bg-slate-600 hover:bg-slate-500 text-white px-3 rounded-xl"
+                >
+                  <Plus size={20} />
+                </button>
+              </form>
+              <div className="space-y-2 max-h-32 overflow-y-auto pr-2">
+                {profiles.map((p: Profile) => (
+                  <div
+                    key={p.id}
+                    className="flex items-center gap-2 p-2 bg-slate-700/30 rounded-xl border border-slate-600/50 group"
+                  >
+                    {editingId === p.id ? (
+                      <>
+                        <input
+                          autoFocus
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && saveEdit(p.id)}
+                          className="flex-1 bg-slate-600 border-none rounded px-2 py-1 text-sm outline-none text-white"
+                        />
+                        <button
+                          onClick={() => saveEdit(p.id)}
+                          className="text-green-500"
+                        >
+                          <Check size={18} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="flex-1 text-sm text-slate-300">
+                          {p.name}
+                        </span>
+                        <button
+                          onClick={() => {
+                            setEditingId(p.id);
+                            setEditName(p.name);
+                          }}
+                          className="text-slate-400 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button
+                          onClick={() => removeProfile(p.id)}
+                          className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </dialog>
   );
 };
-// --- HELPER: CATEGORY STYLES ---
-const getCategoryStyle = (category: string) => {
-  const lower = category.toLowerCase();
 
-  // 1. De "Hårde" Standarder (Specifikke farver)
-  if (
-    lower.includes("udvikling") ||
-    lower.includes("kode") ||
-    lower.includes("github")
-  )
-    return "bg-cyan-600 text-white border-cyan-500 shadow-md shadow-cyan-900/50";
-
-  if (
-    lower.includes("nyheder") ||
-    lower.includes("læsning") ||
-    lower.includes("avis")
-  )
-    return "bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-900/50";
-
-  if (
-    lower.includes("arbejde") ||
-    lower.includes("office") ||
-    lower.includes("slack")
-  )
-    return "bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-900/50";
-
-  if (
-    lower.includes("sociale") ||
-    lower.includes("instagram") ||
-    lower.includes("facebook")
-  )
-    return "bg-pink-600 text-white border-pink-500 shadow-md shadow-pink-900/50";
-
-  if (
-    lower.includes("shopping") ||
-    lower.includes("handel") ||
-    lower.includes("amazon")
-  )
-    return "bg-orange-600 text-white border-orange-500 shadow-md shadow-orange-900/50";
-
-  if (
-    lower.includes("video") ||
-    lower.includes("youtube") ||
-    lower.includes("netflix") ||
-    lower.includes("film")
-  )
-    return "bg-red-600 text-white border-red-500 shadow-md shadow-red-900/50";
-
-  if (
-    lower.includes("finans") ||
-    lower.includes("bank") ||
-    lower.includes("penge")
-  )
-    return "bg-yellow-600 text-white border-yellow-500 shadow-md shadow-yellow-900/50";
-
-  // 2. De "Semi-Standard" (Ofte forekommende nye)
-  if (lower.includes("mad") || lower.includes("opskrifter"))
-    return "bg-lime-600 text-white border-lime-500 shadow-md";
-  if (lower.includes("sundhed") || lower.includes("læge"))
-    return "bg-green-500 text-white border-green-400 shadow-md";
-  if (lower.includes("bolig") || lower.includes("hus"))
-    return "bg-amber-700 text-white border-amber-600 shadow-md";
-  if (lower.includes("uddannelse") || lower.includes("skole"))
-    return "bg-indigo-500 text-white border-indigo-400 shadow-md";
-  if (lower.includes("rejser") || lower.includes("ferie"))
-    return "bg-sky-500 text-white border-sky-400 shadow-md";
-
-  // 3. The "Creative AI" Fallback (Pæn neutral badge til alt andet)
-  // Dette fanger "Astronomi", "Hækling", "Gaming" osv.
-  return "bg-slate-600 text-slate-200 border-slate-500 shadow-md";
-};
-
-// --- TAB ITEM COMPONENT ---
+// --- TAB ITEM COMPONENT (DYNAMIC STYLING) ---
 const TabItem = React.memo(
   ({
     tab,
@@ -315,10 +423,41 @@ const TabItem = React.memo(
     onDelete,
     sourceWorkspaceId,
     onDragStart,
+    userCategories = [], // Vi modtager nu kategorier som prop for at kunne style
   }: any) => {
     const aiData = tab.aiData || {};
     const isProcessing = aiData.status === "processing";
-    const category = aiData.status === "completed" ? aiData.category : null;
+    const categoryName = aiData.status === "completed" ? aiData.category : null;
+
+    // --- Dynamic Style Generator ---
+    const getBadgeStyle = () => {
+      if (!categoryName) return {};
+
+      // 1. Find user defined color
+      const userCat = userCategories.find(
+        (c: UserCategory) => c.name.toLowerCase() === categoryName.toLowerCase()
+      );
+
+      if (userCat) {
+        // Brugeren har defineret denne kategori -> Brug brugerens farve
+        return {
+          backgroundColor: `${userCat.color}20`, // 12% opacity hex
+          color: userCat.color,
+          borderColor: `${userCat.color}40`,
+          boxShadow: `0 2px 4px ${userCat.color}10`,
+        };
+      }
+
+      // 2. Fallback for AI-invented categories (hvis Dynamic er ON)
+      // Vi giver dem en pæn Slate/Indigo stil for at vise det er "System" kategorier
+      return {
+        backgroundColor: "rgba(99, 102, 241, 0.1)", // Indigo-500 10%
+        color: "#818cf8", // Indigo-400
+        borderColor: "rgba(99, 102, 241, 0.2)",
+      };
+    };
+
+    const badgeStyle = getBadgeStyle();
 
     return (
       <div className="group relative w-full h-full">
@@ -392,7 +531,7 @@ const TabItem = React.memo(
               {tab.url}
             </div>
 
-            {/* BADGE AREA - min-h-6 applied */}
+            {/* BADGE AREA */}
             <div className="pl-8 flex flex-wrap gap-2 mt-1 min-h-6">
               {isProcessing && (
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-700/50 border border-slate-600/50 text-[10px] font-medium text-slate-400 animate-pulse w-fit">
@@ -401,14 +540,13 @@ const TabItem = React.memo(
                 </div>
               )}
 
-              {category && (
+              {categoryName && (
                 <div
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wide w-fit shadow-sm backdrop-blur-sm transition-colors duration-300 ${getCategoryStyle(
-                    category
-                  )}`}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wide w-fit shadow-sm backdrop-blur-sm transition-colors duration-300"
+                  style={badgeStyle}
                 >
                   <Tag size={10} />
-                  {category}
+                  {categoryName}
                 </div>
               )}
             </div>
@@ -423,7 +561,10 @@ const TabItem = React.memo(
       prev.tab.url === next.tab.url &&
       prev.tab.title === next.tab.title &&
       prev.tab.uid === next.tab.uid &&
-      JSON.stringify(prev.tab.aiData) === JSON.stringify(next.tab.aiData)
+      JSON.stringify(prev.tab.aiData) === JSON.stringify(next.tab.aiData) &&
+      // Vigtigt: Re-render hvis kategorier ændres (f.eks. farve skift)
+      JSON.stringify(prev.userCategories) ===
+        JSON.stringify(next.userCategories)
     );
   }
 );
@@ -466,6 +607,14 @@ export const Dashboard = () => {
   >(null);
   const [isInboxSyncing, setIsInboxSyncing] = useState(false);
   const [isTriggeringAi, setIsTriggeringAi] = useState(false);
+
+  // NEW: Store user settings in dashboard state to pass to tabs
+  const [aiSettings, setAiSettings] = useState<AiSettings>({
+    allowDynamic: true,
+    useUncategorized: false,
+    userCategories: [],
+  });
+
   const hasLoadedUrlParams = useRef(false);
   const rootDragCounter = useRef(0);
   const inboxDragCounter = useRef(0);
@@ -497,7 +646,17 @@ export const Dashboard = () => {
   useEffect(() => {
     const lastProfile = localStorage.getItem("lastActiveProfileId");
     if (lastProfile) setActiveProfile(lastProfile);
+
+    // Load settings for coloring
+    AiService.getSettings().then(setAiSettings);
   }, []);
+
+  // Refresh settings when modal closes (simple way to update colors)
+  useEffect(() => {
+    if (!modalType) {
+      AiService.getSettings().then(setAiSettings);
+    }
+  }, [modalType]);
 
   useEffect(() => {
     if (activeProfile)
@@ -838,6 +997,7 @@ export const Dashboard = () => {
           onSelect={handleTabSelect}
           onDelete={handleTabDelete}
           sourceWorkspaceId={sourceWSId}
+          userCategories={aiSettings.userCategories} // Pass categories
         />
       );
     });
@@ -850,6 +1010,7 @@ export const Dashboard = () => {
     selectedUrls,
     handleTabSelect,
     handleTabDelete,
+    aiSettings.userCategories, // Re-render when categories change
   ]);
 
   if (!user)
@@ -1063,7 +1224,7 @@ export const Dashboard = () => {
             <div
               onClick={() => {
                 setSelectedWorkspace(null);
-                setViewMode("inbox"); // NEW: Direct state set
+                setViewMode("inbox");
               }}
               className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all border mb-2 ${
                 viewMode === "inbox"
@@ -1086,7 +1247,7 @@ export const Dashboard = () => {
             <div
               onClick={() => {
                 setSelectedWorkspace(null);
-                setViewMode("incognito"); // NEW: Direct state set
+                setViewMode("incognito");
               }}
               className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all border ${
                 viewMode === "incognito"

@@ -43,8 +43,11 @@ let lastDashboardTime = 0;
 let activeWindows = new Map<number, WinMapping>();
 const lockedWindowIds = new Set<number>();
 
-// Memory Debounce (Stopper spam fra samme fane inden for 10 sek)
+// VIGTIGT: Debounce Set for at forhindre kø-spam (ADD protection)
 const recentQueueAdds = new Set<string>();
+
+// NYT: Processing Set for at forhindre dobbelt-kørsel (RUN protection)
+const currentlyProcessing = new Set<string>();
 
 let tabTracker = new Map<number, TrackerData>();
 
@@ -218,7 +221,7 @@ async function rebuildTabTracker() {
   }
 }
 
-// --- AI QUEUE SYSTEM (REFACTORED FOR ATOMICITY) ---
+// --- AI QUEUE SYSTEM ---
 
 interface QueueItem {
   uid: string;
@@ -226,16 +229,22 @@ interface QueueItem {
   title: string;
   tabId: number;
   attempts: number;
-  processingStartedAt?: number; // NYT FELT: Bruges til at låse itemet
+}
+
+interface LockData {
+  isProcessing: boolean;
+  timestamp: number;
 }
 
 interface StorageResponse {
   [key: string]: any;
   nexus_ai_queue?: QueueItem[];
+  nexus_ai_lock?: LockData;
   nexus_ai_last_call?: number;
 }
 
 const AI_STORAGE_KEY = "nexus_ai_queue";
+const AI_LOCK_KEY = "nexus_ai_lock";
 const AI_LAST_CALL_KEY = "nexus_ai_last_call";
 
 async function extractMetadata(tabId: number): Promise<string> {
@@ -269,45 +278,46 @@ async function processAiQueue() {
   }
 
   try {
-    // 1. Hent kø og rate limit
     const storage = (await chrome.storage.local.get([
       AI_STORAGE_KEY,
+      AI_LOCK_KEY,
       AI_LAST_CALL_KEY,
     ])) as StorageResponse;
 
     let queue: QueueItem[] = Array.isArray(storage[AI_STORAGE_KEY])
       ? storage[AI_STORAGE_KEY]
       : [];
+    const lock = storage[AI_LOCK_KEY];
     const lastCall: number = storage[AI_LAST_CALL_KEY] || 0;
 
     if (queue.length === 0) return;
 
-    // 2. Find et ledigt item (ikke låst, eller lås udløbet > 30s)
     const now = Date.now();
-    const itemIndex = queue.findIndex(
-      (item) =>
-        !item.processingStartedAt || now - item.processingStartedAt > 30000
-    );
 
-    if (itemIndex === -1) {
-      // Alt er i gang med at blive behandlet af andre instanser
-      return;
-    }
+    // Check Global Storage Lock
+    if (lock?.isProcessing && now - lock.timestamp < 30000) return;
 
-    const item = queue[itemIndex];
-
-    // 3. Tjek Rate Limit
+    // Check Rate Limit
     if (now - lastCall < 2000) {
       const delay = 2000 - (now - lastCall);
       chrome.alarms.create("process_ai_next", { when: now + delay });
       return;
     }
 
-    // 4. LÅS ITEMET I STORAGE STRAKS (Atomisk markering)
-    queue[itemIndex].processingStartedAt = now;
-    await chrome.storage.local.set({ [AI_STORAGE_KEY]: queue });
+    const item = queue[0];
 
-    // Nu "ejer" denne instans itemet. Ingen andre vil røre det.
+    // MEMORY LOCK CHECK (Fixer dobbelt log i samme sekund)
+    if (currentlyProcessing.has(item.uid)) {
+      console.log("🔒 Skipping duplicate execution for:", item.title);
+      return;
+    }
+    currentlyProcessing.add(item.uid);
+
+    // Set Storage Lock
+    await chrome.storage.local.set({
+      [AI_LOCK_KEY]: { isProcessing: true, timestamp: now },
+    });
+
     broadcast("AI_STATUS_UPDATE", { uid: item.uid, status: "processing" });
 
     // Hent data
@@ -346,8 +356,10 @@ async function processAiQueue() {
       console.log("⚠️ AI Analysis failed or returned null");
     }
 
-    // 5. FJERN ITEMET FRA KØEN (Clean up)
-    // Hent frisk kø igen, i tilfælde af at nye items er kommet til i bunden
+    // Release Memory Lock
+    currentlyProcessing.delete(item.uid);
+
+    // Re-fetch queue (Race Condition Fix)
     const freshStorage = (await chrome.storage.local.get(
       AI_STORAGE_KEY
     )) as StorageResponse;
@@ -355,21 +367,28 @@ async function processAiQueue() {
       ? freshStorage[AI_STORAGE_KEY]
       : [];
 
-    // Fjern det specifikke item baseret på UID
     const updatedQueue = freshQueue.filter((q) => q.uid !== item.uid);
 
     await chrome.storage.local.set({
       [AI_STORAGE_KEY]: updatedQueue,
+      [AI_LOCK_KEY]: { isProcessing: false, timestamp: Date.now() },
       [AI_LAST_CALL_KEY]: Date.now(),
     });
 
-    // 6. Kør næste
     if (updatedQueue.length > 0) {
       chrome.alarms.create("process_ai_next", { when: Date.now() + 100 });
     }
   } catch (error) {
     console.error("AI Queue Error", error);
-    // Fejl? Vi lader låsen udløbe (30s) eller fjerner manuelt hvis nødvendigt.
+    await chrome.storage.local.set({
+      [AI_LOCK_KEY]: { isProcessing: false, timestamp: 0 },
+    });
+    // Ensure memory lock is cleared on error
+    const storage = (await chrome.storage.local.get(
+      AI_STORAGE_KEY
+    )) as StorageResponse;
+    const item = storage[AI_STORAGE_KEY]?.[0];
+    if (item) currentlyProcessing.delete(item.uid);
   }
 }
 
@@ -391,12 +410,15 @@ async function addToAiQueue(items: QueueItem[]) {
     const newItems = items.filter((i) => {
       // Tjek om den allerede er i køen
       const inQueue = currentQueue.some((q) => q.uid === i.uid);
-      // Tjek om vi lige har tilføjet den (debounce)
       const recentlyAdded = recentQueueAdds.has(i.uid);
-      return !inQueue && !recentlyAdded;
+      // Tjek også om den allerede behandles
+      const isProcessing = currentlyProcessing.has(i.uid);
+      return !inQueue && !recentlyAdded && !isProcessing;
     });
 
-    if (newItems.length === 0) return;
+    if (newItems.length === 0) {
+      return;
+    }
 
     console.log(`📥 Adding ${newItems.length} items to AI Queue`);
 
@@ -581,11 +603,6 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
 }
 
 chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
-  // DEBUGGING AF URL SKIFT
-  if (change.url || change.status) {
-    console.log(`🌐 Tab Update [${tabId}]:`, change);
-  }
-
   if (activeRestorations > 0) return;
 
   if (change.status === "complete" && tab.windowId) {

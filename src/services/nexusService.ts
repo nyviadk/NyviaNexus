@@ -119,11 +119,6 @@ export const NexusService = {
       uid: tab.uid || crypto.randomUUID(),
     };
 
-    // VIGTIGT: Hvis vi flytter TILBAGE til Inbox (fra et space),
-    // kan vi vælge at resette AI status så den kan køres igen,
-    // ELLER beholde den. Her beholder vi den.
-    // Hvis tabToMove.aiData findes, flyttes det med.
-
     const batch = writeBatch(db);
 
     // Vi henter kilden, filtrerer og opdaterer.
