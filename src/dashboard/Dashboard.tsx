@@ -39,6 +39,8 @@ import {
   ToggleLeft,
   ToggleRight,
   Plus,
+  BrainCircuit,
+  Lightbulb,
 } from "lucide-react";
 import React, {
   useCallback,
@@ -61,6 +63,82 @@ import {
   UserCategory,
 } from "../types";
 
+// --- REASONING MODAL ---
+const ReasoningModal = ({
+  data,
+  onClose,
+}: {
+  data: any;
+  onClose: () => void;
+}) => {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    if (dialogRef.current && !dialogRef.current.open) {
+      dialogRef.current.showModal();
+    }
+  }, []);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      onCancel={onClose}
+      onClick={(e) => e.target === dialogRef.current && onClose()}
+      className="bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm open:animate-in open:fade-in open:zoom-in-95 m-auto"
+    >
+      <div className="bg-slate-800 border border-slate-600 w-full max-w-md rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+          <BrainCircuit size={120} className="text-blue-500" />
+        </div>
+
+        <div className="flex justify-between items-start mb-4 relative z-10">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-blue-600/20 rounded-xl text-blue-400">
+              <Lightbulb size={24} />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white leading-tight">
+                AI Tankegang
+              </h3>
+              <p className="text-xs text-slate-400">
+                Hvorfor blev denne kategori valgt?
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-white outline-none"
+          >
+            <X size={24} />
+          </button>
+        </div>
+
+        <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-700 relative z-10">
+          <div className="text-sm text-slate-300 italic leading-relaxed">
+            "{data.reasoning}"
+          </div>
+        </div>
+
+        <div className="mt-4 flex justify-between items-center relative z-10">
+          <div className="text-xs text-slate-500">
+            Sikkerhed:{" "}
+            <span
+              className={
+                data.confidence > 80 ? "text-green-400" : "text-yellow-400"
+              }
+            >
+              {data.confidence}%
+            </span>
+          </div>
+          <div className="px-3 py-1 rounded-full bg-slate-700 text-xs font-bold text-white border border-slate-600">
+            {data.category}
+          </div>
+        </div>
+      </div>
+    </dialog>
+  );
+};
+
 // --- SETTINGS MODAL ---
 const SettingsModal = ({
   profiles,
@@ -68,16 +146,11 @@ const SettingsModal = ({
   activeProfile,
   setActiveProfile,
 }: any) => {
-  // Profile State
   const [newProfileName, setNewProfileName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
-
-  // API Key State
   const [apiKey, setApiKey] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
-
-  // Category & AI Settings State
   const [aiSettings, setAiSettings] = useState<AiSettings>({
     allowDynamic: true,
     useUncategorized: false,
@@ -85,7 +158,7 @@ const SettingsModal = ({
   });
 
   const [newCatName, setNewCatName] = useState("");
-  const [newCatColor, setNewCatColor] = useState("#3b82f6"); // Default Blue
+  const [newCatColor, setNewCatColor] = useState("#3b82f6");
 
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -93,24 +166,20 @@ const SettingsModal = ({
     if (dialogRef.current && !dialogRef.current.open) {
       dialogRef.current.showModal();
     }
-    // Load API Key
     AiService.getApiKey().then((key) => {
       if (key) setApiKey(key);
     });
-    // Load Settings
     AiService.getSettings().then((settings) => {
       setAiSettings(settings);
     });
   }, []);
 
-  // --- API Key Handlers ---
   const handleSaveApiKey = async () => {
     setIsSavingKey(true);
     await AiService.saveApiKey(apiKey.trim());
     setTimeout(() => setIsSavingKey(false), 500);
   };
 
-  // --- Category Handlers ---
   const saveAiSettings = async (newSettings: AiSettings) => {
     setAiSettings(newSettings);
     await AiService.saveSettings(newSettings);
@@ -157,7 +226,6 @@ const SettingsModal = ({
     });
   };
 
-  // --- Profile Handlers ---
   const addProfile = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!newProfileName.trim()) return;
@@ -202,9 +270,7 @@ const SettingsModal = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* LEFT COLUMN: AI & KEYS */}
           <div className="space-y-8">
-            {/* API KEY */}
             <div className="space-y-4">
               <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
                 <Key size={16} /> API Adgang
@@ -228,7 +294,6 @@ const SettingsModal = ({
               </div>
             </div>
 
-            {/* AI LOGIC TOGGLES */}
             <div className="space-y-4">
               <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
                 <Wand2 size={16} /> AI Logik
@@ -282,9 +347,7 @@ const SettingsModal = ({
             </div>
           </div>
 
-          {/* RIGHT COLUMN: CATEGORIES & PROFILES */}
           <div className="space-y-8">
-            {/* CATEGORY MANAGER */}
             <div className="space-y-4">
               <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
                 <Tag size={16} /> Dine Kategorier
@@ -340,7 +403,6 @@ const SettingsModal = ({
               </div>
             </div>
 
-            {/* PROFILES */}
             <div className="space-y-4">
               <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
                 <Monitor size={16} /> Profiler
@@ -414,7 +476,80 @@ const SettingsModal = ({
   );
 };
 
-// --- TAB ITEM COMPONENT (DYNAMIC STYLING) ---
+// --- HELPER: CATEGORY STYLES (SOLID BADGES - EXPANDED) ---
+const getCategoryStyle = (category: string) => {
+  const lower = category.toLowerCase();
+
+  if (
+    lower.includes("ukategoriseret") ||
+    lower === "ukendt" ||
+    lower === "fejl"
+  ) {
+    return "bg-slate-800 text-slate-500 border-slate-700 hover:text-slate-300 transition-colors";
+  }
+
+  // Standard Categories (Fallback farver hvis brugeren ikke har sat egne)
+  if (lower.includes("udvikling") || lower.includes("kode"))
+    return "bg-cyan-600 text-white border-cyan-500 shadow-md shadow-cyan-900/50";
+  if (lower.includes("nyheder") || lower.includes("læsning"))
+    return "bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-900/50";
+  if (lower.includes("arbejde") || lower.includes("produktivitet"))
+    return "bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-900/50";
+  if (lower.includes("sociale") || lower.includes("medier"))
+    return "bg-pink-600 text-white border-pink-500 shadow-md shadow-pink-900/50";
+  if (lower.includes("shopping") || lower.includes("handel"))
+    return "bg-orange-600 text-white border-orange-500 shadow-md shadow-orange-900/50";
+  if (lower.includes("underholdning") || lower.includes("video"))
+    return "bg-red-600 text-white border-red-500 shadow-md shadow-red-900/50";
+  if (lower.includes("finans") || lower.includes("bank"))
+    return "bg-yellow-600 text-white border-yellow-500 shadow-md shadow-yellow-900/50";
+
+  // Dynamic / System Categories
+  if (lower.includes("søgning") || lower.includes("search"))
+    return "bg-slate-500 text-white border-slate-400 shadow-md";
+  if (lower.includes("netværk") || lower.includes("wifi"))
+    return "bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-900/50";
+  if (
+    lower.includes("sikkerhed") ||
+    lower.includes("login") ||
+    lower.includes("konto")
+  )
+    return "bg-violet-600 text-white border-violet-500 shadow-md shadow-violet-900/50";
+  if (lower.includes("mail") || lower.includes("kommunikation"))
+    return "bg-sky-600 text-white border-sky-500 shadow-md shadow-sky-900/50";
+  if (lower.includes("dokument") || lower.includes("skrivning"))
+    return "bg-teal-600 text-white border-teal-500 shadow-md shadow-teal-900/50";
+
+  if (
+    lower.includes("mad") ||
+    lower.includes("opskrifter") ||
+    lower.includes("drikke")
+  )
+    return "bg-lime-600 text-white border-lime-500 shadow-md shadow-lime-900/50";
+  if (
+    lower.includes("sundhed") ||
+    lower.includes("helbred") ||
+    lower.includes("sport")
+  )
+    return "bg-green-500 text-white border-green-400 shadow-md shadow-green-900/50";
+  if (
+    lower.includes("bolig") ||
+    lower.includes("hus") ||
+    lower.includes("ejendom")
+  )
+    return "bg-amber-700 text-white border-amber-600 shadow-md shadow-amber-900/50";
+  if (
+    lower.includes("offentlig") ||
+    lower.includes("stat") ||
+    lower.includes("borger")
+  )
+    return "bg-fuchsia-700 text-white border-fuchsia-600 shadow-md shadow-fuchsia-900/50";
+
+  // Default / Catch-all Fallback
+  return "bg-slate-600 text-slate-200 border-slate-500 shadow-md";
+};
+
+// --- TAB ITEM COMPONENT ---
 const TabItem = React.memo(
   ({
     tab,
@@ -423,7 +558,8 @@ const TabItem = React.memo(
     onDelete,
     sourceWorkspaceId,
     onDragStart,
-    userCategories = [], // Vi modtager nu kategorier som prop for at kunne style
+    userCategories = [],
+    onShowReasoning,
   }: any) => {
     const aiData = tab.aiData || {};
     const isProcessing = aiData.status === "processing";
@@ -433,34 +569,30 @@ const TabItem = React.memo(
     const getBadgeStyle = () => {
       if (!categoryName) return {};
 
-      // 1. Find user defined color
       const userCat = userCategories.find(
         (c: UserCategory) => c.name.toLowerCase() === categoryName.toLowerCase()
       );
 
       if (userCat) {
-        // Brugeren har defineret denne kategori -> Brug brugerens farve
         return {
-          backgroundColor: `${userCat.color}20`, // 12% opacity hex
-          color: userCat.color,
-          borderColor: `${userCat.color}40`,
-          boxShadow: `0 2px 4px ${userCat.color}10`,
+          backgroundColor: userCat.color,
+          color: "#fff",
+          borderColor: userCat.color,
+          boxShadow: `0 2px 4px ${userCat.color}40`,
         };
       }
-
-      // 2. Fallback for AI-invented categories (hvis Dynamic er ON)
-      // Vi giver dem en pæn Slate/Indigo stil for at vise det er "System" kategorier
-      return {
-        backgroundColor: "rgba(99, 102, 241, 0.1)", // Indigo-500 10%
-        color: "#818cf8", // Indigo-400
-        borderColor: "rgba(99, 102, 241, 0.2)",
-      };
+      return {};
     };
 
-    const badgeStyle = getBadgeStyle();
+    const inlineStyle = getBadgeStyle();
+    const classNameStyle =
+      Object.keys(inlineStyle).length > 0
+        ? ""
+        : getCategoryStyle(categoryName || "");
 
     return (
       <div className="group relative w-full h-full">
+        {/* CHECKBOX AND DELETE ARE ABSOLUTE - DO NOT CHANGE CURSOR */}
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -489,6 +621,8 @@ const TabItem = React.memo(
             />
           )}
         </div>
+
+        {/* MAIN CARD CONTAINER - CURSOR DEFAULT (NOT POINTER) */}
         <div
           draggable={true}
           onDragStart={(e) => {
@@ -502,52 +636,67 @@ const TabItem = React.memo(
             );
             if (onDragStart) onDragStart();
           }}
-          className={`bg-slate-800 p-4 rounded-2xl border cursor-grab active:cursor-grabbing transform-gpu ${
+          className={`bg-slate-800 p-4 rounded-2xl border cursor-default active:cursor-grabbing transform-gpu ${
             isSelected
               ? "border-blue-500 bg-slate-750 shadow-blue-900/20"
               : "border-slate-700 hover:border-slate-500"
           } flex flex-col h-full hover:bg-slate-800 transition group shadow-md pl-8 overflow-hidden`}
         >
-          <div
-            className="flex flex-col gap-2 cursor-pointer select-none min-w-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              chrome.tabs.create({ url: tab.url, active: true });
-            }}
-          >
-            <div className="flex items-center gap-3">
-              <Globe
-                size={18}
-                className={`${
-                  tab.isIncognito ? "text-purple-400" : "text-slate-500"
-                } group-hover:text-blue-400 shrink-0`}
-              />
-              <div className="truncate text-sm font-semibold text-slate-200 pointer-events-none w-full">
-                {tab.title}
+          <div className="flex flex-col gap-2 min-w-0">
+            {/* TITLE/URL BLOCK - CLICKABLE 'BUTTON' AREA */}
+            <div
+              className="flex flex-col gap-1 cursor-pointer group/link p-2 -ml-2 rounded-lg hover:bg-slate-700/50 transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                chrome.tabs.create({ url: tab.url, active: true });
+              }}
+            >
+              <div className="flex items-center gap-3">
+                <Globe
+                  size={18}
+                  className={`${
+                    tab.isIncognito ? "text-purple-400" : "text-slate-500"
+                  } group-hover/link:text-blue-400 shrink-0 transition-colors`}
+                />
+                <div className="truncate text-sm font-semibold text-slate-200 pointer-events-none w-full group-hover/link:text-blue-200 transition-colors">
+                  {tab.title}
+                </div>
+                {/* OPEN ICON - Visible on hover */}
+                <ExternalLink
+                  size={16}
+                  className="text-blue-400 opacity-0 group-hover/link:opacity-100 transition-opacity shrink-0"
+                />
+              </div>
+
+              <div className="truncate text-[10px] text-slate-500 italic font-mono pointer-events-none w-full pl-8 group-hover/link:text-blue-300/70">
+                {tab.url}
               </div>
             </div>
 
-            <div className="truncate text-[10px] text-slate-500 italic font-mono pointer-events-none w-full pl-8">
-              {tab.url}
-            </div>
-
-            {/* BADGE AREA */}
+            {/* BADGE AREA - SEPARATE CLICK TARGET */}
             <div className="pl-8 flex flex-wrap gap-2 mt-1 min-h-6">
               {isProcessing && (
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-700/50 border border-slate-600/50 text-[10px] font-medium text-slate-400 animate-pulse w-fit">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-700/50 border border-slate-600/50 text-[10px] font-medium text-slate-400 animate-pulse w-fit cursor-wait">
                   <Loader2 size={10} className="animate-spin" />
                   AI sorterer...
                 </div>
               )}
 
               {categoryName && (
-                <div
-                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wide w-fit shadow-sm backdrop-blur-sm transition-colors duration-300"
-                  style={badgeStyle}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (aiData.reasoning) {
+                      onShowReasoning(aiData);
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wide w-fit shadow-sm backdrop-blur-sm transition-all duration-300 hover:scale-105 active:scale-95 cursor-pointer ${classNameStyle}`}
+                  style={inlineStyle}
+                  title="Klik for at se AI tankegang"
                 >
                   <Tag size={10} />
                   {categoryName}
-                </div>
+                </button>
               )}
             </div>
           </div>
@@ -562,7 +711,6 @@ const TabItem = React.memo(
       prev.tab.title === next.tab.title &&
       prev.tab.uid === next.tab.uid &&
       JSON.stringify(prev.tab.aiData) === JSON.stringify(next.tab.aiData) &&
-      // Vigtigt: Re-render hvis kategorier ændres (f.eks. farve skift)
       JSON.stringify(prev.userCategories) ===
         JSON.stringify(next.userCategories)
     );
@@ -608,12 +756,13 @@ export const Dashboard = () => {
   const [isInboxSyncing, setIsInboxSyncing] = useState(false);
   const [isTriggeringAi, setIsTriggeringAi] = useState(false);
 
-  // NEW: Store user settings in dashboard state to pass to tabs
   const [aiSettings, setAiSettings] = useState<AiSettings>({
     allowDynamic: true,
     useUncategorized: false,
     userCategories: [],
   });
+
+  const [reasoningData, setReasoningData] = useState<any>(null);
 
   const hasLoadedUrlParams = useRef(false);
   const rootDragCounter = useRef(0);
@@ -647,11 +796,9 @@ export const Dashboard = () => {
     const lastProfile = localStorage.getItem("lastActiveProfileId");
     if (lastProfile) setActiveProfile(lastProfile);
 
-    // Load settings for coloring
     AiService.getSettings().then(setAiSettings);
   }, []);
 
-  // Refresh settings when modal closes (simple way to update colors)
   useEffect(() => {
     if (!modalType) {
       AiService.getSettings().then(setAiSettings);
@@ -977,7 +1124,6 @@ export const Dashboard = () => {
   const renderedTabs = useMemo(() => {
     let list: any[] = [];
 
-    // NEW LOGIC: SWITCH based on viewMode
     if (viewMode === "incognito") list = getFilteredInboxTabs(true);
     else if (viewMode === "inbox") list = getFilteredInboxTabs(false);
     else list = windows.find((w) => w.id === selectedWindowId)?.tabs || [];
@@ -997,7 +1143,8 @@ export const Dashboard = () => {
           onSelect={handleTabSelect}
           onDelete={handleTabDelete}
           sourceWorkspaceId={sourceWSId}
-          userCategories={aiSettings.userCategories} // Pass categories
+          userCategories={aiSettings.userCategories}
+          onShowReasoning={setReasoningData}
         />
       );
     });
@@ -1010,7 +1157,7 @@ export const Dashboard = () => {
     selectedUrls,
     handleTabSelect,
     handleTabDelete,
-    aiSettings.userCategories, // Re-render when categories change
+    aiSettings.userCategories,
   ]);
 
   if (!user)
@@ -1606,6 +1753,14 @@ export const Dashboard = () => {
           onClose={() => setModalType(null)}
           activeProfile={activeProfile}
           setActiveProfile={setActiveProfile}
+        />
+      )}
+
+      {/* SHOW REASONING MODAL */}
+      {reasoningData && (
+        <ReasoningModal
+          data={reasoningData}
+          onClose={() => setReasoningData(null)}
         />
       )}
     </div>
