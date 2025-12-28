@@ -32,6 +32,10 @@ import {
   Trash2,
   VenetianMask,
   X,
+  Wand2,
+  Key,
+  Save,
+  Tag,
 } from "lucide-react";
 import React, {
   useCallback,
@@ -45,10 +49,11 @@ import { LoginForm } from "../components/LoginForm";
 import { SidebarItem } from "../components/SidebarItem";
 import { auth, db } from "../lib/firebase";
 import { NexusService } from "../services/nexusService";
+import { AiService } from "../services/aiService";
 import { NexusItem, Profile, WorkspaceWindow } from "../types";
 
-// --- Profile Manager Modal ---
-const ProfileManagerModal = ({
+// --- Settings Modal ---
+const SettingsModal = ({
   profiles,
   onClose,
   activeProfile,
@@ -57,13 +62,24 @@ const ProfileManagerModal = ({
   const [newProfileName, setNewProfileName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [isSavingKey, setIsSavingKey] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     if (dialogRef.current && !dialogRef.current.open) {
       dialogRef.current.showModal();
     }
+    AiService.getApiKey().then((key) => {
+      if (key) setApiKey(key);
+    });
   }, []);
+
+  const handleSaveApiKey = async () => {
+    setIsSavingKey(true);
+    await AiService.saveApiKey(apiKey.trim());
+    setTimeout(() => setIsSavingKey(false), 500);
+  };
 
   const addProfile = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -95,10 +111,10 @@ const ProfileManagerModal = ({
       onClick={(e) => e.target === dialogRef.current && onClose()}
       className="bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm open:animate-in open:fade-in open:zoom-in-95 m-auto"
     >
-      <div className="bg-slate-800 border border-slate-600 w-full max-w-md rounded-3xl p-8 shadow-2xl space-y-6">
+      <div className="bg-slate-800 border border-slate-600 w-full max-w-md rounded-3xl p-8 shadow-2xl space-y-8">
         <div className="flex justify-between items-center">
-          <h3 className="text-2xl font-bold text-white uppercase tracking-tight">
-            Profiler
+          <h3 className="text-2xl font-bold text-white uppercase tracking-tight flex items-center gap-2">
+            <Settings className="text-slate-400" /> Indstillinger
           </h3>
           <button
             onClick={onClose}
@@ -108,74 +124,189 @@ const ProfileManagerModal = ({
           </button>
         </div>
 
-        <form onSubmit={addProfile} className="flex gap-2">
-          <input
-            value={newProfileName}
-            onChange={(e) => setNewProfileName(e.target.value)}
-            placeholder="Navn..."
-            className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 ring-blue-500/50 text-white"
-          />
-          <button
-            type="submit"
-            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl transition outline-none focus:ring-2 ring-blue-400"
-          >
-            <PlusCircle size={24} />
-          </button>
-        </form>
-
-        <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
-          {profiles.map((p: Profile) => (
-            <div
-              key={p.id}
-              className="flex items-center gap-2 p-3 bg-slate-700/50 rounded-2xl border border-slate-600 group"
-            >
-              {editingId === p.id ? (
-                <>
-                  <input
-                    autoFocus
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && saveEdit(p.id)}
-                    className="flex-1 bg-slate-600 border-none rounded px-2 py-1 text-sm outline-none text-white"
-                  />
-                  <button
-                    onClick={() => saveEdit(p.id)}
-                    className="text-green-500"
-                  >
-                    <Check size={20} />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span className="flex-1 text-sm font-medium text-slate-200">
-                    {p.name}
-                  </span>
-                  <button
-                    onClick={() => {
-                      setEditingId(p.id);
-                      setEditName(p.name);
-                    }}
-                    className="text-slate-400 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition"
-                  >
-                    <Edit2 size={18} />
-                  </button>
-                  <button
-                    onClick={() => removeProfile(p.id)}
-                    className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                </>
-              )}
+        <div className="space-y-4 border-b border-slate-700 pb-8">
+          <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+            <Wand2 size={16} /> AI Konfiguration (Cerebras)
+          </h4>
+          <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-700 space-y-3">
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Key
+                  size={16}
+                  className="absolute left-3 top-3 text-slate-500"
+                />
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Indsæt Cerebras API Key..."
+                  className="w-full bg-slate-800 border border-slate-600 rounded-xl pl-10 pr-4 py-2 text-sm outline-none focus:ring-2 ring-blue-500/50 text-white placeholder:text-slate-600"
+                />
+              </div>
+              <button
+                onClick={handleSaveApiKey}
+                className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-xl transition outline-none focus:ring-2 ring-blue-400 flex items-center justify-center min-w-11"
+              >
+                {isSavingKey ? <Check size={20} /> : <Save size={20} />}
+              </button>
             </div>
-          ))}
+            <p className="text-[10px] text-slate-500">
+              Nøglen gemmes lokalt i din browser. Få en nøgle på{" "}
+              <a
+                href="https://cloud.cerebras.ai"
+                target="_blank"
+                className="text-blue-400 hover:underline"
+              >
+                cloud.cerebras.ai
+              </a>
+              .
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+            <Monitor size={16} /> Profiler
+          </h4>
+          <form onSubmit={addProfile} className="flex gap-2">
+            <input
+              value={newProfileName}
+              onChange={(e) => setNewProfileName(e.target.value)}
+              placeholder="Ny profil navn..."
+              className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 ring-blue-500/50 text-white"
+            />
+            <button
+              type="submit"
+              className="bg-slate-600 hover:bg-slate-500 text-white px-4 py-2 rounded-xl transition outline-none focus:ring-2 ring-slate-400"
+            >
+              <PlusCircle size={24} />
+            </button>
+          </form>
+          <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+            {profiles.map((p: Profile) => (
+              <div
+                key={p.id}
+                className="flex items-center gap-2 p-3 bg-slate-700/50 rounded-2xl border border-slate-600 group"
+              >
+                {editingId === p.id ? (
+                  <>
+                    <input
+                      autoFocus
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && saveEdit(p.id)}
+                      className="flex-1 bg-slate-600 border-none rounded px-2 py-1 text-sm outline-none text-white"
+                    />
+                    <button
+                      onClick={() => saveEdit(p.id)}
+                      className="text-green-500"
+                    >
+                      <Check size={20} />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="flex-1 text-sm font-medium text-slate-200">
+                      {p.name}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setEditingId(p.id);
+                        setEditName(p.name);
+                      }}
+                      className="text-slate-400 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition"
+                    >
+                      <Edit2 size={18} />
+                    </button>
+                    <button
+                      onClick={() => removeProfile(p.id)}
+                      className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </dialog>
   );
 };
+// --- HELPER: CATEGORY STYLES ---
+const getCategoryStyle = (category: string) => {
+  const lower = category.toLowerCase();
 
-// --- OPTIMIZED TAB ITEM COMPONENT ---
+  // 1. De "Hårde" Standarder (Specifikke farver)
+  if (
+    lower.includes("udvikling") ||
+    lower.includes("kode") ||
+    lower.includes("github")
+  )
+    return "bg-cyan-600 text-white border-cyan-500 shadow-md shadow-cyan-900/50";
+
+  if (
+    lower.includes("nyheder") ||
+    lower.includes("læsning") ||
+    lower.includes("avis")
+  )
+    return "bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-900/50";
+
+  if (
+    lower.includes("arbejde") ||
+    lower.includes("office") ||
+    lower.includes("slack")
+  )
+    return "bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-900/50";
+
+  if (
+    lower.includes("sociale") ||
+    lower.includes("instagram") ||
+    lower.includes("facebook")
+  )
+    return "bg-pink-600 text-white border-pink-500 shadow-md shadow-pink-900/50";
+
+  if (
+    lower.includes("shopping") ||
+    lower.includes("handel") ||
+    lower.includes("amazon")
+  )
+    return "bg-orange-600 text-white border-orange-500 shadow-md shadow-orange-900/50";
+
+  if (
+    lower.includes("video") ||
+    lower.includes("youtube") ||
+    lower.includes("netflix") ||
+    lower.includes("film")
+  )
+    return "bg-red-600 text-white border-red-500 shadow-md shadow-red-900/50";
+
+  if (
+    lower.includes("finans") ||
+    lower.includes("bank") ||
+    lower.includes("penge")
+  )
+    return "bg-yellow-600 text-white border-yellow-500 shadow-md shadow-yellow-900/50";
+
+  // 2. De "Semi-Standard" (Ofte forekommende nye)
+  if (lower.includes("mad") || lower.includes("opskrifter"))
+    return "bg-lime-600 text-white border-lime-500 shadow-md";
+  if (lower.includes("sundhed") || lower.includes("læge"))
+    return "bg-green-500 text-white border-green-400 shadow-md";
+  if (lower.includes("bolig") || lower.includes("hus"))
+    return "bg-amber-700 text-white border-amber-600 shadow-md";
+  if (lower.includes("uddannelse") || lower.includes("skole"))
+    return "bg-indigo-500 text-white border-indigo-400 shadow-md";
+  if (lower.includes("rejser") || lower.includes("ferie"))
+    return "bg-sky-500 text-white border-sky-400 shadow-md";
+
+  // 3. The "Creative AI" Fallback (Pæn neutral badge til alt andet)
+  // Dette fanger "Astronomi", "Hækling", "Gaming" osv.
+  return "bg-slate-600 text-slate-200 border-slate-500 shadow-md";
+};
+
+// --- TAB ITEM COMPONENT ---
 const TabItem = React.memo(
   ({
     tab,
@@ -185,8 +316,12 @@ const TabItem = React.memo(
     sourceWorkspaceId,
     onDragStart,
   }: any) => {
+    const aiData = tab.aiData || {};
+    const isProcessing = aiData.status === "processing";
+    const category = aiData.status === "completed" ? aiData.category : null;
+
     return (
-      <div className="group relative w-full">
+      <div className="group relative w-full h-full">
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -232,28 +367,50 @@ const TabItem = React.memo(
             isSelected
               ? "border-blue-500 bg-slate-750 shadow-blue-900/20"
               : "border-slate-700 hover:border-slate-500"
-          } flex flex-col gap-2 hover:bg-slate-800 transition group shadow-md pl-8 overflow-hidden`}
+          } flex flex-col h-full hover:bg-slate-800 transition group shadow-md pl-8 overflow-hidden`}
         >
           <div
-            className="flex items-center gap-3 cursor-pointer select-none min-w-0"
+            className="flex flex-col gap-2 cursor-pointer select-none min-w-0"
             onClick={(e) => {
               e.stopPropagation();
               chrome.tabs.create({ url: tab.url, active: true });
             }}
           >
-            <Globe
-              size={18}
-              className={`${
-                tab.isIncognito ? "text-purple-400" : "text-slate-500"
-              } group-hover:text-blue-400 shrink-0`}
-            />
-            <div className="min-w-0 flex-1 pr-12">
+            <div className="flex items-center gap-3">
+              <Globe
+                size={18}
+                className={`${
+                  tab.isIncognito ? "text-purple-400" : "text-slate-500"
+                } group-hover:text-blue-400 shrink-0`}
+              />
               <div className="truncate text-sm font-semibold text-slate-200 pointer-events-none w-full">
                 {tab.title}
               </div>
-              <div className="truncate text-[10px] text-slate-500 italic font-mono pointer-events-none w-full">
-                {tab.url}
-              </div>
+            </div>
+
+            <div className="truncate text-[10px] text-slate-500 italic font-mono pointer-events-none w-full pl-8">
+              {tab.url}
+            </div>
+
+            {/* BADGE AREA - min-h-6 applied */}
+            <div className="pl-8 flex flex-wrap gap-2 mt-1 min-h-6">
+              {isProcessing && (
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-700/50 border border-slate-600/50 text-[10px] font-medium text-slate-400 animate-pulse w-fit">
+                  <Loader2 size={10} className="animate-spin" />
+                  AI sorterer...
+                </div>
+              )}
+
+              {category && (
+                <div
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wide w-fit shadow-sm backdrop-blur-sm transition-colors duration-300 ${getCategoryStyle(
+                    category
+                  )}`}
+                >
+                  <Tag size={10} />
+                  {category}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -265,11 +422,13 @@ const TabItem = React.memo(
       prev.isSelected === next.isSelected &&
       prev.tab.url === next.tab.url &&
       prev.tab.title === next.tab.title &&
-      prev.tab.uid === next.tab.uid
+      prev.tab.uid === next.tab.uid &&
+      JSON.stringify(prev.tab.aiData) === JSON.stringify(next.tab.aiData)
     );
   }
 );
 
+// --- MAIN DASHBOARD ---
 export const Dashboard = () => {
   const [user, setUser] = useState<any>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -278,27 +437,24 @@ export const Dashboard = () => {
   const [selectedWorkspace, setSelectedWorkspace] = useState<NexusItem | null>(
     null
   );
+
+  const [viewMode, setViewMode] = useState<"workspace" | "inbox" | "incognito">(
+    "workspace"
+  );
+
   const [modalType, setModalType] = useState<
-    "folder" | "workspace" | "profiles" | null
+    "folder" | "workspace" | "settings" | null
   >(null);
   const [modalParentId, setModalParentId] = useState<string>("root");
-
-  // INBOX STATES
   const [inboxData, setInboxData] = useState<any>(null);
-  const [isViewingInbox, setIsViewingInbox] = useState(false);
-  const [isViewingIncognito, setIsViewingIncognito] = useState(false);
-
   const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const [activeMappings, setActiveMappings] = useState<any[]>([]);
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
-
   const [restorationStatus, setRestorationStatus] = useState<string | null>(
     null
   );
-
-  const [selectedUrls, setSelectedUrls] = useState<string[]>([]); // Note: This stores UIDs actually
-
+  const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
@@ -309,12 +465,11 @@ export const Dashboard = () => {
     "valid" | "invalid" | null
   >(null);
   const [isInboxSyncing, setIsInboxSyncing] = useState(false);
-
+  const [isTriggeringAi, setIsTriggeringAi] = useState(false);
   const hasLoadedUrlParams = useRef(false);
   const rootDragCounter = useRef(0);
   const inboxDragCounter = useRef(0);
 
-  // --- MEMOIZED DATA & HELPERS ---
   const filteredRootItems = useMemo(
     () =>
       items.filter(
@@ -339,7 +494,6 @@ export const Dashboard = () => {
     [windows]
   );
 
-  // --- PERSISTENCE & INIT ---
   useEffect(() => {
     const lastProfile = localStorage.getItem("lastActiveProfileId");
     if (lastProfile) setActiveProfile(lastProfile);
@@ -433,8 +587,7 @@ export const Dashboard = () => {
   useEffect(() => {
     if (
       selectedWorkspace &&
-      !isViewingInbox &&
-      !isViewingIncognito &&
+      viewMode === "workspace" &&
       sortedWindows.length > 0 &&
       !selectedWindowId
     ) {
@@ -448,18 +601,10 @@ export const Dashboard = () => {
         if (sortedWindows[0]?.id) setSelectedWindowId(sortedWindows[0].id);
       }
     }
-  }, [
-    sortedWindows,
-    selectedWorkspace,
-    isViewingInbox,
-    isViewingIncognito,
-    selectedWindowId,
-  ]);
+  }, [sortedWindows, selectedWorkspace, viewMode, selectedWindowId]);
 
-  // --- ACTIONS ---
   const handleWorkspaceClick = useCallback((item: NexusItem) => {
-    setIsViewingInbox(false);
-    setIsViewingIncognito(false);
+    setViewMode("workspace");
     setSelectedWindowId(null);
     setWindows([]);
     setSelectedWorkspace(item);
@@ -472,7 +617,7 @@ export const Dashboard = () => {
       const tab = JSON.parse(tabJson);
 
       const strictSourceId =
-        isViewingInbox || isViewingIncognito
+        viewMode === "inbox" || viewMode === "incognito"
           ? "global"
           : selectedWindowId || "global";
 
@@ -502,7 +647,10 @@ export const Dashboard = () => {
           const currentTabs = snap.exists() ? snap.data().tabs || [] : [];
           await setDoc(
             doc(db, "inbox_data", "global"),
-            { tabs: [...currentTabs, cleanTab], lastUpdate: serverTimestamp() },
+            {
+              tabs: [...currentTabs, cleanTab],
+              lastUpdate: serverTimestamp(),
+            },
             { merge: true }
           );
         } else {
@@ -546,7 +694,6 @@ export const Dashboard = () => {
           }
         }
 
-        // SLET KILDEN - Aggressiv oprydning
         await NexusService.moveTabBetweenWindows(
           tab,
           selectedWorkspace?.id || "global",
@@ -555,7 +702,6 @@ export const Dashboard = () => {
           targetWorkspaceId === "global" ? "global" : "unknown"
         );
 
-        // Fjern fysisk fane
         chrome.runtime.sendMessage({
           type: "CLOSE_PHYSICAL_TABS",
           payload: { urls: [cleanTab.url], internalWindowId: strictSourceId },
@@ -566,13 +712,7 @@ export const Dashboard = () => {
         window.sessionStorage.removeItem("draggedTab");
       }
     },
-    [
-      activeMappings,
-      isViewingInbox,
-      isViewingIncognito,
-      selectedWindowId,
-      selectedWorkspace,
-    ]
+    [activeMappings, viewMode, selectedWindowId, selectedWorkspace]
   );
 
   const handleTabDrop = useCallback(
@@ -582,9 +722,10 @@ export const Dashboard = () => {
       if (!tabJson) return;
       const tab = JSON.parse(tabJson);
 
-      // Bestem kilde-ID (intern ID)
       const strictSourceId =
-        isViewingInbox || isViewingIncognito ? "global" : selectedWindowId;
+        viewMode === "inbox" || viewMode === "incognito"
+          ? "global"
+          : selectedWindowId;
 
       if (!strictSourceId || strictSourceId === targetWinId) return;
 
@@ -603,7 +744,6 @@ export const Dashboard = () => {
           uid: tab.uid || crypto.randomUUID(),
         };
 
-        // 1. FYSISK FLYTNING (hvis muligt)
         if (sourceMapping && targetMapping) {
           const tabs = await chrome.tabs.query({ windowId: sourceMapping[0] });
           const targetTab = tabs.find((t) => t.url === tab.url);
@@ -614,16 +754,12 @@ export const Dashboard = () => {
             });
           }
         } else {
-          // Hvis vi IKKE flytter fysisk (f.eks. fra et gemt space til et åbent),
-          // så skal vi huske at lukke den gamle fane, hvis den findes fysisk i et "inaktivt" vindue.
           chrome.runtime.sendMessage({
             type: "CLOSE_PHYSICAL_TABS",
             payload: { urls: [tab.url], internalWindowId: strictSourceId },
           });
         }
 
-        // 2. DATABASE OPZATERING (Sker ALTID nu)
-        // Dette tvinger UI til at opdatere, da Dashboard lytter på Firestore.
         await NexusService.moveTabBetweenWindows(
           cleanTab,
           selectedWorkspace?.id || "global",
@@ -636,23 +772,17 @@ export const Dashboard = () => {
         setIsProcessingMove(false);
       }
     },
-    [
-      activeMappings,
-      isViewingInbox,
-      isViewingIncognito,
-      selectedWindowId,
-      selectedWorkspace,
-    ]
+    [activeMappings, viewMode, selectedWindowId, selectedWorkspace]
   );
 
-  // --- STABLE CALLBACKS FOR TABS (Vigtigt for performance) ---
   const handleTabDelete = useCallback(
     async (tab: any) => {
       if (confirm("Slet tab?")) {
         const sId =
-          isViewingInbox || isViewingIncognito ? "global" : selectedWindowId!;
+          viewMode === "inbox" || viewMode === "incognito"
+            ? "global"
+            : selectedWindowId!;
 
-        // 1. Luk fysisk fane (VIGTIGT: Send UID nu)
         chrome.runtime.sendMessage({
           type: "CLOSE_PHYSICAL_TABS",
           payload: {
@@ -661,7 +791,6 @@ export const Dashboard = () => {
           },
         });
 
-        // 2. Slet fra Database (uden at flytte til Inbox!)
         await NexusService.deleteTab(
           tab,
           selectedWorkspace?.id || "global",
@@ -669,17 +798,10 @@ export const Dashboard = () => {
         );
       }
     },
-    [
-      isViewingInbox,
-      isViewingIncognito,
-      selectedWindowId,
-      selectedWorkspace,
-      inboxData,
-    ]
+    [viewMode, selectedWindowId, selectedWorkspace]
   );
 
   const handleTabSelect = useCallback((tab: any) => {
-    // VIGTIGT: Vi gemmer UID nu, ikke URL, da UID er unikt.
     const idToSelect = tab.uid;
     setSelectedUrls((prev) =>
       prev.includes(idToSelect)
@@ -693,18 +815,20 @@ export const Dashboard = () => {
       id === currentWindowId && m.internalWindowId === selectedWindowId
   );
 
-  // --- USEMEMO FOR TABS LISTE ---
   const renderedTabs = useMemo(() => {
     let list: any[] = [];
-    if (isViewingIncognito) list = getFilteredInboxTabs(true);
-    else if (isViewingInbox) list = getFilteredInboxTabs(false);
+
+    // NEW LOGIC: SWITCH based on viewMode
+    if (viewMode === "incognito") list = getFilteredInboxTabs(true);
+    else if (viewMode === "inbox") list = getFilteredInboxTabs(false);
     else list = windows.find((w) => w.id === selectedWindowId)?.tabs || [];
 
     const sourceWSId =
-      isViewingInbox || isViewingIncognito ? "global" : selectedWorkspace?.id;
+      viewMode === "inbox" || viewMode === "incognito"
+        ? "global"
+        : selectedWorkspace?.id;
 
     return list.map((tab: any, i: number) => {
-      // Match på UID
       const isSelected = selectedUrls.includes(tab.uid);
       return (
         <TabItem
@@ -718,8 +842,7 @@ export const Dashboard = () => {
       );
     });
   }, [
-    isViewingIncognito,
-    isViewingInbox,
+    viewMode,
     windows,
     selectedWindowId,
     getFilteredInboxTabs,
@@ -755,7 +878,6 @@ export const Dashboard = () => {
           NyviaNexus
         </div>
 
-        {/* ... (Sidebar kode uændret) ... */}
         <div className="p-4 flex-1 overflow-y-auto space-y-6">
           <div className="flex items-center gap-2">
             <select
@@ -763,8 +885,7 @@ export const Dashboard = () => {
               onChange={(e) => {
                 setActiveProfile(e.target.value);
                 setSelectedWorkspace(null);
-                setIsViewingInbox(false);
-                setIsViewingIncognito(false);
+                setViewMode("workspace");
               }}
               className="flex-1 bg-slate-700 p-2 rounded-xl border border-slate-600 text-sm outline-none text-white cursor-pointer"
             >
@@ -775,7 +896,7 @@ export const Dashboard = () => {
               ))}
             </select>
             <button
-              onClick={() => setModalType("profiles")}
+              onClick={() => setModalType("settings")}
               className="p-2 text-slate-400 hover:text-blue-400 bg-slate-700 rounded-xl border border-slate-600 cursor-pointer"
             >
               <Settings size={22} />
@@ -939,15 +1060,13 @@ export const Dashboard = () => {
               Opsamling
             </label>
 
-            {/* STANDARD INBOX */}
             <div
               onClick={() => {
                 setSelectedWorkspace(null);
-                setIsViewingIncognito(false);
-                setIsViewingInbox(true);
+                setViewMode("inbox"); // NEW: Direct state set
               }}
               className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all border mb-2 ${
-                isViewingInbox
+                viewMode === "inbox"
                   ? "bg-orange-600/20 text-orange-400 border-orange-500/50 shadow-lg"
                   : inboxDropStatus === "valid"
                   ? "bg-blue-600/20 border-blue-400 text-blue-400 scale-[1.02]"
@@ -964,15 +1083,13 @@ export const Dashboard = () => {
               <span>Inbox ({getFilteredInboxTabs(false).length})</span>
             </div>
 
-            {/* INCOGNITO VIEW */}
             <div
               onClick={() => {
                 setSelectedWorkspace(null);
-                setIsViewingInbox(false);
-                setIsViewingIncognito(true);
+                setViewMode("incognito"); // NEW: Direct state set
               }}
               className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all border ${
-                isViewingIncognito
+                viewMode === "incognito"
                   ? "bg-purple-900/40 text-purple-400 border-purple-500/50 shadow-lg"
                   : "hover:bg-slate-700 text-slate-400 border-transparent"
               }`}
@@ -1003,33 +1120,32 @@ export const Dashboard = () => {
           </div>
         )}
 
-        {selectedWorkspace || isViewingInbox || isViewingIncognito ? (
+        {selectedWorkspace ||
+        viewMode === "inbox" ||
+        viewMode === "incognito" ? (
           <>
             <header className="p-8 pb-4 flex justify-between items-end border-b border-slate-800 bg-slate-800/30">
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
                   <h2 className="text-4xl font-bold text-white tracking-tight flex items-center gap-3">
-                    {isViewingIncognito ? (
+                    {viewMode === "incognito" ? (
                       <>
                         <VenetianMask size={36} className="text-purple-500" />
                         <span>Incognito</span>
                       </>
-                    ) : isViewingInbox ? (
+                    ) : viewMode === "inbox" ? (
                       "Inbox"
                     ) : (
                       selectedWorkspace?.name
                     )}
                   </h2>
-                  {isViewingCurrent &&
-                    !isViewingInbox &&
-                    !isViewingIncognito && (
-                      <span className="text-[10px] bg-blue-600/20 text-blue-400 px-2.5 py-1 rounded-full border border-blue-500/20 font-bold uppercase tracking-widest">
-                        <Monitor size={12} className="inline mr-1" /> Dette
-                        Vindue
-                      </span>
-                    )}
+                  {isViewingCurrent && viewMode === "workspace" && (
+                    <span className="text-[10px] bg-blue-600/20 text-blue-400 px-2.5 py-1 rounded-full border border-blue-500/20 font-bold uppercase tracking-widest">
+                      <Monitor size={12} className="inline mr-1" /> Dette Vindue
+                    </span>
+                  )}
                 </div>
-                {!isViewingInbox && !isViewingIncognito && (
+                {viewMode === "workspace" && (
                   <div className="flex gap-4 items-center flex-wrap">
                     {sortedWindows.map((win, idx) => (
                       <div
@@ -1117,17 +1233,40 @@ export const Dashboard = () => {
                 )}
               </div>
               <div className="flex gap-3 mb-1">
+                {/* AI SORTERING KNAP (KUN INBOX) */}
+                {viewMode === "inbox" && (
+                  <button
+                    onClick={() => {
+                      setIsTriggeringAi(true);
+                      chrome.runtime.sendMessage(
+                        { type: "TRIGGER_AI_SORT" },
+                        () => setIsTriggeringAi(false)
+                      );
+                    }}
+                    className="flex items-center gap-2 bg-linear-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-lg transition cursor-pointer disabled:opacity-50"
+                    disabled={isTriggeringAi}
+                  >
+                    {isTriggeringAi ? (
+                      <Loader2 size={20} className="animate-spin" />
+                    ) : (
+                      <Wand2 size={20} />
+                    )}
+                    AI Sortering
+                  </button>
+                )}
+
                 <button
                   onClick={() => {
                     let list = [];
-                    if (isViewingIncognito) list = getFilteredInboxTabs(true);
-                    else if (isViewingInbox) list = getFilteredInboxTabs(false);
+                    if (viewMode === "incognito")
+                      list = getFilteredInboxTabs(true);
+                    else if (viewMode === "inbox")
+                      list = getFilteredInboxTabs(false);
                     else
                       list =
                         windows.find((w) => w.id === selectedWindowId)?.tabs ||
                         [];
 
-                    // VIGTIGT: Vi samler UIDs her nu, ikke URLs
                     const allU = list.map((t: any) => t.uid);
                     setSelectedUrls(
                       selectedUrls.length === allU.length ? [] : allU
@@ -1146,22 +1285,19 @@ export const Dashboard = () => {
                     onClick={async () => {
                       if (confirm(`Slet ${selectedUrls.length} tabs?`)) {
                         const sId =
-                          isViewingInbox || isViewingIncognito
+                          viewMode === "inbox" || viewMode === "incognito"
                             ? "global"
                             : selectedWindowId;
 
-                        // VIGTIG ÆNDRING: Send UIDs til baggrundsprocessen
                         chrome.runtime.sendMessage({
                           type: "CLOSE_PHYSICAL_TABS",
                           payload: {
-                            uids: selectedUrls, // UIDs, ikke URLs!
+                            uids: selectedUrls,
                             internalWindowId: sId,
                           },
                         });
 
-                        // Vi sletter dem én ad gangen fra DB (lidt tungt, men sikkert)
-                        // Eller smartere: Opdater dokumentet direkte her som før, men korrekt.
-                        if (isViewingInbox || isViewingIncognito) {
+                        if (viewMode === "inbox" || viewMode === "incognito") {
                           const f = inboxData.tabs.filter(
                             (t: any) => !selectedUrls.includes(t.uid)
                           );
@@ -1199,35 +1335,35 @@ export const Dashboard = () => {
                 )}
 
                 {/* Ryd Inbox (Normal) */}
-                {isViewingInbox && getFilteredInboxTabs(false).length > 0 && (
-                  <button
-                    onClick={async () => {
-                      if (confirm("Ryd Inbox?")) {
-                        const normalTabs = getFilteredInboxTabs(false);
-                        const incognitoTabs = getFilteredInboxTabs(true);
+                {viewMode === "inbox" &&
+                  getFilteredInboxTabs(false).length > 0 && (
+                    <button
+                      onClick={async () => {
+                        if (confirm("Ryd Inbox?")) {
+                          const normalTabs = getFilteredInboxTabs(false);
+                          const incognitoTabs = getFilteredInboxTabs(true);
 
-                        // Slet alle normal tabs via UID
-                        chrome.runtime.sendMessage({
-                          type: "CLOSE_PHYSICAL_TABS",
-                          payload: {
-                            uids: normalTabs.map((t: any) => t.uid),
-                            internalWindowId: "global",
-                          },
-                        });
+                          chrome.runtime.sendMessage({
+                            type: "CLOSE_PHYSICAL_TABS",
+                            payload: {
+                              uids: normalTabs.map((t: any) => t.uid),
+                              internalWindowId: "global",
+                            },
+                          });
 
-                        await updateDoc(doc(db, "inbox_data", "global"), {
-                          tabs: incognitoTabs,
-                        });
-                      }
-                    }}
-                    className="flex items-center gap-2 bg-orange-600/20 text-orange-400 hover:bg-orange-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
-                  >
-                    <Eraser size={20} /> Ryd Inbox
-                  </button>
-                )}
+                          await updateDoc(doc(db, "inbox_data", "global"), {
+                            tabs: incognitoTabs,
+                          });
+                        }
+                      }}
+                      className="flex items-center gap-2 bg-orange-600/20 text-orange-400 hover:bg-orange-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
+                    >
+                      <Eraser size={20} /> Ryd Inbox
+                    </button>
+                  )}
 
                 {/* Ryd Incognito */}
-                {isViewingIncognito &&
+                {viewMode === "incognito" &&
                   getFilteredInboxTabs(true).length > 0 && (
                     <button
                       onClick={async () => {
@@ -1235,7 +1371,6 @@ export const Dashboard = () => {
                           const normalTabs = getFilteredInboxTabs(false);
                           const incognitoTabs = getFilteredInboxTabs(true);
 
-                          // Slet alle incognito tabs via UID
                           chrome.runtime.sendMessage({
                             type: "CLOSE_PHYSICAL_TABS",
                             payload: {
@@ -1255,7 +1390,7 @@ export const Dashboard = () => {
                     </button>
                   )}
 
-                {!isViewingInbox && !isViewingIncognito && (
+                {viewMode === "workspace" && (
                   <button
                     onClick={() =>
                       chrome.runtime.sendMessage({
@@ -1276,7 +1411,6 @@ export const Dashboard = () => {
             </header>
 
             <div className="flex-1 overflow-y-auto p-8">
-              {/* HER ER DEN STORE ÆNDRING: Tilbage til grid-cols-3 */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {renderedTabs}
               </div>
@@ -1305,8 +1439,8 @@ export const Dashboard = () => {
           }}
         />
       )}
-      {modalType === "profiles" && (
-        <ProfileManagerModal
+      {modalType === "settings" && (
+        <SettingsModal
           profiles={profiles}
           onClose={() => setModalType(null)}
           activeProfile={activeProfile}

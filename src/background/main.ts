@@ -12,6 +12,7 @@ import {
   orderBy,
   onSnapshot,
 } from "firebase/firestore";
+import { AiService } from "../services/aiService";
 
 // --- TYPES ---
 interface TabData {
@@ -20,6 +21,7 @@ interface TabData {
   url: string;
   favIconUrl: string;
   isIncognito?: boolean;
+  aiData?: any;
 }
 
 interface WinMapping {
@@ -35,15 +37,15 @@ interface TrackerData {
 }
 
 // --- STATE ---
-// VIGTIGT: Dette tal styrer vores "Global Lock". Er den > 0, ignorerer vi events.
 let activeRestorations = 0;
 let restorationStatus = "";
 let lastDashboardTime = 0;
 let activeWindows = new Map<number, WinMapping>();
 const lockedWindowIds = new Set<number>();
 
-// VIGTIGT: Global tracker for ALLE tabs (Inbox + Workspaces)
-// Chrome Tab ID -> { uid, url }
+// VIGTIGT: Debounce Set for at forhindre kø-spam
+const recentQueueAdds = new Set<string>();
+
 let tabTracker = new Map<number, TrackerData>();
 
 let globalState = {
@@ -68,6 +70,7 @@ function updateRestorationStatus(status: string) {
 
 // --- FIREBASE LISTENERS ---
 function startFirebaseListeners() {
+  console.log("🔥 Starting Firebase Listeners...");
   if (!activeListeners.has("profiles")) {
     const unsub = onSnapshot(collection(db, "profiles"), (snap) => {
       globalState.profiles = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -98,6 +101,7 @@ function startFirebaseListeners() {
 auth.onAuthStateChanged((user) => {
   if (user) {
     startFirebaseListeners();
+    loadAndVerifyWindows();
   } else {
     activeListeners.forEach((unsub) => unsub());
     activeListeners.clear();
@@ -111,102 +115,312 @@ async function saveActiveWindowsToStorage() {
 }
 
 async function loadAndVerifyWindows() {
-  const data = await chrome.storage.local.get("nexus_active_windows");
-  if (data?.nexus_active_windows && Array.isArray(data.nexus_active_windows)) {
-    const rawMappings = data.nexus_active_windows as [number, WinMapping][];
-    activeWindows.clear();
-    for (const [winId, mapping] of rawMappings) {
-      try {
-        await chrome.windows.get(winId);
-        activeWindows.set(winId, mapping);
-      } catch (e) {
-        // Vinduet findes ikke længere, marker som inaktivt
-        const docRef = doc(
+  try {
+    const data = await chrome.storage.local.get("nexus_active_windows");
+    if (
+      data?.nexus_active_windows &&
+      Array.isArray(data.nexus_active_windows)
+    ) {
+      const rawMappings = data.nexus_active_windows as [number, WinMapping][];
+      activeWindows.clear();
+      for (const [winId, mapping] of rawMappings) {
+        try {
+          await chrome.windows.get(winId);
+          activeWindows.set(winId, mapping);
+        } catch (e) {
+          const docRef = doc(
+            db,
+            "workspaces_data",
+            mapping.workspaceId,
+            "windows",
+            mapping.internalWindowId
+          );
+          updateDoc(docRef, { isActive: false }).catch(() => {});
+        }
+      }
+      await saveActiveWindowsToStorage();
+    }
+    await rebuildTabTracker();
+
+    // Start Queue Loop
+    processAiQueue().catch(console.error);
+  } catch (error) {
+    console.error("Critical error in loadAndVerifyWindows:", error);
+  }
+}
+
+async function rebuildTabTracker() {
+  try {
+    const allWindows = await chrome.windows.getAll();
+    const unmappedWindows = allWindows.filter(
+      (w) => w.id && !activeWindows.has(w.id) && !lockedWindowIds.has(w.id)
+    );
+
+    const inboxSnap = await getDoc(doc(db, "inbox_data", "global"));
+    if (inboxSnap.exists()) {
+      const dbTabs = (inboxSnap.data().tabs || []) as TabData[];
+      const availableDbTabs = [...dbTabs];
+
+      for (const w of unmappedWindows) {
+        if (!w.id) continue;
+        const tabs = await chrome.tabs.query({ windowId: w.id });
+        for (const t of tabs) {
+          if (t.id && t.url && !isDash(t.url) && !t.url.startsWith("chrome")) {
+            const matchIndex = availableDbTabs.findIndex(
+              (dt) => dt.url === t.url && dt.isIncognito === t.incognito
+            );
+            if (matchIndex !== -1) {
+              const matchedDbTab = availableDbTabs[matchIndex];
+              tabTracker.set(t.id, {
+                uid: matchedDbTab.uid,
+                url: matchedDbTab.url,
+              });
+              availableDbTabs.splice(matchIndex, 1);
+            }
+          }
+        }
+      }
+    }
+
+    for (const [winId, mapping] of activeWindows.entries()) {
+      const winSnap = await getDoc(
+        doc(
           db,
           "workspaces_data",
           mapping.workspaceId,
           "windows",
           mapping.internalWindowId
-        );
-        updateDoc(docRef, { isActive: false }).catch(() => {});
-      }
-    }
-    await saveActiveWindowsToStorage();
-  }
-  // Vi forsøger at genopbygge trackeren ved reload
-  rebuildTabTracker();
-}
-
-// Forsøger at matche fysiske tabs med DB tabs ved startup
-async function rebuildTabTracker() {
-  // 1. Inbox Tracker
-  const allWindows = await chrome.windows.getAll();
-  const unmappedWindows = allWindows.filter(
-    (w) => w.id && !activeWindows.has(w.id) && !lockedWindowIds.has(w.id)
-  );
-
-  const inboxSnap = await getDoc(doc(db, "inbox_data", "global"));
-  if (inboxSnap.exists()) {
-    const dbTabs = (inboxSnap.data().tabs || []) as TabData[];
-    const availableDbTabs = [...dbTabs];
-
-    for (const w of unmappedWindows) {
-      if (!w.id) continue;
-      const tabs = await chrome.tabs.query({ windowId: w.id });
-      for (const t of tabs) {
-        if (t.id && t.url && !isDash(t.url) && !t.url.startsWith("chrome")) {
-          const matchIndex = availableDbTabs.findIndex(
-            (dt) => dt.url === t.url && dt.isIncognito === t.incognito
-          );
-          if (matchIndex !== -1) {
-            const matchedDbTab = availableDbTabs[matchIndex];
-            tabTracker.set(t.id, {
-              uid: matchedDbTab.uid,
-              url: matchedDbTab.url,
-            });
-            availableDbTabs.splice(matchIndex, 1);
+        )
+      );
+      if (winSnap.exists()) {
+        const dbTabs = (winSnap.data().tabs || []) as TabData[];
+        const availableDbTabs = [...dbTabs];
+        const tabs = await chrome.tabs.query({ windowId: winId });
+        for (const t of tabs) {
+          if (t.id && t.url && !isDash(t.url)) {
+            const matchIndex = availableDbTabs.findIndex(
+              (dt) => dt.url === t.url
+            );
+            if (matchIndex !== -1) {
+              const matchedDbTab = availableDbTabs[matchIndex];
+              tabTracker.set(t.id, {
+                uid: matchedDbTab.uid,
+                url: matchedDbTab.url,
+              });
+              availableDbTabs.splice(matchIndex, 1);
+            }
           }
         }
       }
     }
-  }
-
-  // 2. Workspace Tracker (Lidt sværere, men vi prøver)
-  for (const [winId, mapping] of activeWindows.entries()) {
-    const winSnap = await getDoc(
-      doc(
-        db,
-        "workspaces_data",
-        mapping.workspaceId,
-        "windows",
-        mapping.internalWindowId
-      )
-    );
-    if (winSnap.exists()) {
-      const dbTabs = (winSnap.data().tabs || []) as TabData[];
-      const availableDbTabs = [...dbTabs];
-      const tabs = await chrome.tabs.query({ windowId: winId });
-      for (const t of tabs) {
-        if (t.id && t.url && !isDash(t.url)) {
-          const matchIndex = availableDbTabs.findIndex(
-            (dt) => dt.url === t.url
-          );
-          if (matchIndex !== -1) {
-            const matchedDbTab = availableDbTabs[matchIndex];
-            tabTracker.set(t.id, {
-              uid: matchedDbTab.uid,
-              url: matchedDbTab.url,
-            });
-            availableDbTabs.splice(matchIndex, 1);
-          }
-        }
-      }
-    }
+  } catch (e) {
+    console.error("Error rebuilding tab tracker:", e);
   }
 }
 
-loadAndVerifyWindows();
+// --- AI QUEUE SYSTEM ---
 
+interface QueueItem {
+  uid: string;
+  url: string;
+  title: string;
+  tabId: number;
+  attempts: number;
+}
+
+interface LockData {
+  isProcessing: boolean;
+  timestamp: number;
+}
+
+interface StorageResponse {
+  [key: string]: any;
+  nexus_ai_queue?: QueueItem[];
+  nexus_ai_lock?: LockData;
+  nexus_ai_last_call?: number;
+}
+
+const AI_STORAGE_KEY = "nexus_ai_queue";
+const AI_LOCK_KEY = "nexus_ai_lock";
+const AI_LAST_CALL_KEY = "nexus_ai_last_call";
+
+async function extractMetadata(tabId: number): Promise<string> {
+  try {
+    const result = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const title = document.title || "";
+        const metaDesc =
+          document
+            .querySelector('meta[name="description"]')
+            ?.getAttribute("content") || "";
+        const ogDesc =
+          document
+            .querySelector('meta[property="og:description"]')
+            ?.getAttribute("content") || "";
+        const h1 = document.querySelector("h1")?.innerText || "";
+        return `${title} | ${metaDesc} | ${ogDesc} | ${h1}`;
+      },
+    });
+    return result[0]?.result || "";
+  } catch (e) {
+    return "";
+  }
+}
+
+async function processAiQueue() {
+  if (activeRestorations > 0) {
+    chrome.alarms.create("retry_ai_queue", { when: Date.now() + 5000 });
+    return;
+  }
+
+  try {
+    // 1. Initial Read
+    const storage = (await chrome.storage.local.get([
+      AI_STORAGE_KEY,
+      AI_LOCK_KEY,
+      AI_LAST_CALL_KEY,
+    ])) as StorageResponse;
+
+    let queue: QueueItem[] = Array.isArray(storage[AI_STORAGE_KEY])
+      ? storage[AI_STORAGE_KEY]
+      : [];
+    const lock = storage[AI_LOCK_KEY];
+    const lastCall: number = storage[AI_LAST_CALL_KEY] || 0;
+
+    if (queue.length === 0) return;
+
+    const now = Date.now();
+    if (lock?.isProcessing && now - lock.timestamp < 30000) return;
+
+    // Rate limit
+    if (now - lastCall < 2000) {
+      const delay = 2000 - (now - lastCall);
+      chrome.alarms.create("process_ai_next", { when: now + delay });
+      return;
+    }
+
+    // Lock
+    await chrome.storage.local.set({
+      [AI_LOCK_KEY]: { isProcessing: true, timestamp: now },
+    });
+
+    const item = queue[0];
+    broadcast("AI_STATUS_UPDATE", { uid: item.uid, status: "processing" });
+
+    // Hent data
+    let metadata = "";
+    try {
+      await chrome.tabs.get(item.tabId);
+      metadata = await extractMetadata(item.tabId);
+    } catch (e) {}
+
+    // Kør AI
+    const result = await AiService.analyzeTab(item.title, item.url, metadata);
+
+    if (result) {
+      console.log(`✅ AI Categorized: ${result.category}`);
+      const aiData = {
+        status: "completed",
+        category: result.category,
+        confidence: result.confidence,
+        reasoning: result.reasoning,
+        lastChecked: Date.now(),
+      };
+
+      const inboxRef = doc(db, "inbox_data", "global");
+      const inboxSnap = await getDoc(inboxRef);
+
+      if (inboxSnap.exists()) {
+        const tabs = inboxSnap.data().tabs || [];
+        const idx = tabs.findIndex((t: any) => t.uid === item.uid);
+        if (idx !== -1) {
+          tabs[idx].aiData = aiData;
+          await updateDoc(inboxRef, { tabs });
+          console.log("💾 Firestore successfully updated!");
+        }
+      }
+    } else {
+      console.log("⚠️ AI Analysis failed or returned null");
+    }
+
+    // --- CRITICAL FIX: RE-FETCH QUEUE TO AVOID RACE CONDITIONS ---
+    const freshStorage = (await chrome.storage.local.get(
+      AI_STORAGE_KEY
+    )) as StorageResponse;
+    const freshQueue = Array.isArray(freshStorage[AI_STORAGE_KEY])
+      ? freshStorage[AI_STORAGE_KEY]
+      : [];
+
+    // Vi fjerner KUN det item vi lige har behandlet (og eventuelle dubletter af det)
+    const updatedQueue = freshQueue.filter((q) => q.uid !== item.uid);
+
+    await chrome.storage.local.set({
+      [AI_STORAGE_KEY]: updatedQueue,
+      [AI_LOCK_KEY]: { isProcessing: false, timestamp: Date.now() },
+      [AI_LAST_CALL_KEY]: Date.now(),
+    });
+
+    // Recursion
+    if (updatedQueue.length > 0) {
+      chrome.alarms.create("process_ai_next", { when: Date.now() + 100 });
+    }
+  } catch (error) {
+    console.error("AI Queue Error", error);
+    await chrome.storage.local.set({
+      [AI_LOCK_KEY]: { isProcessing: false, timestamp: 0 },
+    });
+  }
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "process_ai_next" || alarm.name === "retry_ai_queue") {
+    processAiQueue();
+  }
+});
+
+// --- SAFE QUEUE ADDER (DEBOUNCED) ---
+async function addToAiQueue(items: QueueItem[]) {
+  try {
+    const data = (await chrome.storage.local.get(
+      AI_STORAGE_KEY
+    )) as StorageResponse;
+    const currentQueue: QueueItem[] = Array.isArray(data[AI_STORAGE_KEY])
+      ? data[AI_STORAGE_KEY]
+      : [];
+
+    // 1. Filtrer dubletter der allerede er i køen
+    // 2. Filtrer items der "lige" er blevet tilføjet (memory debounce)
+    const newItems = items.filter((i) => {
+      const inQueue = currentQueue.some((q) => q.uid === i.uid);
+      const recentlyAdded = recentQueueAdds.has(i.uid);
+      return !inQueue && !recentlyAdded;
+    });
+
+    if (newItems.length === 0) {
+      // console.log("⚠️ Items skipped (duplicate or debounced)");
+      return;
+    }
+
+    console.log(`📥 Adding ${newItems.length} items to AI Queue`);
+
+    // Opdater memory set
+    newItems.forEach((i) => {
+      recentQueueAdds.add(i.uid);
+      // Frigiv UID efter 10 sekunder
+      setTimeout(() => recentQueueAdds.delete(i.uid), 10000);
+    });
+
+    const updatedQueue = [...currentQueue, ...newItems];
+    await chrome.storage.local.set({ [AI_STORAGE_KEY]: updatedQueue });
+
+    processAiQueue();
+  } catch (e) {
+    console.error("Error adding to AI queue:", e);
+  }
+}
+
+// --- STANDARD LOGIC ---
 async function updateWindowGrouping(
   windowId: number,
   mapping: WinMapping | null
@@ -254,7 +468,6 @@ async function updateWindowGrouping(
   } catch (e) {}
 }
 
-// --- REGISTRER NYE TABS ---
 function getOrAssignUid(tabId: number, url: string): string {
   const tracked = tabTracker.get(tabId);
   if (tracked) {
@@ -269,7 +482,6 @@ function getOrAssignUid(tabId: number, url: string): string {
 }
 
 async function registerNewInboxWindow(windowId: number) {
-  // LÅS: Hvis vi er midt i en restore, skal vi IKKE registrere noget som inbox
   if (activeRestorations > 0) return;
 
   const tabs = await chrome.tabs.query({ windowId });
@@ -289,6 +501,7 @@ async function registerNewInboxWindow(windowId: number) {
           url: t.url,
           favIconUrl: t.favIconUrl || "",
           isIncognito: t.incognito,
+          aiData: { status: "pending" },
         });
       }
     }
@@ -303,7 +516,6 @@ async function registerNewInboxWindow(windowId: number) {
 }
 
 async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
-  // Dobbelt sikring, men den vigtige er i event-listeneren
   if (lockedWindowIds.has(windowId) || activeRestorations > 0) return;
 
   try {
@@ -317,7 +529,6 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
     const mapping = activeWindows.get(windowId);
 
     if (mapping) {
-      // --- WORKSPACE LOGIK ---
       if (!windowExists) return;
       const tabs = await chrome.tabs.query({ windowId });
 
@@ -365,7 +576,6 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
         { merge: true }
       );
     } else {
-      // --- INBOX LOGIK (Visual only) ---
       if (windowExists) {
         const win = await chrome.windows.get(windowId);
         if (!win.incognito) await updateWindowGrouping(windowId, null);
@@ -376,17 +586,13 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
   }
 }
 
-// --- EVENT LISTENERS (MED GLOBAL LOCK FIX) ---
-
 chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
-  // FIX: Hvis vi restorerer, ignorer ALT. Vi håndterer staten manuelt i restore-funktionen.
   if (activeRestorations > 0) return;
 
   if (change.status === "complete" && tab.windowId) {
     if (activeWindows.has(tab.windowId)) {
       saveToFirestore(tab.windowId, false);
     } else if (!tab.url?.startsWith("chrome") && !isDash(tab.url)) {
-      // INBOX LOGIK
       const url = tab.url || "";
       const uid = getOrAssignUid(tabId, url);
 
@@ -397,26 +603,68 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
         let tabs: TabData[] = data.tabs || [];
         const idx = tabs.findIndex((t) => t.uid === uid);
 
+        let needsUpdate = false;
+
         if (idx !== -1) {
+          const oldUrl = tabs[idx].url; // GEM GAMMEL URL
+          const oldTitle = tabs[idx].title;
+
+          // Opdater data i memory
           tabs[idx].url = url;
           tabs[idx].title = tab.title || "Ny Fane";
           tabs[idx].favIconUrl = tab.favIconUrl || "";
-          await updateDoc(inboxRef, {
-            tabs,
-            lastUpdate: serverTimestamp(),
-          });
+
+          // Tjek om der er ændringer
+          if (oldUrl !== url || oldTitle !== tab.title) {
+            needsUpdate = true;
+            // Hvis URL er ændret, reset AI status
+            if (oldUrl !== url) {
+              console.log(
+                "🔄 URL changed, resetting AI status for:",
+                tab.title
+              );
+              tabs[idx].aiData = { status: "pending" };
+            }
+          }
         } else {
+          // Ny fane
           tabs.push({
             uid: uid,
             title: tab.title || "Ny Fane",
             url: url,
             favIconUrl: tab.favIconUrl || "",
             isIncognito: tab.incognito,
+            aiData: { status: "pending" },
           });
+          needsUpdate = true;
+        }
+
+        if (needsUpdate) {
           await updateDoc(inboxRef, {
             tabs,
             lastUpdate: serverTimestamp(),
           });
+
+          // --- TRIGGER AI AUTOMATISK ---
+          const currentTab = idx !== -1 ? tabs[idx] : tabs[tabs.length - 1];
+          // Kør kun hvis status ikke er completed (eller lige er blevet reset til pending)
+          // TJEK OGSÅ AT VI IKKE ER PROCESSING I FORVEJEN
+          if (
+            currentTab.aiData?.status !== "completed" &&
+            currentTab.aiData?.status !== "processing"
+          ) {
+            // DEBOUNCE CHECK HAPPENS INSIDE addToAiQueue
+            console.log("🤖 Attempting to queue AI for tab:", tab.title);
+            addToAiQueue([
+              {
+                uid: uid,
+                url: url,
+                title: tab.title || "Ny Fane",
+                tabId: tabId,
+                attempts: 0,
+              },
+            ]);
+          }
         }
       }
     }
@@ -424,7 +672,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId, info) => {
-  // FIX: Hvis vi restorerer, gør ingenting.
   if (activeRestorations > 0) return;
 
   const tracked = tabTracker.get(tabId);
@@ -433,7 +680,6 @@ chrome.tabs.onRemoved.addListener(async (tabId, info) => {
   if (activeWindows.has(info.windowId)) {
     if (!info.isWindowClosing) saveToFirestore(info.windowId, true);
   } else {
-    // Inbox logik
     if (tracked && !info.isWindowClosing) {
       const inboxRef = doc(db, "inbox_data", "global");
       const snap = await getDoc(inboxRef);
@@ -453,7 +699,6 @@ chrome.tabs.onRemoved.addListener(async (tabId, info) => {
 });
 
 chrome.windows.onCreated.addListener(async (win) => {
-  // FIX: Ignorer onCreated hvis vi restorerer
   if (activeRestorations > 0) return;
 
   if (win.id && !activeWindows.has(win.id)) {
@@ -462,7 +707,6 @@ chrome.windows.onCreated.addListener(async (win) => {
 });
 
 chrome.windows.onFocusChanged.addListener(async (winId) => {
-  // FIX: Inkluderet activeRestorations > 0 tjekket
   if (winId === chrome.windows.WINDOW_ID_NONE || activeRestorations > 0) return;
 
   const now = Date.now();
@@ -484,8 +728,6 @@ chrome.windows.onFocusChanged.addListener(async (winId) => {
 });
 
 chrome.windows.onRemoved.addListener(async (windowId) => {
-  // Her må vi gerne køre logikken, medmindre vinduet specifikt er locked,
-  // men normalt lukker man ikke vinduer midt i en restore.
   const mapping = activeWindows.get(windowId);
   if (mapping) {
     const docRef = doc(
@@ -502,9 +744,59 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
   lockedWindowIds.delete(windowId);
 });
 
-// --- MESSAGING ---
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const { type, payload } = msg;
+
+  if (type === "TRIGGER_AI_SORT") {
+    console.log("🖱️ TRIGGER_AI_SORT received from UI");
+    getDoc(doc(db, "inbox_data", "global")).then(async (snap) => {
+      if (snap.exists()) {
+        const tabs = (snap.data().tabs || []) as TabData[];
+        const queueItems: QueueItem[] = [];
+
+        console.log(
+          `🔍 Found ${tabs.length} tabs in inbox. Checking for candidates...`
+        );
+
+        for (const t of tabs) {
+          if (t.aiData?.status === "completed") continue;
+
+          let physId = -1;
+          for (const [pid, data] of tabTracker.entries()) {
+            if (data.uid === t.uid) {
+              physId = pid;
+              break;
+            }
+          }
+
+          if (physId !== -1) {
+            queueItems.push({
+              uid: t.uid,
+              url: t.url,
+              title: t.title,
+              tabId: physId,
+              attempts: 0,
+            });
+          }
+        }
+
+        console.log(
+          `📋 Found ${queueItems.length} valid candidates for AI processing.`
+        );
+
+        if (queueItems.length > 0) {
+          addToAiQueue(queueItems);
+          sendResponse({ success: true, count: queueItems.length });
+        } else {
+          console.warn(
+            "⚠️ No physical tabs matched. Are the tabs open in Chrome?"
+          );
+          sendResponse({ success: false, reason: "No processable tabs" });
+        }
+      }
+    });
+    return true;
+  }
 
   if (type === "GET_WINDOW_NAME") {
     const mapping = activeWindows.get(payload.windowId);
@@ -581,7 +873,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true;
 });
 
-// --- HELPERS ---
+// --- HELPERS (Samme som før) ---
 async function handleOpenWorkspace(
   workspaceId: string,
   windowsToOpen: any[],
@@ -622,7 +914,6 @@ async function handleOpenSpecificWindow(
     }
   }
 
-  // HER SÆTTER VI LÅSEN
   activeRestorations++;
   try {
     const urls = (winData.tabs || [])
@@ -633,8 +924,6 @@ async function handleOpenSpecificWindow(
 
     const dashUrl = `dashboard.html?workspaceId=${workspaceId}&windowId=${winData.id}`;
 
-    // Chrome events fyrer HER, mens activeRestorations er > 0.
-    // Derfor ignoreres de i listeners, og vi undgår Inbox-dumping.
     const newWin = await chrome.windows.create({
       url: [dashUrl, ...urls],
       incognito: false,
@@ -680,7 +969,6 @@ async function handleOpenSpecificWindow(
       lockedWindowIds.delete(winId);
     }
   } finally {
-    // HER HÆVER VI LÅSEN
     activeRestorations--;
     if (activeRestorations === 0) updateRestorationStatus("");
   }

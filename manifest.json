@@ -17,7 +17,8 @@
     "unlimitedStorage",
     "scripting",
     "tabGroups",
-    "favicon"
+    "favicon",
+    "alarms"
   ],
   "incognito": "spanning",
   "host_permissions": ["<all_urls>"]

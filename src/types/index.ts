@@ -14,10 +14,21 @@ export interface Profile {
   name: string;
 }
 
+export interface AiData {
+  status: "pending" | "completed" | "failed" | "processing";
+  category?: string;
+  confidence?: number;
+  reasoning?: string;
+  lastChecked?: number;
+}
+
 export interface TabData {
+  uid: string; // Gør uid obligatorisk fremadrettet
   title: string;
   url: string;
   favIconUrl?: string;
+  isIncognito?: boolean;
+  aiData?: AiData; // Ny felt til AI data
 }
 
 export interface WorkspaceWindow {
