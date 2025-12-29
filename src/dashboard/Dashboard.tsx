@@ -1322,7 +1322,11 @@ export const Dashboard = () => {
         if (tSnap.exists()) {
           const tabs = tSnap.data().tabs || [];
           if (!tabs.some((t: any) => t.uid === cleanTab.uid)) {
-            await updateDoc(targetRef, { tabs: [...tabs, cleanTab] });
+            await setDoc(
+              targetRef,
+              { tabs: [...tabs, cleanTab] },
+              { merge: true }
+            );
             writtenToDB = true;
             console.log("💾 Manual write to target window successful");
           }
