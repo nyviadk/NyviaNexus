@@ -1114,13 +1114,14 @@ export const Dashboard = () => {
       setIsProcessingMove(true);
       if (targetItem === "global") setIsInboxSyncing(true);
 
+      // FORCE PENDING STATUS
       const cleanTab = {
         uid: tab.uid || crypto.randomUUID(),
         title: tab.title,
         url: tab.url,
         favIconUrl: tab.favIconUrl,
         isIncognito: false,
-        aiData: { status: "pending" }, // FORCE RECALC
+        aiData: { status: "pending" },
       };
 
       console.log(
@@ -1198,11 +1199,12 @@ export const Dashboard = () => {
           );
 
           if (mapping) {
+            console.log("🕵️‍♂️ Target window IS OPEN. creating physical tab.");
             const targetPhysicalWindowId = mapping[0];
             await chrome.tabs.create({
               windowId: targetPhysicalWindowId,
               url: cleanTab.url,
-              active: false,
+              active: true, // ACTIVE: TRUE (But no window focus)
             });
           }
         }
@@ -1245,6 +1247,7 @@ export const Dashboard = () => {
           // 3. CLOSE PHYSICAL TAB
           const uidsToSend = tab.uid ? [tab.uid] : [];
           const idsToSend = tab.id ? [tab.id] : [];
+          console.log("🕵️‍♂️ Requesting physical close in source window");
           chrome.runtime.sendMessage(
             {
               type: "CLOSE_PHYSICAL_TABS",
@@ -1254,7 +1257,7 @@ export const Dashboard = () => {
                 tabIds: idsToSend,
               },
             },
-            () => {}
+            () => console.log("✂️ Source closed")
           );
         }
       } catch (err) {
@@ -1263,6 +1266,7 @@ export const Dashboard = () => {
         setIsProcessingMove(false);
         setIsInboxSyncing(false);
         window.sessionStorage.removeItem("draggedTab");
+        console.log("✅ Drop handling finished");
       }
     },
     [activeMappings, viewMode, selectedWindowId, selectedWorkspace]
@@ -1270,7 +1274,7 @@ export const Dashboard = () => {
 
   const handleTabDrop = useCallback(
     async (targetWinId: string) => {
-      console.log("🖱️ handleTabDrop STARTED");
+      console.log("🖱️ handleTabDrop STARTED (Dashboard/Inbox)");
       setDropTargetWinId(null);
       const tabJson = window.sessionStorage.getItem("draggedTab");
       if (!tabJson) return;
@@ -1341,6 +1345,7 @@ export const Dashboard = () => {
               windowId: targetMapping[0],
               index: -1,
             });
+            await chrome.tabs.update(targetTab.id, { active: true }); // Make active
           }
         } else if (writtenToDB) {
           // LUK GAMMEL FYSISK (hvis den findes og vi har skrevet til DB)

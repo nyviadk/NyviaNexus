@@ -441,7 +441,6 @@ function getOrAssignUid(tabId: number, url: string): string {
     tabTracker.set(tabId, { uid: expectedUid, url });
     expectedTabs.delete(url);
 
-    // BLOKER DENNE UID I 8 SEKUNDER
     recentlyMovedUids.add(expectedUid);
     blockedUrls.add(url);
     setTimeout(() => {
@@ -472,7 +471,6 @@ async function registerNewInboxWindow(windowId: number) {
     if (t.id && t.url && !isDash(t.url) && !t.url.startsWith("chrome")) {
       const uid = getOrAssignUid(t.id, t.url);
 
-      // BLOCK CHECK
       if (recentlyMovedUids.has(uid) || blockedUrls.has(t.url)) {
         console.log(`🛑 RegisterBlocked: ${uid}`);
         continue;
@@ -535,13 +533,13 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
           const uid = getOrAssignUid(t.id, t.url);
           let aiData = existingAiData.get(uid) || { status: "pending" };
 
-          // VIGTIGT: Hvis vi lige har sat den til pending i Dashboardet, må vi ikke overskrive!
           if (tabsToQueue.some((q) => q.uid === uid)) {
-            // Den er allerede i kø, lad den være
+            // Allerede i kø
           } else if (
             (aiData.status === "pending" || !aiData.status) &&
             !aiData.isLocked
           ) {
+            console.log(`🤖 saveToFirestore found PENDING tab: ${t.title}`);
             tabsToQueue.push({
               uid,
               url: t.url,
@@ -631,23 +629,25 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
 
         if (needsUpdate) {
           await updateDoc(inboxRef, { tabs, lastUpdate: serverTimestamp() });
-          const currentTab = idx !== -1 ? tabs[idx] : tabs[tabs.length - 1];
-          if (
-            currentTab.aiData?.status !== "completed" &&
-            currentTab.aiData?.status !== "processing" &&
-            !currentTab.aiData?.isLocked
-          ) {
-            addToAiQueue([
-              {
-                uid: uid,
-                url: url,
-                title: tab.title || "Ny fane",
-                tabId: tabId,
-                attempts: 0,
-                workspaceName: "Inbox",
-              },
-            ]);
-          }
+        }
+        const currentTab = idx !== -1 ? tabs[idx] : tabs[tabs.length - 1];
+        if (
+          currentTab &&
+          currentTab.aiData?.status !== "completed" &&
+          currentTab.aiData?.status !== "processing" &&
+          !currentTab.aiData?.isLocked
+        ) {
+          console.log(`📥 onUpdated triggering AI for pending tab: ${uid}`);
+          addToAiQueue([
+            {
+              uid: uid,
+              url: url,
+              title: tab.title || "Ny Fane",
+              tabId: tabId,
+              attempts: 0,
+              workspaceName: "Inbox",
+            },
+          ]);
         }
       }
     }
