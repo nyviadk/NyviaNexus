@@ -315,9 +315,10 @@ async function processAiQueue() {
     if (queue.length === 0) return;
 
     const now = Date.now();
+    // Timeout på lock efter 30 sekunder
     if (lock?.isProcessing && now - lock.timestamp < 30000) return;
 
-    // Throttle AI calls to avoid rate limits
+    // Throttle AI calls to avoid rate limits (2 sekunder mellem kald)
     if (now - lastCall < 2000) {
       const delay = 2000 - (now - lastCall);
       chrome.alarms.create("process_ai_next", { when: now + delay });
@@ -434,13 +435,12 @@ async function addToAiQueue(items: QueueItem[]) {
       : [];
 
     const newItems = items.filter((i) => {
-      // Logic: Sæt af UID + URL. Hvis kombinationen findes, skal vi ikke tilføje den igen.
-      // Men hvis URL'en er ændret for samme UID, skal vi fjerne den gamle og tilføje den nye.
       const existingIndex = currentQueue.findIndex((q) => q.uid === i.uid);
 
       if (existingIndex !== -1) {
+        // Hvis URL'en er ændret, fjerner vi den gamle for at tvinge en ny analyse
         if (currentQueue[existingIndex].url !== i.url) {
-          // Fjern den gamle fra køen hvis URL er anderledes
+          console.log(`🔄 URL changed for ${i.uid}, re-queuing...`);
           currentQueue.splice(existingIndex, 1);
           return true;
         }
@@ -449,7 +449,16 @@ async function addToAiQueue(items: QueueItem[]) {
 
       const recentlyAdded = recentQueueAdds.has(i.uid + i.url);
       const isProcessing = currentlyProcessing.has(i.uid);
-      return !recentlyAdded && !isProcessing;
+
+      // Hvis vi allerede processerer dette UID, men URL er ny, skal vi lade den komme i køen bagefter
+      if (isProcessing) {
+        // Tjek om det er en ny URL i forhold til tabTracker
+        const tracked = [...tabTracker.values()].find((t) => t.uid === i.uid);
+        if (tracked && tracked.url !== i.url) return true;
+        return false;
+      }
+
+      return !recentlyAdded;
     });
 
     if (
@@ -466,6 +475,8 @@ async function addToAiQueue(items: QueueItem[]) {
 
     const updatedQueue = [...currentQueue, ...newItems];
     await chrome.storage.local.set({ [AI_STORAGE_KEY]: updatedQueue });
+
+    // Vigtigt: Prøv at køre køen med det samme
     processAiQueue();
   } catch (e) {
     console.error("Error adding to AI queue:", e);
@@ -477,14 +488,12 @@ function getOrAssignUid(tabId: number, url: string): string {
   const tracked = tabTracker.get(tabId);
 
   if (tracked) {
-    // If URL changed on the same physical tab, just update the tracker
     if (tracked.url !== url) {
       tabTracker.set(tabId, { uid: tracked.uid, url });
     }
     return tracked.uid;
   }
 
-  // Assign NEW UID if completely unknown
   const newUid = crypto.randomUUID();
   tabTracker.set(tabId, { uid: newUid, url });
   console.log(`🔥 Assigned NEW UID for tab ${tabId}: ${newUid}`);
@@ -628,25 +637,25 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
   const isUrlChange = change.url !== undefined;
   const isStatusComplete = change.status === "complete";
 
-  // Vi skal reagere på alle relevante ændringer
   if (isUrlChange || isStatusComplete) {
     const url = tab.url;
     const uid = getOrAssignUid(tabId, url);
     const title = tab.title || "Ny Fane";
-
     const mapping = activeWindows.get(tab.windowId);
 
-    // AI Kø Trigger
-    addToAiQueue([
-      {
-        uid,
-        url,
-        title,
-        tabId,
-        attempts: 0,
-        workspaceName: mapping ? mapping.workspaceName : "Inbox",
-      },
-    ]);
+    // VIGTIGT: Trigger AI køen med det samme ved URL ændring
+    if (isUrlChange) {
+      addToAiQueue([
+        {
+          uid,
+          url,
+          title,
+          tabId,
+          attempts: 0,
+          workspaceName: mapping ? mapping.workspaceName : "Inbox",
+        },
+      ]);
+    }
 
     if (mapping) {
       const winRef = doc(
@@ -661,14 +670,21 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
         let tabs = snap.data().tabs || [];
         const idx = tabs.findIndex((t: any) => t.uid === uid);
         if (idx !== -1) {
-          if (tabs[idx].url !== url || tabs[idx].title !== title) {
+          // Ved URL skift nulstiller vi status til pending
+          if (tabs[idx].url !== url) {
             tabs[idx].url = url;
             tabs[idx].title = title;
-            tabs[idx].aiData = { status: "pending" };
+            // Hvis den ikke er låst, nulstil til pending så AI kan tage den igen
+            if (!tabs[idx].aiData?.isLocked) {
+              tabs[idx].aiData = { status: "pending" };
+            }
+            await updateDoc(winRef, { tabs });
+            processAiQueue(); // Væk AI'en
+          } else if (tabs[idx].title !== title) {
+            tabs[idx].title = title;
             await updateDoc(winRef, { tabs });
           }
         } else {
-          // NY TAB i et Space vindue
           tabs.push({
             uid,
             title,
@@ -677,6 +693,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
             aiData: { status: "pending" },
           });
           await updateDoc(winRef, { tabs });
+          processAiQueue();
         }
       }
     } else {
@@ -687,16 +704,19 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
         const idx = tabs.findIndex((t: any) => t.uid === uid);
 
         if (idx !== -1) {
-          // Opdater eksisterende
-          if (tabs[idx].url !== url || tabs[idx].title !== title) {
+          if (tabs[idx].url !== url) {
             tabs[idx].url = url;
             tabs[idx].title = title;
-            tabs[idx].aiData = { status: "pending" };
+            if (!tabs[idx].aiData?.isLocked) {
+              tabs[idx].aiData = { status: "pending" };
+            }
+            await updateDoc(inboxRef, { tabs });
+            processAiQueue();
+          } else if (tabs[idx].title !== title) {
+            tabs[idx].title = title;
             await updateDoc(inboxRef, { tabs });
           }
         } else {
-          // TILFØJ NY TAB (Dette var fejlen!)
-          console.log(`📥 Adding NEW tab to Inbox: ${uid}`);
           tabs.push({
             uid,
             title,
@@ -706,6 +726,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
             aiData: { status: "pending" },
           });
           await updateDoc(inboxRef, { tabs, lastUpdate: serverTimestamp() });
+          processAiQueue();
         }
       }
     }
@@ -1129,7 +1150,6 @@ async function handleCreateNewWindowInWorkspace(
       activeWindows.set(winId, mapping);
       await saveActiveWindowsToStorage();
 
-      // Vi gemmer vinduet i Firestore med det samme så dashboardet har noget at kigge på
       await setDoc(
         doc(db, "workspaces_data", workspaceId, "windows", internalId),
         {
