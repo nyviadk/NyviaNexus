@@ -73,6 +73,9 @@ export const NexusService = {
   },
 
   async deleteTab(tab: any, workspaceId: string, windowId: string) {
+    console.log(
+      `🗑️ [NexusService] deleteTab: ${tab.title} (UID: ${tab.uid}) fra ${workspaceId}/${windowId}`
+    );
     const ref =
       windowId === "global" ||
       windowId === "incognito" ||
@@ -86,6 +89,7 @@ export const NexusService = {
         (t: any) => t.uid !== tab.uid
       );
       await updateDoc(ref, { tabs });
+      console.log("✅ [NexusService] Tab fjernet fra Firestore.");
     }
   },
 
@@ -96,6 +100,9 @@ export const NexusService = {
     targetWorkspaceId: string,
     targetWindowId: string
   ) {
+    console.log(
+      "🚀 [NexusService] START moveTabBetweenWindows (Samme Space logic)"
+    );
     const getRef = (wsId: string, winId: string) => {
       if (winId === "global" || winId === "incognito" || wsId === "global") {
         return doc(db, "inbox_data", "global");
@@ -123,8 +130,9 @@ export const NexusService = {
     }
 
     batch.update(targetRef, { tabs: arrayUnion(tabToMove) });
-
-    return await batch.commit();
+    const result = await batch.commit();
+    console.log("✅ [NexusService] Flytning færdiggjort i Firestore.");
+    return result;
   },
 
   async createWorkspace(data: {

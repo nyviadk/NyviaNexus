@@ -64,7 +64,6 @@ import {
   WorkspaceWindow,
 } from "../types";
 
-// --- HELPER: CONTRAST CHECKER ---
 const getContrastYIQ = (hexcolor: string) => {
   const hex = hexcolor.replace("#", "");
   const r = parseInt(hex.substr(0, 2), 16);
@@ -74,7 +73,6 @@ const getContrastYIQ = (hexcolor: string) => {
   return yiq >= 128 ? "#1e293b" : "#ffffff";
 };
 
-// --- CATEGORY MENU ---
 const CategoryMenu = ({
   tab,
   workspaceId,
@@ -103,7 +101,6 @@ const CategoryMenu = ({
     let updated = false;
 
     if (!workspaceId) {
-      // Inbox
       const ref = doc(db, "inbox_data", "global");
       const snap = await getDoc(ref);
       if (snap.exists()) {
@@ -119,7 +116,6 @@ const CategoryMenu = ({
               reasoning: "Manuelt valgt",
             };
           } else {
-            // Reset / Unlock
             tabs[idx].aiData = { status: "pending", isLocked: false };
           }
           await updateDoc(ref, { tabs });
@@ -127,7 +123,6 @@ const CategoryMenu = ({
         }
       }
     } else {
-      // Space
       const ref = doc(
         db,
         "workspaces_data",
@@ -203,7 +198,6 @@ const CategoryMenu = ({
   );
 };
 
-// --- REASONING MODAL ---
 const ReasoningModal = ({
   data,
   onClose,
@@ -280,7 +274,6 @@ const ReasoningModal = ({
   );
 };
 
-// --- SETTINGS MODAL ---
 const SettingsModal = ({
   profiles,
   onClose,
@@ -728,11 +721,9 @@ const TabItem = React.memo(
 
     const getBadgeStyle = () => {
       if (!categoryName) return {};
-
       const userCat = userCategories.find(
         (c: UserCategory) => c.name.toLowerCase() === categoryName.toLowerCase()
       );
-
       if (userCat) {
         return {
           backgroundColor: userCat.color,
@@ -785,16 +776,13 @@ const TabItem = React.memo(
           draggable={true}
           onDragStart={(e) => {
             e.dataTransfer.setData("nexus/tab", "true");
-
             const tabData = {
               ...tab,
               id: tab.id,
               uid: tab.uid || crypto.randomUUID(),
               sourceWorkspaceId: sourceWorkspaceId,
             };
-
-            console.log("🔥 Drag Start Data:", tabData);
-
+            console.log("🔥 [Drag Start]", tabData.title);
             window.sessionStorage.setItem(
               "draggedTab",
               JSON.stringify(tabData)
@@ -894,7 +882,6 @@ const TabItem = React.memo(
   }
 );
 
-// --- MAIN DASHBOARD ---
 export const Dashboard = () => {
   const [user, setUser] = useState<any>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -940,7 +927,6 @@ export const Dashboard = () => {
   });
 
   const [reasoningData, setReasoningData] = useState<any>(null);
-
   const [menuData, setMenuData] = useState<{
     tab: any;
     position: { x: number; y: number };
@@ -977,7 +963,6 @@ export const Dashboard = () => {
   useEffect(() => {
     const lastProfile = localStorage.getItem("lastActiveProfileId");
     if (lastProfile) setActiveProfile(lastProfile);
-
     AiService.getSettings().then(setAiSettings);
   }, []);
 
@@ -1082,7 +1067,6 @@ export const Dashboard = () => {
       if (!hasLoadedUrlParams.current) return;
       const params = new URLSearchParams(window.location.search);
       const preselect = params.get("windowId");
-
       if (preselect && sortedWindows.some((w) => w.id === preselect)) {
         setSelectedWindowId(preselect);
       } else {
@@ -1103,6 +1087,7 @@ export const Dashboard = () => {
       const tabJson = window.sessionStorage.getItem("draggedTab");
       if (!tabJson) return;
       const tab = JSON.parse(tabJson);
+
       const targetWorkspaceId =
         targetItem === "global" ? "global" : targetItem.id;
       const sourceWorkspaceId =
@@ -1114,13 +1099,17 @@ export const Dashboard = () => {
           ? "global"
           : selectedWindowId || "global";
 
+      console.log(
+        `🎯 [Dashboard] Sidebar Move: From ${sourceWorkspaceId} to ${targetWorkspaceId}`
+      );
+
       setIsProcessingMove(true);
       if (targetItem === "global") setIsInboxSyncing(true);
+
       try {
         let targetMapping = null;
         let targetWinId = "global";
 
-        // Find ud af om målet er åbent
         if (targetWorkspaceId !== "global") {
           const snap = await getDocs(
             collection(db, "workspaces_data", targetWorkspaceId, "windows")
@@ -1137,21 +1126,28 @@ export const Dashboard = () => {
           ([_, m]) => m.internalWindowId === sourceId
         );
 
-        // LOGIK: Hvis BEGGE er åbne (Flytning)
+        // OPTIMERING: Hvis det er på tværs af spaces, slet kilden og lader destinationen synke selv
         if (targetMapping && sourceMapping) {
-          await NexusService.moveTabBetweenWindows(
-            tab,
-            sourceWorkspaceId,
-            sourceId,
-            targetWorkspaceId,
-            targetWinId
-          );
+          if (sourceWorkspaceId === targetWorkspaceId) {
+            await NexusService.moveTabBetweenWindows(
+              tab,
+              sourceWorkspaceId,
+              sourceId,
+              targetWorkspaceId,
+              targetWinId
+            );
+          } else {
+            console.log(
+              "🚀 [Dashboard] Flytning på tværs af spaces. Sletter kilde-data."
+            );
+            await NexusService.deleteTab(tab, sourceWorkspaceId, sourceId);
+          }
+
           await chrome.tabs.create({
             windowId: targetMapping[0],
             url: tab.url,
             active: true,
           });
-          // Luk kilde
           chrome.runtime.sendMessage({
             type: "CLOSE_PHYSICAL_TABS",
             payload: {
@@ -1160,9 +1156,8 @@ export const Dashboard = () => {
               tabIds: tab.id ? [tab.id] : [],
             },
           });
-        }
-        // LOGIK: Ellers kør som før
-        else {
+        } else {
+          // Fallback til manuel batch hvis vindue er lukket
           const batch = writeBatch(db);
           if (!targetMapping) {
             if (targetWorkspaceId === "global") {
@@ -1190,12 +1185,14 @@ export const Dashboard = () => {
             });
           }
 
+          // Slet fra kilde
           if (sourceId === "global") {
             const snap = await getDoc(doc(db, "inbox_data", "global"));
-            const filtered = (snap.data()?.tabs || []).filter(
-              (t: any) => t.uid !== tab.uid
-            );
-            batch.update(doc(db, "inbox_data", "global"), { tabs: filtered });
+            batch.update(doc(db, "inbox_data", "global"), {
+              tabs: (snap.data()?.tabs || []).filter(
+                (t: any) => t.uid !== tab.uid
+              ),
+            });
           } else {
             const sourceRef = doc(
               db,
@@ -1205,12 +1202,12 @@ export const Dashboard = () => {
               sourceId
             );
             const snap = await getDoc(sourceRef);
-            const filtered = (snap.data()?.tabs || []).filter(
-              (t: any) => t.uid !== tab.uid
-            );
-            batch.update(sourceRef, { tabs: filtered });
+            batch.update(sourceRef, {
+              tabs: (snap.data()?.tabs || []).filter(
+                (t: any) => t.uid !== tab.uid
+              ),
+            });
           }
-
           await batch.commit();
           chrome.runtime.sendMessage({
             type: "CLOSE_PHYSICAL_TABS",
@@ -1338,7 +1335,6 @@ export const Dashboard = () => {
           viewMode === "inbox" || viewMode === "incognito"
             ? "global"
             : selectedWindowId!;
-
         chrome.runtime.sendMessage({
           type: "CLOSE_PHYSICAL_TABS",
           payload: {
@@ -1347,7 +1343,6 @@ export const Dashboard = () => {
             tabIds: tab.id ? [tab.id] : [],
           },
         });
-
         await NexusService.deleteTab(
           tab,
           selectedWorkspace?.id || "global",
@@ -1374,7 +1369,6 @@ export const Dashboard = () => {
 
   const renderedTabs = useMemo(() => {
     let list: any[] = [];
-
     if (viewMode === "incognito") list = getFilteredInboxTabs(true);
     else if (viewMode === "inbox") list = getFilteredInboxTabs(false);
     else list = windows.find((w) => w.id === selectedWindowId)?.tabs || [];
