@@ -1,8 +1,6 @@
 import { AiSettings } from "../types";
 
 // Denne service håndterer kommunikationen med Cerebras
-// Nu med Context Awareness (Workspace Navn)
-
 const API_URL = "https://api.cerebras.ai/v1/chat/completions";
 
 const DEFAULT_SETTINGS: AiSettings = {
@@ -41,7 +39,7 @@ export const AiService = {
     return data.nexus_ai_settings || DEFAULT_SETTINGS;
   },
 
-  // Gem Indstillinger (Kaldes fra Dashboard)
+  // Gem Indstillinger
   async saveSettings(settings: AiSettings): Promise<void> {
     await chrome.storage.local.set({ nexus_ai_settings: settings });
   },
@@ -50,7 +48,7 @@ export const AiService = {
     title: string,
     url: string,
     metadata: string,
-    workspaceContext?: string // NYT: Context argument
+    workspaceContext?: string
   ): Promise<AiAnalysisResult | null> {
     console.log(
       `🤖 AI Service: Analyserer tab: "${title}" [Context: ${
@@ -69,7 +67,6 @@ export const AiService = {
     // Byg prompten baseret på indstillinger
     let systemPrompt = "";
     const userCatNames = settings.userCategories.map((c) => c.name);
-
     // Scenarie 1: Dynamisk (AI må opfinde, men skal prioritere brugerens liste)
     if (settings.allowDynamic) {
       systemPrompt = `
@@ -108,7 +105,7 @@ Output Format (JSON Only):
       }
 
       systemPrompt = `
-Du er en streng kategoriserings-bot.
+Du er en streng kategoriserings-bot. Du taler KUN JSON.
 Du MÅ KUN vælge en kategori fra denne eksakte liste:
 ${JSON.stringify(allowedList)}
 
@@ -122,11 +119,10 @@ ${
 }
 
 Output Format (JSON Only):
-{ "category": "String (Eksakt match fra listen)", "confidence": Number (0-100), "reasoning": "Kort forklaring på dansk" }
+{ "category": "String", "confidence": Number (0-100), "reasoning": "Kort forklaring på dansk" }
 `;
     }
 
-    // NYT: Håndtering af Context Logic
     let contextInstruction = "";
     if (workspaceContext && workspaceContext !== "Inbox") {
       contextInstruction = `
@@ -138,11 +134,17 @@ Hvis workspace hedder "Gaver", er en produktside "Shopping".
 `;
     }
 
+    // Rens metadata for tokens og støj
+    const cleanMetadata = metadata
+      .replace(/\s+/g, " ")
+      .trim()
+      .substring(0, 600);
+
     const userPrompt = `
 Analyser denne fane:
 URL: ${url}
 Titel: ${title}
-Metadata: ${metadata.substring(0, 400)}
+Metadata: ${cleanMetadata}
 ${contextInstruction}
 `;
 
@@ -160,19 +162,14 @@ ${contextInstruction}
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
-          temperature: 0.1,
-          max_tokens: 150,
+          temperature: 0, // Kritisk for JSON stabilitet
+          max_tokens: 200,
+          response_format: { type: "json_object" }, // Tvinger JSON output
         }),
       });
       console.timeEnd("🤖 AI Latency");
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(
-          `🤖 API Error Details: ${response.status} - ${errorText}`
-        );
-        throw new Error(`API Error: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
 
       const data = await response.json();
       const rawContent = data.choices[0]?.message?.content || "";
@@ -191,8 +188,14 @@ ${contextInstruction}
 
   parseResponse(raw: string): AiAnalysisResult {
     try {
-      return JSON.parse(raw);
+      // Fjern markdown blocks hvis de findes
+      const cleaned = raw
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
+      return JSON.parse(cleaned);
     } catch (e) {
+      // Robust fallback med regex
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         try {

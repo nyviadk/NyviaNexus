@@ -250,17 +250,25 @@ async function extractMetadata(tabId: number): Promise<string> {
     const result = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
-        const title = document.title || "";
-        const metaDesc =
-          document
-            .querySelector('meta[name="description"]')
-            ?.getAttribute("content") || "";
-        const ogDesc =
-          document
-            .querySelector('meta[property="og:description"]')
-            ?.getAttribute("content") || "";
-        const h1 = document.querySelector("h1")?.innerText || "";
-        return `${title} | ${metaDesc} | ${ogDesc} | ${h1}`;
+        try {
+          const title = document.title || "";
+          const metaDesc =
+            document
+              .querySelector('meta[name="description"]')
+              ?.getAttribute("content") || "";
+          const ogDesc =
+            document
+              .querySelector('meta[property="og:description"]')
+              ?.getAttribute("content") || "";
+          const h1 = document.querySelector("h1")?.innerText || "";
+
+          // Vi kombinerer og fjerner dobbelt-mellemrum/linjeskift for at spare tokens og undgå formatfejl
+          return `${title} | ${metaDesc} | ${ogDesc} | ${h1}`
+            .replace(/\s+/g, " ")
+            .trim();
+        } catch (e) {
+          return document.title || "";
+        }
       },
     });
     return result[0]?.result || "";
