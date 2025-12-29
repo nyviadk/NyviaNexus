@@ -497,8 +497,16 @@ async function registerNewInboxWindow(windowId: number) {
   }
 }
 
-async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
-  if (lockedWindowIds.has(windowId) || activeRestorations > 0) return;
+// NY: tilføjet 'force' parameter
+async function saveToFirestore(
+  windowId: number,
+  isRemoval: boolean = false,
+  force: boolean = false
+) {
+  // Hvis det ikke er tvunget, så tjek låse
+  if (!force && (lockedWindowIds.has(windowId) || activeRestorations > 0))
+    return;
+
   try {
     let windowExists = true;
     try {
@@ -630,7 +638,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
         if (needsUpdate) {
           await updateDoc(inboxRef, { tabs, lastUpdate: serverTimestamp() });
         }
-        const currentTab = idx !== -1 ? tabs[idx] : tabs[tabs.length - 1];
+
+        const freshTabs = (await getDoc(inboxRef)).data()?.tabs || [];
+        const currentTab = freshTabs.find((t: any) => t.uid === uid);
+
         if (
           currentTab &&
           currentTab.aiData?.status !== "completed" &&
@@ -1053,6 +1064,10 @@ async function handleOpenSpecificWindow(
         await waitForWindowToLoad(winId);
       }
       lockedWindowIds.delete(winId);
+      console.log(
+        `🔓 Window ${winId} restored and unlocked. Forcing DB sync & AI scan.`
+      );
+      await saveToFirestore(winId, false, true); // FORCE SCAN
     }
   } finally {
     activeRestorations--;
@@ -1127,7 +1142,7 @@ async function handleForceSync(windowId: number) {
     await waitForWindowToLoad(windowId);
     lockedWindowIds.delete(windowId);
     activeRestorations--;
-    saveToFirestore(windowId, false);
+    saveToFirestore(windowId, false, true); // FORCE SCAN
     if (activeRestorations === 0) updateRestorationStatus("");
   }
 }
