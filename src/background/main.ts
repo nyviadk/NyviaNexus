@@ -1106,25 +1106,39 @@ async function handleCreateNewWindowInWorkspace(
   activeRestorations++;
   updateRestorationStatus("Opretter nyt tomt workspace...");
   try {
-    const dashUrl = `dashboard.html?workspaceId=${workspaceId}&newWindow=true`;
+    const internalId = `win_${Date.now()}`;
+    const dashUrl = `dashboard.html?workspaceId=${workspaceId}&windowId=${internalId}&newWindow=true`;
+
     const newWin = await chrome.windows.create({ url: dashUrl });
     if (newWin?.id) {
       const winId = newWin.id;
       const tabs = await chrome.tabs.query({ windowId: winId });
       if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
-      const internalId = `win_${Date.now()}`;
+
       const snap = await getDocs(
         collection(db, "workspaces_data", workspaceId, "windows")
       );
+
       const mapping = {
         workspaceId,
         internalWindowId: internalId,
         workspaceName: name,
         index: snap.size + 1,
       };
+
       activeWindows.set(winId, mapping);
       await saveActiveWindowsToStorage();
-      await saveToFirestore(winId, false);
+
+      // Vi gemmer vinduet i Firestore med det samme så dashboardet har noget at kigge på
+      await setDoc(
+        doc(db, "workspaces_data", workspaceId, "windows", internalId),
+        {
+          id: internalId,
+          tabs: [],
+          isActive: true,
+          lastActive: serverTimestamp(),
+        }
+      );
     }
   } finally {
     activeRestorations--;
