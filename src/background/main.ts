@@ -249,7 +249,19 @@ async function extractMetadata(tabId: number): Promise<string> {
   try {
     const result = await chrome.scripting.executeScript({
       target: { tabId },
-      func: () => document.title || "",
+      func: () => {
+        const title = document.title || "";
+        const metaDesc =
+          document
+            .querySelector('meta[name="description"]')
+            ?.getAttribute("content") || "";
+        const ogDesc =
+          document
+            .querySelector('meta[property="og:description"]')
+            ?.getAttribute("content") || "";
+        const h1 = document.querySelector("h1")?.innerText || "";
+        return `${title} | ${metaDesc} | ${ogDesc} | ${h1}`;
+      },
     });
     return result[0]?.result || "";
   } catch (e) {
