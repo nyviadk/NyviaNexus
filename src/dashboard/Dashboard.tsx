@@ -75,7 +75,7 @@ const getContrastYIQ = (hexcolor: string) => {
   return yiq >= 128 ? "#1e293b" : "#ffffff";
 };
 
-// --- CATEGORY MENU (NEW) ---
+// --- CATEGORY MENU ---
 const CategoryMenu = ({
   tab,
   workspaceId,
@@ -101,6 +101,8 @@ const CategoryMenu = ({
     locked: boolean
   ) => {
     onClose();
+    let updated = false;
+
     if (!workspaceId) {
       // Inbox
       const ref = doc(db, "inbox_data", "global");
@@ -122,6 +124,7 @@ const CategoryMenu = ({
             tabs[idx].aiData = { status: "pending", isLocked: false };
           }
           await updateDoc(ref, { tabs });
+          updated = true;
         }
       }
     } else {
@@ -150,8 +153,13 @@ const CategoryMenu = ({
             tabs[idx].aiData = { status: "pending", isLocked: false };
           }
           await updateDoc(ref, { tabs });
+          updated = true;
         }
       }
+    }
+
+    if (updated && !newCategory && !locked) {
+      chrome.runtime.sendMessage({ type: "TRIGGER_AI_SORT" });
     }
   };
 
@@ -778,12 +786,20 @@ const TabItem = React.memo(
           draggable={true}
           onDragStart={(e) => {
             e.dataTransfer.setData("nexus/tab", "true");
+
+            // --- CRITICAL FIX: Sørg for at UID og ID er med! ---
+            const tabData = {
+              ...tab,
+              id: tab.id, // Fysisk Chrome ID
+              uid: tab.uid || crypto.randomUUID(), // Sikr at UID findes
+              sourceWorkspaceId: sourceWorkspaceId,
+            };
+
+            console.log("🔥 Drag Start Data:", tabData);
+
             window.sessionStorage.setItem(
               "draggedTab",
-              JSON.stringify({
-                ...tab,
-                sourceWorkspaceId: sourceWorkspaceId,
-              })
+              JSON.stringify(tabData)
             );
             if (onDragStart) onDragStart();
           }}
@@ -927,10 +943,6 @@ export const Dashboard = () => {
   const hasLoadedUrlParams = useRef(false);
   const rootDragCounter = useRef(0);
   const inboxDragCounter = useRef(0);
-
-  // ... (useMemo / useCallback / useEffect hooks er uændrede) ...
-  // JEG KOPIERER DEM IKKE IND IGEN FOR AT SPARE PLADS, MEN DE SKAL VÆRE HER
-  // (Brugeren copy-paster, så jeg må hellere inkludere det hele alligevel for sikkerheds skyld)
 
   const filteredRootItems = useMemo(
     () =>
@@ -1172,13 +1184,21 @@ export const Dashboard = () => {
           targetWorkspaceId === "global" ? "global" : "unknown"
         );
 
-        // VIGTIGT: Send tab ID med hvis muligt for at sikre lukning
+        // VIGTIG RETTELSE: SIKR AT DATA SENDES KORREKT TIL BACKGROUND
+        const uidsToSend = tab.uid ? [tab.uid] : [];
+        const idsToSend = tab.id ? [tab.id] : [];
+
+        console.log("🔥 Sending CLOSE_PHYSICAL_TABS:", {
+          uids: uidsToSend,
+          ids: idsToSend,
+        });
+
         chrome.runtime.sendMessage({
           type: "CLOSE_PHYSICAL_TABS",
           payload: {
-            urls: [cleanTab.url],
+            uids: uidsToSend,
             internalWindowId: strictSourceId,
-            tabIds: tab.id ? [tab.id] : undefined,
+            tabIds: idsToSend,
           },
         });
       } finally {
@@ -1229,13 +1249,21 @@ export const Dashboard = () => {
             });
           }
         } else {
-          // VIGTIGT: Send tab ID med hvis muligt
+          // VIGTIG RETTELSE: SIKR AT DATA SENDES KORREKT TIL BACKGROUND
+          const uidsToSend = tab.uid ? [tab.uid] : [];
+          const idsToSend = tab.id ? [tab.id] : [];
+
+          console.log("🔥 Sending CLOSE_PHYSICAL_TABS (TabDrop):", {
+            uids: uidsToSend,
+            ids: idsToSend,
+          });
+
           chrome.runtime.sendMessage({
             type: "CLOSE_PHYSICAL_TABS",
             payload: {
-              urls: [tab.url],
+              uids: uidsToSend,
               internalWindowId: strictSourceId,
-              tabIds: tab.id ? [tab.id] : undefined,
+              tabIds: idsToSend,
             },
           });
         }
@@ -1263,12 +1291,15 @@ export const Dashboard = () => {
             ? "global"
             : selectedWindowId!;
 
+        const uidsToSend = tab.uid ? [tab.uid] : [];
+        const idsToSend = tab.id ? [tab.id] : [];
+
         chrome.runtime.sendMessage({
           type: "CLOSE_PHYSICAL_TABS",
           payload: {
-            uids: [tab.uid],
+            uids: uidsToSend,
             internalWindowId: sId,
-            tabIds: tab.id ? [tab.id] : undefined, // Sikrer fysisk sletning
+            tabIds: idsToSend, // Sikrer fysisk sletning
           },
         });
 
@@ -1281,8 +1312,6 @@ export const Dashboard = () => {
     },
     [viewMode, selectedWindowId, selectedWorkspace]
   );
-
-  // ... (resten af handle-funktioner) ...
 
   const handleTabSelect = useCallback((tab: any) => {
     const idToSelect = tab.uid;
@@ -1298,7 +1327,6 @@ export const Dashboard = () => {
       id === currentWindowId && m.internalWindowId === selectedWindowId
   );
 
-  // ... (renderedTabs memo) ...
   const renderedTabs = useMemo(() => {
     let list: any[] = [];
 
@@ -1353,7 +1381,6 @@ export const Dashboard = () => {
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-200 overflow-hidden font-sans relative">
-      {/* ... (loader og sidebar) ... */}
       {restorationStatus && (
         <div className="absolute inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center flex-col gap-4">
           <Loader2 size={64} className="text-blue-500 animate-spin" />
@@ -1364,7 +1391,6 @@ export const Dashboard = () => {
       )}
 
       <aside className="w-96 border-r border-slate-700 bg-slate-800 flex flex-col shrink-0 shadow-2xl z-20">
-        {/* ... (sidebar content - copy/paste fra tidligere hvis du vil, men her er den forkortet for overblik) ... */}
         <div className="p-6 border-b border-slate-700 font-black text-white text-xl uppercase tracking-tighter flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center">
             N
@@ -1397,7 +1423,6 @@ export const Dashboard = () => {
             </button>
           </div>
 
-          {/* ... (Resten af sidebar nav logic er uændret - se tidligere fil for full content) ... */}
           <nav className="space-y-4">
             {activeDragId && (
               <div
@@ -1609,7 +1634,6 @@ export const Dashboard = () => {
       </aside>
 
       <main className="flex-1 flex flex-col bg-slate-900 relative">
-        {/* ... (Main Content - se tidligere fil, kun slet knap i vinduer er opdateret) ... */}
         {isProcessingMove && (
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center">
             <Loader2 className="animate-spin text-blue-500" size={48} />
@@ -1621,7 +1645,6 @@ export const Dashboard = () => {
         viewMode === "incognito" ? (
           <>
             <header className="p-8 pb-4 flex justify-between items-end border-b border-slate-800 bg-slate-800/30">
-              {/* ... (Header content) ... */}
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
                   <h2 className="text-4xl font-bold text-white tracking-tight flex items-center gap-3">
@@ -1694,7 +1717,6 @@ export const Dashboard = () => {
                           >
                             <ExternalLink size={20} />
                           </button>
-                          {/* SLET KNAP HERUNDER ER OPDATERET */}
                           <button
                             onClick={async (e) => {
                               e.stopPropagation();
@@ -1787,11 +1809,14 @@ export const Dashboard = () => {
                             ? "global"
                             : selectedWindowId;
 
+                        const uidsToSend = selectedUrls;
+
                         chrome.runtime.sendMessage({
                           type: "CLOSE_PHYSICAL_TABS",
                           payload: {
-                            uids: selectedUrls,
+                            uids: uidsToSend,
                             internalWindowId: sId,
+                            tabIds: [], // Tom array, da vi sletter via UID
                           },
                         });
 

@@ -43,10 +43,13 @@ let lastDashboardTime = 0;
 let activeWindows = new Map<number, WinMapping>();
 const lockedWindowIds = new Set<number>();
 
-// ANTI-SPAM
+// ANTI-SPAM & TRACKING
 const openingWorkspaces = new Set<string>();
 const recentQueueAdds = new Set<string>();
 const currentlyProcessing = new Set<string>();
+
+// Track tabs that are currently being moved by the system to prevent double-add
+const isMovingUid = new Set<string>();
 
 let tabTracker = new Map<number, TrackerData>();
 
@@ -117,6 +120,7 @@ async function saveActiveWindowsToStorage() {
 }
 
 async function loadAndVerifyWindows() {
+  console.log("🔥 Loading and verifying windows...");
   try {
     const data = await chrome.storage.local.get("nexus_active_windows");
     if (
@@ -152,6 +156,7 @@ async function loadAndVerifyWindows() {
 }
 
 async function rebuildTabTracker() {
+  console.log("🔥 Rebuilding Tab Tracker...");
   try {
     const allWindows = await chrome.windows.getAll();
     const unmappedWindows = allWindows.filter(
@@ -215,6 +220,7 @@ async function rebuildTabTracker() {
         }
       }
     }
+    console.log(`🔥 Tab Tracker Rebuilt. Tracking ${tabTracker.size} tabs.`);
   } catch (e) {
     console.error("Error rebuilding tab tracker:", e);
   }
@@ -328,7 +334,6 @@ async function processAiQueue() {
     const item = queue[0];
 
     if (currentlyProcessing.has(item.uid)) {
-      console.log("🔒 Skipping duplicate execution for:", item.title);
       return;
     }
     currentlyProcessing.add(item.uid);
@@ -342,9 +347,6 @@ async function processAiQueue() {
     try {
       await chrome.tabs.get(item.tabId);
     } catch (e) {
-      console.log(
-        `🚫 Tab ${item.tabId} seems closed. Removing from AI queue to save tokens.`
-      );
       await cleanupQueueItem(item.uid);
       return;
     }
@@ -364,14 +366,13 @@ async function processAiQueue() {
     );
 
     if (result) {
-      console.log(`✅ AI Categorized: ${result.category}`);
       const aiData = {
         status: "completed",
         category: result.category,
         confidence: result.confidence,
         reasoning: result.reasoning,
         lastChecked: Date.now(),
-        isLocked: false, // Default: Ikke låst
+        isLocked: false,
       };
 
       let handled = false;
@@ -393,16 +394,10 @@ async function processAiQueue() {
             if (winSnap.exists()) {
               const tabs = winSnap.data().tabs || [];
               const idx = tabs.findIndex((t: any) => t.uid === item.uid);
-              // LOCK CHECK: Overskriv kun hvis ikke låst
               if (idx !== -1 && !tabs[idx].aiData?.isLocked) {
                 tabs[idx].aiData = aiData;
                 await updateDoc(winRef, { tabs });
-                console.log(
-                  `💾 Space Firestore updated! (${mapping.workspaceName})`
-                );
                 handled = true;
-              } else if (idx !== -1 && tabs[idx].aiData?.isLocked) {
-                console.log("🔒 Tab is locked. Skipping AI update.");
               }
             }
           }
@@ -417,18 +412,12 @@ async function processAiQueue() {
         if (inboxSnap.exists()) {
           const tabs = inboxSnap.data().tabs || [];
           const idx = tabs.findIndex((t: any) => t.uid === item.uid);
-          // LOCK CHECK
           if (idx !== -1 && !tabs[idx].aiData?.isLocked) {
             tabs[idx].aiData = aiData;
             await updateDoc(inboxRef, { tabs });
-            console.log("💾 Inbox Firestore updated!");
-          } else if (idx !== -1 && tabs[idx].aiData?.isLocked) {
-            console.log("🔒 Tab is locked. Skipping AI update.");
           }
         }
       }
-    } else {
-      console.log("⚠️ AI Analysis failed or returned null");
     }
 
     await cleanupQueueItem(item.uid);
@@ -471,8 +460,6 @@ async function addToAiQueue(items: QueueItem[]) {
       return;
     }
 
-    console.log(`📥 Adding ${newItems.length} items to AI Queue`);
-
     newItems.forEach((i) => {
       recentQueueAdds.add(i.uid);
       setTimeout(() => recentQueueAdds.delete(i.uid), 10000);
@@ -498,11 +485,11 @@ function getOrAssignUid(tabId: number, url: string): string {
   }
   const newUid = crypto.randomUUID();
   tabTracker.set(tabId, { uid: newUid, url });
+  console.log(`🔥 Assigned new UID for tab ${tabId}: ${newUid}`);
   return newUid;
 }
 
 // --- STANDARD LOGIC ---
-// BEMÆRK: Tab Group Logik er FJERNET herfra!
 
 async function registerNewInboxWindow(windowId: number) {
   if (activeRestorations > 0) return;
@@ -516,6 +503,13 @@ async function registerNewInboxWindow(windowId: number) {
 
   for (const t of tabs) {
     if (t.id && t.url && !isDash(t.url) && !t.url.startsWith("chrome")) {
+      // Check if this UID is currently being moved manually to avoid duplicates
+      const tracked = tabTracker.get(t.id);
+      if (tracked && isMovingUid.has(tracked.uid)) {
+        console.log(`🔥 Skipping auto-add of moved UID: ${tracked.uid}`);
+        continue;
+      }
+
       const uid = getOrAssignUid(t.id, t.url);
       if (!currentTabs.some((ct: any) => ct.uid === uid)) {
         tabsToAdd.push({
@@ -531,6 +525,7 @@ async function registerNewInboxWindow(windowId: number) {
   }
 
   if (tabsToAdd.length > 0) {
+    console.log(`🔥 Registering ${tabsToAdd.length} new tabs to Inbox`);
     await updateDoc(inboxDocRef, {
       tabs: [...currentTabs, ...tabsToAdd],
       lastUpdate: serverTimestamp(),
@@ -586,19 +581,18 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
         if (t.id && t.url && !t.url.startsWith("chrome") && !isDash(t.url)) {
           const uid = getOrAssignUid(t.id, t.url);
 
+          // Check if being moved
+          if (isMovingUid.has(uid)) {
+            console.log(`🔥 Skipping save of moving UID in workspace: ${uid}`);
+          }
+
           let aiData = existingAiData.get(uid) || { status: "pending" };
           const oldUrl = existingUrls.get(uid);
 
           if (oldUrl && oldUrl !== t.url) {
-            // Hvis tabben er låst, skal vi IKKE resette AI, men beholde data
             if (!aiData.isLocked) {
-              console.log(
-                `🔄 URL changed in Space (uid: ${uid}). Resetting AI.`
-              );
               aiData = { status: "pending" };
               recentQueueAdds.delete(uid);
-            } else {
-              console.log(`🔒 URL changed, but AI Data is LOCKED. Keeping it.`);
             }
           }
 
@@ -606,7 +600,6 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
             (aiData.status === "pending" || !aiData.status) &&
             !aiData.isLocked
           ) {
-            console.log("🤖 Queuing Space tab for AI:", t.title);
             tabsToQueue.push({
               uid,
               url: t.url,
@@ -627,8 +620,6 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
           });
         }
       }
-
-      // INGEN updateWindowGrouping HER MERE!
 
       if (validTabs.length === 0 && isRemoval) {
         await deleteDoc(docRef);
@@ -657,11 +648,22 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
   if (activeRestorations > 0) return;
 
   if (change.status === "complete" && tab.windowId) {
+    // Hvis vinduet er et Space
     if (activeWindows.has(tab.windowId)) {
       saveToFirestore(tab.windowId, false);
-    } else if (!tab.url?.startsWith("chrome") && !isDash(tab.url)) {
+    }
+    // Hvis det er et "frit" vindue (Inbox)
+    else if (!tab.url?.startsWith("chrome") && !isDash(tab.url)) {
       const url = tab.url || "";
       const uid = getOrAssignUid(tabId, url);
+
+      // Check om den er ved at blive flyttet manuelt (ANTI-DOUBLE ADD)
+      if (isMovingUid.has(uid)) {
+        console.log(
+          `🔥 onUpdated ignored for UID ${uid} because it is being moved.`
+        );
+        return;
+      }
 
       const inboxRef = doc(db, "inbox_data", "global");
       const snap = await getDoc(inboxRef);
@@ -673,6 +675,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
         let needsUpdate = false;
 
         if (idx !== -1) {
+          // Opdater eksisterende
           const oldUrl = tabs[idx].url;
           const oldTitle = tabs[idx].title;
 
@@ -690,6 +693,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
             }
           }
         } else {
+          // Ny fane opdaget
+          console.log(`🔥 New Inbox tab detected via onUpdated: ${tab.title}`);
           tabs.push({
             uid: uid,
             title: tab.title || "Ny Fane",
@@ -708,13 +713,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
           });
 
           const currentTab = idx !== -1 ? tabs[idx] : tabs[tabs.length - 1];
-          // Tjek også isLocked her
           if (
             currentTab.aiData?.status !== "completed" &&
             currentTab.aiData?.status !== "processing" &&
             !currentTab.aiData?.isLocked
           ) {
-            console.log("🤖 Attempting to queue AI for Inbox tab:", tab.title);
             addToAiQueue([
               {
                 uid: uid,
@@ -738,10 +741,29 @@ chrome.tabs.onRemoved.addListener(async (tabId, info) => {
   const tracked = tabTracker.get(tabId);
   tabTracker.delete(tabId);
 
+  // Hvis vi fjerner en fane, skal vi sikre os, at vi ikke tror den flyttes længere,
+  // hvis den blev slettet manuelt. Men hvis systemet sletter den som del af move,
+  // er det fint.
+  if (tracked && isMovingUid.has(tracked.uid)) {
+    console.log(
+      `🔥 Tab ${tracked.uid} removed physically. Still marked as moving.`
+    );
+  }
+
   if (activeWindows.has(info.windowId)) {
     if (!info.isWindowClosing) saveToFirestore(info.windowId, true);
   } else {
+    // Inbox removal logic
     if (tracked && !info.isWindowClosing) {
+      // Hvis den er markeret som moving, skal vi IKKE fjerne den fra inbox her!
+      // Det håndterer move-logikken.
+      if (isMovingUid.has(tracked.uid)) {
+        console.log(
+          `🔥 Tab ${tracked.uid} removed, but preserved in DB (moving).`
+        );
+        return;
+      }
+
       const inboxRef = doc(db, "inbox_data", "global");
       const snap = await getDoc(inboxRef);
       if (snap.exists()) {
@@ -749,6 +771,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, info) => {
         let tabs: TabData[] = data.tabs || [];
         const newTabs = tabs.filter((t) => t.uid !== tracked.uid);
         if (newTabs.length !== tabs.length) {
+          console.log(`🔥 Removing tab ${tracked.uid} from Inbox DB`);
           await updateDoc(inboxRef, {
             tabs: newTabs,
             lastUpdate: serverTimestamp(),
@@ -761,7 +784,6 @@ chrome.tabs.onRemoved.addListener(async (tabId, info) => {
 
 chrome.windows.onCreated.addListener(async (win) => {
   if (activeRestorations > 0) return;
-
   if (win.id && !activeWindows.has(win.id)) {
     setTimeout(() => registerNewInboxWindow(win.id!), 1000);
   }
@@ -809,12 +831,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const { type, payload } = msg;
 
   if (type === "DELETE_AND_CLOSE_WINDOW") {
+    // ... (uændret logik her) ...
     const { workspaceId, internalWindowId } = payload;
-    console.log(
-      `🗑️ Deleting window ${internalWindowId} from workspace ${workspaceId}`
-    );
-
-    // 1. Find det fysiske ID først
     let physicalId = null;
     for (const [pId, map] of activeWindows.entries()) {
       if (
@@ -825,8 +843,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
     }
-
-    // 2. Slet fra databasen
     const docRef = doc(
       db,
       "workspaces_data",
@@ -836,47 +852,46 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     );
     deleteDoc(docRef)
       .then(async () => {
-        // 3. Luk fysisk vindue, hvis det findes
         if (physicalId) {
-          console.log(`🪟 Closing physical window: ${physicalId}`);
-          activeWindows.delete(physicalId); // VIGTIGT: Fjern fra map før lukning
+          activeWindows.delete(physicalId);
           await saveActiveWindowsToStorage();
           await chrome.windows.remove(physicalId).catch(() => {});
         }
       })
       .catch((e) => console.error("Error deleting window:", e));
-
     return true;
   }
 
   if (type === "TRIGGER_AI_SORT") {
-    console.log("🖱️ TRIGGER_AI_SORT received from UI");
+    console.log("🖱️ TRIGGER_AI_SORT received");
     getDoc(doc(db, "inbox_data", "global")).then(async (snap) => {
       if (snap.exists()) {
         const tabs = (snap.data().tabs || []) as TabData[];
         const queueItems: QueueItem[] = [];
-
         for (const t of tabs) {
-          if (t.aiData?.status === "completed") continue;
-          let physId = -1;
-          for (const [pid, data] of tabTracker.entries()) {
-            if (data.uid === t.uid) {
-              physId = pid;
-              break;
+          if (
+            (t.aiData?.status === "pending" || !t.aiData?.status) &&
+            !t.aiData?.isLocked
+          ) {
+            let physId = -1;
+            for (const [pid, data] of tabTracker.entries()) {
+              if (data.uid === t.uid) {
+                physId = pid;
+                break;
+              }
+            }
+            if (physId !== -1) {
+              queueItems.push({
+                uid: t.uid,
+                url: t.url,
+                title: t.title,
+                tabId: physId,
+                attempts: 0,
+                workspaceName: "Inbox",
+              });
             }
           }
-          if (physId !== -1) {
-            queueItems.push({
-              uid: t.uid,
-              url: t.url,
-              title: t.title,
-              tabId: physId,
-              attempts: 0,
-              workspaceName: "Inbox",
-            });
-          }
         }
-
         if (queueItems.length > 0) {
           addToAiQueue(queueItems);
           sendResponse({ success: true, count: queueItems.length });
@@ -887,6 +902,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     });
     return true;
   }
+
+  // ... (andre handlers uændret) ...
 
   if (type === "GET_WINDOW_NAME") {
     const mapping = activeWindows.get(payload.windowId);
@@ -923,14 +940,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (type === "OPEN_WORKSPACE") {
-    if (openingWorkspaces.has(payload.workspaceId)) {
-      console.warn(
-        "⚠️ Already opening this workspace, skipping duplicate request."
-      );
-      return true;
-    }
+    if (openingWorkspaces.has(payload.workspaceId)) return true;
     openingWorkspaces.add(payload.workspaceId);
-
     handleOpenWorkspace(
       payload.workspaceId,
       payload.windows,
@@ -957,7 +968,32 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     handleCreateNewWindowInWorkspace(payload.workspaceId, payload.name);
 
   if (type === "CLOSE_PHYSICAL_TABS") {
-    handleClosePhysicalTabs(payload.uids);
+    const { uids, tabIds } = payload;
+    console.log(
+      "🔥 MSG: CLOSE_PHYSICAL_TABS received.",
+      "UIDs:",
+      uids,
+      "IDs:",
+      tabIds
+    );
+
+    // Marker UIDs som 'moving', så onUpdated/onRemoved ikke går amok
+    if (uids && Array.isArray(uids)) {
+      uids.forEach((uid: string) => isMovingUid.add(uid));
+      // Frigiv låsen efter lidt tid for en sikkerheds skyld
+      setTimeout(() => {
+        uids.forEach((uid: string) => isMovingUid.delete(uid));
+      }, 5000);
+    }
+
+    handleClosePhysicalTabs(uids, tabIds)
+      .then(() => sendResponse({ success: true }))
+      .catch((err) => {
+        console.error("Failed closing physical tabs", err);
+        sendResponse({ success: false });
+      });
+
+    return true; // VIGTIGT: Hold kanalen åben for async response
   }
 
   if (type === "CLAIM_WINDOW") {
@@ -980,6 +1016,45 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 });
 
 // --- HELPERS ---
+
+async function handleClosePhysicalTabs(
+  uids: string[],
+  tabIds?: number[] | undefined
+) {
+  // Prøv med fysiske IDs først (meget sikrere)
+  if (tabIds && tabIds.length > 0) {
+    console.log("🔥 Closing explicit physical tabs:", tabIds);
+    await chrome.tabs
+      .remove(tabIds)
+      .catch((e) => console.warn("Could not remove tabs by ID:", e));
+    tabIds.forEach((tid) => tabTracker.delete(tid));
+    return;
+  }
+
+  // Fallback til UIDs via tracker
+  if (!uids || uids.length === 0) {
+    console.log("🔥 No UIDs or IDs provided to close.");
+    return;
+  }
+
+  console.log("🔥 Closing tabs by UID lookup:", uids);
+  const tabsToRemove: number[] = [];
+
+  for (const [chromeTabId, data] of tabTracker.entries()) {
+    if (uids.includes(data.uid)) {
+      console.log(`🔥 Matched UID ${data.uid} -> TabID ${chromeTabId}`);
+      tabsToRemove.push(chromeTabId);
+    }
+  }
+
+  if (tabsToRemove.length > 0) {
+    await chrome.tabs.remove(tabsToRemove).catch((e) => console.warn(e));
+  } else {
+    console.log("🔥 No matching physical tabs found in tracker for UIDs.");
+  }
+}
+
+// ... (resten af helpers uændret: handleOpenWorkspace, etc.) ...
 async function handleOpenWorkspace(
   workspaceId: string,
   windowsToOpen: any[],
@@ -1066,8 +1141,6 @@ async function handleOpenSpecificWindow(
       activeWindows.set(winId, mapping);
       await saveActiveWindowsToStorage();
 
-      // INGEN updateWindowGrouping HER!
-
       if (urls.length > 0) {
         await waitForWindowToLoad(winId);
       }
@@ -1105,7 +1178,6 @@ async function handleCreateNewWindowInWorkspace(
       };
       activeWindows.set(winId, mapping);
       await saveActiveWindowsToStorage();
-      // INGEN updateWindowGrouping HER!
       await saveToFirestore(winId, false);
     }
   } finally {
@@ -1145,7 +1217,6 @@ async function handleForceSync(windowId: number) {
         if (tab.id && !isDash(tab.url) && !tab.pinned)
           await chrome.tabs.remove(tab.id);
       }
-      // INGEN updateWindowGrouping HER!
     }
   } finally {
     await waitForWindowToLoad(windowId);
@@ -1153,27 +1224,6 @@ async function handleForceSync(windowId: number) {
     activeRestorations--;
     saveToFirestore(windowId, false);
     if (activeRestorations === 0) updateRestorationStatus("");
-  }
-}
-
-async function handleClosePhysicalTabs(uids: string[]) {
-  if (!uids || uids.length === 0) return;
-
-  const tabsToRemove: number[] = [];
-
-  for (const [chromeTabId, data] of tabTracker.entries()) {
-    if (uids.includes(data.uid)) {
-      try {
-        await chrome.tabs.get(chromeTabId);
-        tabsToRemove.push(chromeTabId);
-      } catch (e) {
-        tabTracker.delete(chromeTabId);
-      }
-    }
-  }
-
-  if (tabsToRemove.length > 0) {
-    await chrome.tabs.remove(tabsToRemove);
   }
 }
 
