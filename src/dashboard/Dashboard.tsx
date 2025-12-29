@@ -248,7 +248,7 @@ const ReasoningModal = ({
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white outline-none"
+            className="text-slate-400 hover:text-white outline-none cursor-pointer"
           >
             <X size={24} />
           </button>
@@ -1114,7 +1114,6 @@ export const Dashboard = () => {
       setIsProcessingMove(true);
       if (targetItem === "global") setIsInboxSyncing(true);
 
-      // FORCE PENDING STATUS
       const cleanTab = {
         uid: tab.uid || crypto.randomUUID(),
         title: tab.title,
@@ -1336,19 +1335,38 @@ export const Dashboard = () => {
           }
         }
 
-        // 2. FYSISK HANDLING (KUN HVIS BEGGE ÅBNE)
-        if (sourceMapping && targetMapping) {
-          const tabs = await chrome.tabs.query({ windowId: sourceMapping[0] });
-          const targetTab = tabs.find((t) => t.url === tab.url);
-          if (targetTab?.id) {
-            await chrome.tabs.move(targetTab.id, {
-              windowId: targetMapping[0],
-              index: -1,
+        // 2. FYSISK HANDLING
+        if (targetMapping) {
+          // Target vinduet er åbent (Fysisk)
+          const targetPhysicalId = targetMapping[0];
+
+          if (sourceMapping) {
+            // Kilden er OGSÅ åben -> Flyt fanen
+            const tabs = await chrome.tabs.query({
+              windowId: sourceMapping[0],
             });
-            await chrome.tabs.update(targetTab.id, { active: true }); // Make active
+            const targetTab = tabs.find((t) => t.url === tab.url);
+            if (targetTab?.id) {
+              await chrome.tabs.move(targetTab.id, {
+                windowId: targetPhysicalId,
+                index: -1,
+              });
+              await chrome.tabs.update(targetTab.id, { active: true });
+            }
+          } else {
+            // Kilden er LUKKET (eller virtuel) -> Opret ny fane
+            console.log(
+              "🕵️‍♂️ Source closed/virtual -> Creating NEW tab in target"
+            );
+            await chrome.tabs.create({
+              windowId: targetPhysicalId,
+              url: cleanTab.url,
+              active: true, // Den bliver aktiv i vinduet
+            });
           }
         } else if (writtenToDB) {
-          // LUK GAMMEL FYSISK (hvis den findes og vi har skrevet til DB)
+          // Target er lukket, vi har skrevet til DB.
+          // Luk nu bare kilden (hvis den er åben).
           const uidsToSend = tab.uid ? [tab.uid] : [];
           const idsToSend = tab.id ? [tab.id] : [];
           chrome.runtime.sendMessage(
