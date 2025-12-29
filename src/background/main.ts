@@ -48,11 +48,7 @@ const openingWorkspaces = new Set<string>();
 const recentQueueAdds = new Set<string>();
 const currentlyProcessing = new Set<string>();
 
-// GHOST BUSTING STATE
-const expectedTabs = new Map<string, string>();
-const recentlyMovedUids = new Set<string>();
-const blockedUrls = new Set<string>();
-
+// TAB TRACKING (Simple Map, no blocking logic)
 let tabTracker = new Map<number, TrackerData>();
 
 let globalState = {
@@ -425,32 +421,19 @@ async function addToAiQueue(items: QueueItem[]) {
 }
 
 // --- HELPER: getOrAssignUid ---
+// SIMPLIFIED: No blocking checks anymore
 function getOrAssignUid(tabId: number, url: string): string {
   const tracked = tabTracker.get(tabId);
+
   if (tracked) {
+    // If URL changed on the same physical tab, just update the tracker
     if (tracked.url !== url) {
       tabTracker.set(tabId, { uid: tracked.uid, url });
     }
     return tracked.uid;
   }
 
-  // --- GHOST BUSTER ---
-  if (expectedTabs.has(url)) {
-    const expectedUid = expectedTabs.get(url)!;
-    console.log(`👻 GHOST BUSTER MATCH: ${url} -> ${expectedUid}`);
-    tabTracker.set(tabId, { uid: expectedUid, url });
-    expectedTabs.delete(url);
-
-    recentlyMovedUids.add(expectedUid);
-    blockedUrls.add(url);
-    setTimeout(() => {
-      recentlyMovedUids.delete(expectedUid);
-      blockedUrls.delete(url);
-    }, 8000);
-
-    return expectedUid;
-  }
-
+  // Assign NEW UID if completely unknown
   const newUid = crypto.randomUUID();
   tabTracker.set(tabId, { uid: newUid, url });
   console.log(`🔥 Assigned NEW UID for tab ${tabId}: ${newUid}`);
@@ -470,11 +453,7 @@ async function registerNewInboxWindow(windowId: number) {
   for (const t of tabs) {
     if (t.id && t.url && !isDash(t.url) && !t.url.startsWith("chrome")) {
       const uid = getOrAssignUid(t.id, t.url);
-
-      if (recentlyMovedUids.has(uid) || blockedUrls.has(t.url)) {
-        console.log(`🛑 RegisterBlocked: ${uid}`);
-        continue;
-      }
+      // No more blocking checks here
 
       if (!currentTabs.some((ct: any) => ct.uid === uid)) {
         tabsToAdd.push({
@@ -497,13 +476,11 @@ async function registerNewInboxWindow(windowId: number) {
   }
 }
 
-// NY: tilføjet 'force' parameter
 async function saveToFirestore(
   windowId: number,
   isRemoval: boolean = false,
   force: boolean = false
 ) {
-  // Hvis det ikke er tvunget, så tjek låse
   if (!force && (lockedWindowIds.has(windowId) || activeRestorations > 0))
     return;
 
@@ -542,12 +519,11 @@ async function saveToFirestore(
           let aiData = existingAiData.get(uid) || { status: "pending" };
 
           if (tabsToQueue.some((q) => q.uid === uid)) {
-            // Allerede i kø
+            // Already queued
           } else if (
             (aiData.status === "pending" || !aiData.status) &&
             !aiData.isLocked
           ) {
-            console.log(`🤖 saveToFirestore found PENDING tab: ${t.title}`);
             tabsToQueue.push({
               uid,
               url: t.url,
@@ -587,6 +563,7 @@ async function saveToFirestore(
   }
 }
 
+// --- onUpdated: CLEANED ---
 chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
   if (activeRestorations > 0) return;
 
@@ -597,12 +574,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
       const url = tab.url || "";
       const uid = getOrAssignUid(tabId, url);
 
-      if (recentlyMovedUids.has(uid) || blockedUrls.has(url)) {
-        console.log(`🛡️ onUpdated BLOCKED for ${uid}`);
-        return;
-      }
-
-      console.log(`📥 onUpdated adding to Inbox: ${uid}`);
+      // NO BLOCKING CHECKS HERE ANYMORE
+      console.log(`📥 onUpdated adding/updating Inbox: ${uid}`);
 
       const inboxRef = doc(db, "inbox_data", "global");
       const snap = await getDoc(inboxRef);
@@ -617,9 +590,14 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
           tabs[idx].url = url;
           tabs[idx].title = tab.title || "Ny Fane";
           tabs[idx].favIconUrl = tab.favIconUrl || "";
+
+          // CRITICAL FIX: Always update AI status on URL change
           if (oldUrl !== url || tabs[idx].title !== tab.title) {
             needsUpdate = true;
             if (oldUrl !== url && !tabs[idx].aiData?.isLocked) {
+              console.log(
+                `🔄 URL Changed for ${uid}. Resetting AI status to PENDING.`
+              );
               tabs[idx].aiData = { status: "pending" };
             }
           }
@@ -639,13 +617,14 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
           await updateDoc(inboxRef, { tabs, lastUpdate: serverTimestamp() });
         }
 
+        // Fetch fresh to trigger queue
         const freshTabs = (await getDoc(inboxRef)).data()?.tabs || [];
         const currentTab = freshTabs.find((t: any) => t.uid === uid);
 
         if (
           currentTab &&
-          currentTab.aiData?.status !== "completed" &&
-          currentTab.aiData?.status !== "processing" &&
+          (currentTab.aiData?.status === "pending" ||
+            !currentTab.aiData?.status) &&
           !currentTab.aiData?.isLocked
         ) {
           console.log(`📥 onUpdated triggering AI for pending tab: ${uid}`);
@@ -665,6 +644,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
   }
 });
 
+// --- onRemoved: CLEANED ---
 chrome.tabs.onRemoved.addListener(async (tabId, info) => {
   if (activeRestorations > 0) return;
   const tracked = tabTracker.get(tabId);
@@ -673,11 +653,10 @@ chrome.tabs.onRemoved.addListener(async (tabId, info) => {
   if (activeWindows.has(info.windowId)) {
     if (!info.isWindowClosing) saveToFirestore(info.windowId, true);
   } else {
+    // CLEAN: Removed the recentlyMoved check. We always process removals.
+    // Logic: If user moved tab via DragNDrop, the Frontend handles the DB removal manually first.
+    // If we handle it here again, it's just a redundant check or no-op since UID is already gone.
     if (tracked && !info.isWindowClosing) {
-      if (recentlyMovedUids.has(tracked.uid)) {
-        console.log(`🛑 onRemoved IGNORERET for ${tracked.uid} (Moved)`);
-        return;
-      }
       const inboxRef = doc(db, "inbox_data", "global");
       const snap = await getDoc(inboxRef);
       if (snap.exists()) {
@@ -743,20 +722,7 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const { type, payload } = msg;
 
-  if (type === "EXPECT_TAB") {
-    const { uid, url } = payload;
-    console.log(`🔥 EXPECT_TAB: ${url} -> ${uid}`);
-    expectedTabs.set(url, uid);
-    recentlyMovedUids.add(uid);
-    blockedUrls.add(url);
-    setTimeout(() => {
-      recentlyMovedUids.delete(uid);
-      blockedUrls.delete(url);
-      expectedTabs.delete(url);
-    }, 8000);
-    sendResponse({ success: true });
-    return false;
-  }
+  // REMOVED: EXPECT_TAB case
 
   if (type === "DELETE_AND_CLOSE_WINDOW") {
     const { workspaceId, internalWindowId } = payload;

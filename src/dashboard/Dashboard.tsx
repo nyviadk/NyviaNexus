@@ -1138,13 +1138,7 @@ export const Dashboard = () => {
         `🕵️‍♂️ Dropping Tab ${cleanTab.uid} (${cleanTab.url}) to ${targetWorkspaceId}`
       );
 
-      chrome.runtime.sendMessage(
-        {
-          type: "EXPECT_TAB",
-          payload: { url: cleanTab.url, uid: cleanTab.uid },
-        },
-        () => console.log("📡 EXPECT_TAB ack received")
-      );
+      // Removed EXPECT_TAB call
 
       try {
         let updateSuccess = false;
@@ -1313,13 +1307,7 @@ export const Dashboard = () => {
           aiData: { status: "pending" }, // FORCE RECALC
         };
 
-        chrome.runtime.sendMessage(
-          {
-            type: "EXPECT_TAB",
-            payload: { url: cleanTab.url, uid: cleanTab.uid },
-          },
-          () => {}
-        );
+        // Removed EXPECT_TAB call
 
         let writtenToDB = false;
 
