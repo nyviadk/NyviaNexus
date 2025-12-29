@@ -1120,13 +1120,13 @@ export const Dashboard = () => {
         url: tab.url,
         favIconUrl: tab.favIconUrl,
         isIncognito: false,
+        aiData: { status: "pending" }, // FORCE RECALC
       };
 
       console.log(
         `🕵️‍♂️ Dropping Tab ${cleanTab.uid} (${cleanTab.url}) to ${targetWorkspaceId}`
       );
 
-      // Send besked til background om at vi forventer denne URL -> UID mapping
       chrome.runtime.sendMessage(
         {
           type: "EXPECT_TAB",
@@ -1138,14 +1138,13 @@ export const Dashboard = () => {
       try {
         let updateSuccess = false;
 
-        // 1. ADD TO TARGET DB
+        // 1. ADD TO TARGET DB (MANUAL & ATOMIC)
         if (targetWorkspaceId === "global") {
           console.log("📥 Target is Global Inbox");
           const snap = await getDoc(doc(db, "inbox_data", "global"));
           const currentTabs = snap.exists() ? snap.data().tabs || [] : [];
 
           if (!currentTabs.some((t: any) => t.uid === cleanTab.uid)) {
-            console.log("💾 Writing to Inbox DB...");
             await setDoc(
               doc(db, "inbox_data", "global"),
               {
@@ -1169,20 +1168,12 @@ export const Dashboard = () => {
             targetInternalId = firstWin.id;
 
             const existingTabs = (firstWin.data().tabs || []) as any[];
-            console.log(
-              `🕵️‍♂️ Found existing window ${targetInternalId} with ${existingTabs.length} tabs`
-            );
-
             if (!existingTabs.some((t: any) => t.uid === cleanTab.uid)) {
-              const newTabs = [...existingTabs, cleanTab];
-              console.log(
-                `💾 Manual update: pushing tab to DB. New length: ${newTabs.length}`
-              );
-
               await updateDoc(firstWin.ref, {
-                tabs: newTabs,
+                tabs: [...existingTabs, cleanTab],
               });
               updateSuccess = true;
+              console.log("💾 Manual write to existing window successful");
             }
           } else {
             console.log("🕵️‍♂️ Creating NEW logical window in workspace");
@@ -1199,7 +1190,7 @@ export const Dashboard = () => {
             updateSuccess = true;
           }
 
-          // Se om vinduet er fysisk åbent - og opret fane hvis det er
+          // Open Physical Tab IF Window is Open
           const mapping = activeMappings.find(
             ([_id, mapData]: any) =>
               mapData.workspaceId === targetWorkspaceId &&
@@ -1207,7 +1198,6 @@ export const Dashboard = () => {
           );
 
           if (mapping) {
-            console.log("🕵️‍♂️ Target window IS OPEN. creating physical tab.");
             const targetPhysicalWindowId = mapping[0];
             await chrome.tabs.create({
               windowId: targetPhysicalWindowId,
@@ -1217,7 +1207,7 @@ export const Dashboard = () => {
           }
         }
 
-        // 2. REMOVE FROM SOURCE (MANUALLY) - VI STOLER IKKE PÅ NEXUSSERVICE HER
+        // 2. REMOVE FROM SOURCE DB (MANUAL & ATOMIC)
         if (updateSuccess) {
           console.log(
             "✅ Target update successful. Removing from source:",
@@ -1234,12 +1224,7 @@ export const Dashboard = () => {
               });
             }
           } else {
-            // Find source workspace ID... vent, vi har den ikke direkte.
-            // Vi må antage selectedWorkspace.
             const sourceWSId = selectedWorkspace?.id || "global";
-            // Hvis sourceWSId er 'global', men strictSourceId IKKE er 'global' (dvs. et vindueID) -> Fejl.
-            // Men handleSidebarTabDrop kaldes typisk fra et aktivt view.
-
             if (sourceWSId !== "global") {
               const sourceRef = doc(
                 db,
@@ -1260,7 +1245,6 @@ export const Dashboard = () => {
           // 3. CLOSE PHYSICAL TAB
           const uidsToSend = tab.uid ? [tab.uid] : [];
           const idsToSend = tab.id ? [tab.id] : [];
-          console.log("🕵️‍♂️ Requesting physical close in source window");
           chrome.runtime.sendMessage(
             {
               type: "CLOSE_PHYSICAL_TABS",
@@ -1270,7 +1254,7 @@ export const Dashboard = () => {
                 tabIds: idsToSend,
               },
             },
-            () => console.log("✂️ Source closed")
+            () => {}
           );
         }
       } catch (err) {
@@ -1279,7 +1263,6 @@ export const Dashboard = () => {
         setIsProcessingMove(false);
         setIsInboxSyncing(false);
         window.sessionStorage.removeItem("draggedTab");
-        console.log("✅ Drop handling finished");
       }
     },
     [activeMappings, viewMode, selectedWindowId, selectedWorkspace]
@@ -1287,7 +1270,7 @@ export const Dashboard = () => {
 
   const handleTabDrop = useCallback(
     async (targetWinId: string) => {
-      console.log("🖱️ handleTabDrop STARTED (Dashboard/Inbox)");
+      console.log("🖱️ handleTabDrop STARTED");
       setDropTargetWinId(null);
       const tabJson = window.sessionStorage.getItem("draggedTab");
       if (!tabJson) return;
@@ -1313,6 +1296,7 @@ export const Dashboard = () => {
           ...tab,
           isIncognito: false,
           uid: tab.uid || crypto.randomUUID(),
+          aiData: { status: "pending" }, // FORCE RECALC
         };
 
         chrome.runtime.sendMessage(
@@ -1323,7 +1307,28 @@ export const Dashboard = () => {
           () => {}
         );
 
-        // FYSISK
+        let writtenToDB = false;
+
+        // 1. ADD TO TARGET DB (MANUAL)
+        const targetWSId = selectedWorkspace?.id || "global";
+        const targetRef = doc(
+          db,
+          "workspaces_data",
+          targetWSId,
+          "windows",
+          targetWinId
+        );
+        const tSnap = await getDoc(targetRef);
+        if (tSnap.exists()) {
+          const tabs = tSnap.data().tabs || [];
+          if (!tabs.some((t: any) => t.uid === cleanTab.uid)) {
+            await updateDoc(targetRef, { tabs: [...tabs, cleanTab] });
+            writtenToDB = true;
+            console.log("💾 Manual write to target window successful");
+          }
+        }
+
+        // 2. FYSISK HANDLING (KUN HVIS BEGGE ÅBNE)
         if (sourceMapping && targetMapping) {
           const tabs = await chrome.tabs.query({ windowId: sourceMapping[0] });
           const targetTab = tabs.find((t) => t.url === tab.url);
@@ -1333,8 +1338,8 @@ export const Dashboard = () => {
               index: -1,
             });
           }
-        } else {
-          // LUK GAMMEL
+        } else if (writtenToDB) {
+          // LUK GAMMEL FYSISK (hvis den findes og vi har skrevet til DB)
           const uidsToSend = tab.uid ? [tab.uid] : [];
           const idsToSend = tab.id ? [tab.id] : [];
           chrome.runtime.sendMessage(
@@ -1350,28 +1355,8 @@ export const Dashboard = () => {
           );
         }
 
-        // DATABASE MANUELT (Sikrere end NexusService i denne kontekst)
-        // 1. Add to target
-        const targetWSId = selectedWorkspace?.id || "global"; // Samme workspace, internt flyt
-        const targetRef = doc(
-          db,
-          "workspaces_data",
-          targetWSId,
-          "windows",
-          targetWinId
-        );
-        const tSnap = await getDoc(targetRef);
-        if (tSnap.exists()) {
-          const tabs = tSnap.data().tabs || [];
-          if (!tabs.some((t: any) => t.uid === cleanTab.uid)) {
-            await updateDoc(targetRef, { tabs: [...tabs, cleanTab] });
-          }
-        }
-
-        // 2. Remove from source
-        if (strictSourceId === "global") {
-          // Inbox logic if needed, but rarely happens here
-        } else {
+        // 3. REMOVE FROM SOURCE DB (MANUAL)
+        if (writtenToDB) {
           const sourceRef = doc(
             db,
             "workspaces_data",
@@ -1384,6 +1369,7 @@ export const Dashboard = () => {
             const tabs = sSnap.data().tabs || [];
             const newTabs = tabs.filter((t: any) => t.uid !== cleanTab.uid);
             await updateDoc(sourceRef, { tabs: newTabs });
+            console.log("✂️ Removed from source DB");
           }
         }
       } finally {

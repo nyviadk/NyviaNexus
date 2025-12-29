@@ -227,7 +227,6 @@ async function rebuildTabTracker() {
 }
 
 // --- AI QUEUE SYSTEM ---
-// (Holdes intakt)
 interface QueueItem {
   uid: string;
   url: string;
@@ -440,11 +439,9 @@ function getOrAssignUid(tabId: number, url: string): string {
     const expectedUid = expectedTabs.get(url)!;
     console.log(`👻 GHOST BUSTER MATCH: ${url} -> ${expectedUid}`);
     tabTracker.set(tabId, { uid: expectedUid, url });
-
-    // Ryd op i expected
     expectedTabs.delete(url);
 
-    // Tilføj til BLOCK list
+    // BLOKER DENNE UID I 8 SEKUNDER
     recentlyMovedUids.add(expectedUid);
     blockedUrls.add(url);
     setTimeout(() => {
@@ -537,7 +534,11 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
         if (t.id && t.url && !t.url.startsWith("chrome") && !isDash(t.url)) {
           const uid = getOrAssignUid(t.id, t.url);
           let aiData = existingAiData.get(uid) || { status: "pending" };
-          if (
+
+          // VIGTIGT: Hvis vi lige har sat den til pending i Dashboardet, må vi ikke overskrive!
+          if (tabsToQueue.some((q) => q.uid === uid)) {
+            // Den er allerede i kø, lad den være
+          } else if (
             (aiData.status === "pending" || !aiData.status) &&
             !aiData.isLocked
           ) {
@@ -550,6 +551,7 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
               workspaceName: mapping.workspaceName,
             });
           }
+
           validTabs.push({
             uid: uid,
             title: t.title || "Ny fane",
@@ -589,9 +591,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
       const url = tab.url || "";
       const uid = getOrAssignUid(tabId, url);
 
-      // --- CRITICAL FIX: BLOKER HVIS DEN LIGE ER FLYTTET ---
       if (recentlyMovedUids.has(uid) || blockedUrls.has(url)) {
-        console.log(`🛡️ onUpdated BLOCKED for ${uid} (Recently moved)`);
+        console.log(`🛡️ onUpdated BLOCKED for ${uid}`);
         return;
       }
 
@@ -619,7 +620,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
         } else {
           tabs.push({
             uid: uid,
-            title: tab.title || "Ny Fane",
+            title: tab.title || "Ny fane",
             url: url,
             favIconUrl: tab.favIconUrl || "",
             isIncognito: tab.incognito,
@@ -640,7 +641,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
               {
                 uid: uid,
                 url: url,
-                title: tab.title || "Ny Fane",
+                title: tab.title || "Ny fane",
                 tabId: tabId,
                 attempts: 0,
                 workspaceName: "Inbox",
@@ -662,12 +663,10 @@ chrome.tabs.onRemoved.addListener(async (tabId, info) => {
     if (!info.isWindowClosing) saveToFirestore(info.windowId, true);
   } else {
     if (tracked && !info.isWindowClosing) {
-      // CHECK OM DEN ER BLEVET FLYTTET
       if (recentlyMovedUids.has(tracked.uid)) {
         console.log(`🛑 onRemoved IGNORERET for ${tracked.uid} (Moved)`);
         return;
       }
-
       const inboxRef = doc(db, "inbox_data", "global");
       const snap = await getDoc(inboxRef);
       if (snap.exists()) {
@@ -737,8 +736,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     const { uid, url } = payload;
     console.log(`🔥 EXPECT_TAB: ${url} -> ${uid}`);
     expectedTabs.set(url, uid);
-
-    // AKTIVÉR BLOKERING STRAKS
     recentlyMovedUids.add(uid);
     blockedUrls.add(url);
     setTimeout(() => {
@@ -746,7 +743,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       blockedUrls.delete(url);
       expectedTabs.delete(url);
     }, 8000);
-
     sendResponse({ success: true });
     return false;
   }
@@ -777,7 +773,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           await saveActiveWindowsToStorage();
           await chrome.windows.remove(physicalId).catch(() => {});
         }
-        sendResponse({ success: true }); // ALWAYS RESPOND
+        sendResponse({ success: true });
       })
       .catch((e) => {
         console.error("Error deleting window:", e);
@@ -959,7 +955,6 @@ async function handleClosePhysicalTabs(uids: string[], tabIds?: number[]) {
     return;
   }
   if (!uids || uids.length === 0) return;
-
   const tabsToRemove: number[] = [];
   for (const [chromeTabId, data] of tabTracker.entries()) {
     if (uids.includes(data.uid)) {
