@@ -71,10 +71,9 @@ export const NexusService = {
     return await updateDoc(doc(db, "items", itemId), { parentId: newParentId });
   },
 
-  // NY FUNKTION: Dedikeret sletning
   async deleteTab(tab: any, workspaceId: string, windowId: string) {
     const getRef = (wsId: string, winId: string) => {
-      if (winId === "global" || winId === "incognito") {
+      if (winId === "global" || winId === "incognito" || wsId === "global") {
         return doc(db, "inbox_data", "global");
       }
       return doc(db, "workspaces_data", wsId, "windows", winId);
@@ -85,8 +84,8 @@ export const NexusService = {
 
     if (sourceSnap.exists()) {
       const currentTabs = sourceSnap.data().tabs || [];
-      // Filtrer baseret på UID (hvis tilgængelig) ellers URL
       const newTabs = currentTabs.filter((t: any) => {
+        // Vi bruger UID som primær nøgle for at undgå race conditions
         if (tab.uid && t.uid) return t.uid !== tab.uid;
         return t.url !== tab.url;
       });
@@ -103,8 +102,6 @@ export const NexusService = {
     tabs: any[];
   }) {
     const batch = writeBatch(db);
-
-    // Sikr UIDs på alle tabs
     const tabsWithUid = data.tabs.map((t) => ({
       ...t,
       uid: t.uid || crypto.randomUUID(),

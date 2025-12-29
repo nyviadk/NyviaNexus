@@ -7,7 +7,6 @@ import {
   getDoc,
   getDocs,
   serverTimestamp,
-  setDoc,
   updateDoc,
   writeBatch,
 } from "firebase/firestore";
@@ -720,15 +719,14 @@ const TabItem = React.memo(
     onDragStart,
     userCategories = [],
     onShowReasoning,
-    onOpenMenu, // NYT PROP
+    onOpenMenu,
   }: any) => {
     const aiData = tab.aiData || {};
     const isProcessing = aiData.status === "processing";
-    const isPending = aiData.status === "pending"; // NYT: Pending state
+    const isPending = aiData.status === "pending";
     const categoryName = aiData.status === "completed" ? aiData.category : null;
     const isLocked = aiData.isLocked;
 
-    // --- Dynamic Style Generator ---
     const getBadgeStyle = () => {
       if (!categoryName) return {};
 
@@ -789,11 +787,10 @@ const TabItem = React.memo(
           onDragStart={(e) => {
             e.dataTransfer.setData("nexus/tab", "true");
 
-            // --- CRITICAL FIX: Sørg for at UID og ID er med! ---
             const tabData = {
               ...tab,
-              id: tab.id, // Fysisk Chrome ID
-              uid: tab.uid || crypto.randomUUID(), // Sikr at UID findes
+              id: tab.id,
+              uid: tab.uid || crypto.randomUUID(),
               sourceWorkspaceId: sourceWorkspaceId,
             };
 
@@ -945,7 +942,6 @@ export const Dashboard = () => {
 
   const [reasoningData, setReasoningData] = useState<any>(null);
 
-  // NYT: MENU STATE
   const [menuData, setMenuData] = useState<{
     tab: any;
     position: { x: number; y: number };
@@ -1105,7 +1101,6 @@ export const Dashboard = () => {
 
   const handleSidebarTabDrop = useCallback(
     async (targetItem: NexusItem | "global") => {
-      console.log("🖱️ handleSidebarTabDrop STARTED");
       const tabJson = window.sessionStorage.getItem("draggedTab");
       if (!tabJson) return;
       const tab = JSON.parse(tabJson);
@@ -1131,26 +1126,19 @@ export const Dashboard = () => {
         url: tab.url,
         favIconUrl: tab.favIconUrl,
         isIncognito: false,
-        aiData: { status: "pending" },
+        aiData: tab.aiData || { status: "pending" },
       };
 
-      console.log(
-        `🕵️‍♂️ Dropping Tab ${cleanTab.uid} (${cleanTab.url}) to ${targetWorkspaceId}`
-      );
-
-      // Removed EXPECT_TAB call
-
       try {
+        const batch = writeBatch(db);
         let updateSuccess = false;
 
-        // 1. ADD TO TARGET DB (MANUAL & ATOMIC)
+        // 1. TILFØJ TIL MÅL
         if (targetWorkspaceId === "global") {
-          console.log("📥 Target is Global Inbox");
           const snap = await getDoc(doc(db, "inbox_data", "global"));
           const currentTabs = snap.exists() ? snap.data().tabs || [] : [];
-
           if (!currentTabs.some((t: any) => t.uid === cleanTab.uid)) {
-            await setDoc(
+            batch.set(
               doc(db, "inbox_data", "global"),
               {
                 tabs: [...currentTabs, cleanTab],
@@ -1161,32 +1149,24 @@ export const Dashboard = () => {
             updateSuccess = true;
           }
         } else {
-          console.log("📂 Target is Workspace:", targetWorkspaceId);
           const snap = await getDocs(
             collection(db, "workspaces_data", targetWorkspaceId, "windows")
           );
-
           let targetInternalId = "";
-
           if (!snap.empty) {
             const firstWin = snap.docs[0];
             targetInternalId = firstWin.id;
-
-            const existingTabs = (firstWin.data().tabs || []) as any[];
+            const existingTabs = firstWin.data().tabs || [];
             if (!existingTabs.some((t: any) => t.uid === cleanTab.uid)) {
-              await updateDoc(firstWin.ref, {
-                tabs: [...existingTabs, cleanTab],
-              });
+              batch.update(firstWin.ref, { tabs: [...existingTabs, cleanTab] });
               updateSuccess = true;
-              console.log("💾 Manual write to existing window successful");
             }
           } else {
-            console.log("🕵️‍♂️ Creating NEW logical window in workspace");
             const newRef = doc(
               collection(db, "workspaces_data", targetWorkspaceId, "windows")
             );
             targetInternalId = newRef.id;
-            await setDoc(newRef, {
+            batch.set(newRef, {
               id: newRef.id,
               tabs: [cleanTab],
               isActive: false,
@@ -1195,40 +1175,28 @@ export const Dashboard = () => {
             updateSuccess = true;
           }
 
-          // Open Physical Tab IF Window is Open
           const mapping = activeMappings.find(
-            ([_id, mapData]: any) =>
-              mapData.workspaceId === targetWorkspaceId &&
-              mapData.internalWindowId === targetInternalId
+            ([_, m]) =>
+              m.workspaceId === targetWorkspaceId &&
+              m.internalWindowId === targetInternalId
           );
-
           if (mapping) {
-            console.log("🕵️‍♂️ Target window IS OPEN. creating physical tab.");
-            const targetPhysicalWindowId = mapping[0];
             await chrome.tabs.create({
-              windowId: targetPhysicalWindowId,
+              windowId: mapping[0],
               url: cleanTab.url,
-              active: true, // ACTIVE: TRUE (But no window focus)
+              active: true,
             });
           }
         }
 
-        // 2. REMOVE FROM SOURCE DB (MANUAL & ATOMIC)
+        // 2. FJERN FRA KILDE (I SAMME BATCH)
         if (updateSuccess) {
-          console.log(
-            "✅ Target update successful. Removing from source:",
-            strictSourceId
-          );
-
           if (strictSourceId === "global") {
             const snap = await getDoc(doc(db, "inbox_data", "global"));
-            if (snap.exists()) {
-              const tabs = snap.data().tabs || [];
-              const newTabs = tabs.filter((t: any) => t.uid !== cleanTab.uid);
-              await updateDoc(doc(db, "inbox_data", "global"), {
-                tabs: newTabs,
-              });
-            }
+            const newTabs = (snap.data()?.tabs || []).filter(
+              (t: any) => t.uid !== cleanTab.uid
+            );
+            batch.update(doc(db, "inbox_data", "global"), { tabs: newTabs });
           } else {
             const sourceWSId = selectedWorkspace?.id || "global";
             if (sourceWSId !== "global") {
@@ -1241,36 +1209,32 @@ export const Dashboard = () => {
               );
               const sSnap = await getDoc(sourceRef);
               if (sSnap.exists()) {
-                const tabs = sSnap.data().tabs || [];
-                const newTabs = tabs.filter((t: any) => t.uid !== cleanTab.uid);
-                await updateDoc(sourceRef, { tabs: newTabs });
+                const newTabs = (sSnap.data()?.tabs || []).filter(
+                  (t: any) => t.uid !== cleanTab.uid
+                );
+                batch.update(sourceRef, { tabs: newTabs });
               }
             }
           }
 
-          // 3. CLOSE PHYSICAL TAB
-          const uidsToSend = tab.uid ? [tab.uid] : [];
-          const idsToSend = tab.id ? [tab.id] : [];
-          console.log("🕵️‍♂️ Requesting physical close in source window");
-          chrome.runtime.sendMessage(
-            {
-              type: "CLOSE_PHYSICAL_TABS",
-              payload: {
-                uids: uidsToSend,
-                internalWindowId: strictSourceId,
-                tabIds: idsToSend,
-              },
+          await batch.commit();
+
+          // 3. LUK FYSISK
+          chrome.runtime.sendMessage({
+            type: "CLOSE_PHYSICAL_TABS",
+            payload: {
+              uids: [cleanTab.uid],
+              internalWindowId: strictSourceId,
+              tabIds: tab.id ? [tab.id] : [],
             },
-            () => console.log("✂️ Source closed")
-          );
+          });
         }
       } catch (err) {
-        console.error("🛑 ERROR in handleSidebarTabDrop:", err);
+        console.error("Drop error:", err);
       } finally {
         setIsProcessingMove(false);
         setIsInboxSyncing(false);
         window.sessionStorage.removeItem("draggedTab");
-        console.log("✅ Drop handling finished");
       }
     },
     [activeMappings, viewMode, selectedWindowId, selectedWorkspace]
@@ -1278,7 +1242,6 @@ export const Dashboard = () => {
 
   const handleTabDrop = useCallback(
     async (targetWinId: string) => {
-      console.log("🖱️ handleTabDrop STARTED (Dashboard/Inbox)");
       setDropTargetWinId(null);
       const tabJson = window.sessionStorage.getItem("draggedTab");
       if (!tabJson) return;
@@ -1293,6 +1256,7 @@ export const Dashboard = () => {
 
       setIsProcessingMove(true);
       try {
+        const batch = writeBatch(db);
         const sourceMapping = activeMappings.find(
           ([_, m]) => m.internalWindowId === strictSourceId
         );
@@ -1304,15 +1268,11 @@ export const Dashboard = () => {
           ...tab,
           isIncognito: false,
           uid: tab.uid || crypto.randomUUID(),
-          aiData: { status: "pending" }, // FORCE RECALC
+          aiData: { status: "pending" },
         };
-
-        // Removed EXPECT_TAB call
-
-        let writtenToDB = false;
-
-        // 1. ADD TO TARGET DB (MANUAL)
         const targetWSId = selectedWorkspace?.id || "global";
+
+        // ADD TO TARGET
         const targetRef = doc(
           db,
           "workspaces_data",
@@ -1322,81 +1282,62 @@ export const Dashboard = () => {
         );
         const tSnap = await getDoc(targetRef);
         if (tSnap.exists()) {
-          const tabs = tSnap.data().tabs || [];
-          if (!tabs.some((t: any) => t.uid === cleanTab.uid)) {
-            await setDoc(
-              targetRef,
-              { tabs: [...tabs, cleanTab] },
-              { merge: true }
-            );
-            writtenToDB = true;
-            console.log("💾 Manual write to target window successful");
+          const tTabs = tSnap.data()?.tabs || [];
+          if (!tTabs.some((t: any) => t.uid === cleanTab.uid)) {
+            batch.update(targetRef, { tabs: [...tTabs, cleanTab] });
           }
         }
 
-        // 2. FYSISK HANDLING
-        if (targetMapping) {
-          // Target vinduet er åbent (Fysisk)
-          const targetPhysicalId = targetMapping[0];
+        // REMOVE FROM SOURCE
+        const sourceRef = doc(
+          db,
+          "workspaces_data",
+          targetWSId,
+          "windows",
+          strictSourceId
+        );
+        const sSnap = await getDoc(sourceRef);
+        if (sSnap.exists()) {
+          const sTabs = sSnap.data()?.tabs || [];
+          batch.update(sourceRef, {
+            tabs: sTabs.filter((t: any) => t.uid !== cleanTab.uid),
+          });
+        }
 
+        await batch.commit();
+
+        // FYSISK HANDLING
+        if (targetMapping) {
           if (sourceMapping) {
-            // Kilden er OGSÅ åben -> Flyt fanen
             const tabs = await chrome.tabs.query({
               windowId: sourceMapping[0],
             });
-            const targetTab = tabs.find((t) => t.url === tab.url);
+            const targetTab = tabs.find(
+              (t) => t.url === tab.url || t.id === tab.id
+            );
             if (targetTab?.id) {
               await chrome.tabs.move(targetTab.id, {
-                windowId: targetPhysicalId,
+                windowId: targetMapping[0],
                 index: -1,
               });
               await chrome.tabs.update(targetTab.id, { active: true });
             }
           } else {
-            // Kilden er LUKKET (eller virtuel) -> Opret ny fane
-            console.log(
-              "🕵️‍♂️ Source closed/virtual -> Creating NEW tab in target"
-            );
             await chrome.tabs.create({
-              windowId: targetPhysicalId,
+              windowId: targetMapping[0],
               url: cleanTab.url,
-              active: true, // Den bliver aktiv i vinduet
+              active: true,
             });
           }
-        } else if (writtenToDB) {
-          // Target er lukket, vi har skrevet til DB.
-          // Luk nu bare kilden (hvis den er åben).
-          const uidsToSend = tab.uid ? [tab.uid] : [];
-          const idsToSend = tab.id ? [tab.id] : [];
-          chrome.runtime.sendMessage(
-            {
-              type: "CLOSE_PHYSICAL_TABS",
-              payload: {
-                uids: uidsToSend,
-                internalWindowId: strictSourceId,
-                tabIds: idsToSend,
-              },
+        } else {
+          chrome.runtime.sendMessage({
+            type: "CLOSE_PHYSICAL_TABS",
+            payload: {
+              uids: [cleanTab.uid],
+              internalWindowId: strictSourceId,
+              tabIds: tab.id ? [tab.id] : [],
             },
-            () => {}
-          );
-        }
-
-        // 3. REMOVE FROM SOURCE DB (MANUAL)
-        if (writtenToDB) {
-          const sourceRef = doc(
-            db,
-            "workspaces_data",
-            targetWSId,
-            "windows",
-            strictSourceId
-          );
-          const sSnap = await getDoc(sourceRef);
-          if (sSnap.exists()) {
-            const tabs = sSnap.data().tabs || [];
-            const newTabs = tabs.filter((t: any) => t.uid !== cleanTab.uid);
-            await updateDoc(sourceRef, { tabs: newTabs });
-            console.log("✂️ Removed from source DB");
-          }
+          });
         }
       } finally {
         window.sessionStorage.removeItem("draggedTab");
@@ -1414,20 +1355,14 @@ export const Dashboard = () => {
             ? "global"
             : selectedWindowId!;
 
-        const uidsToSend = tab.uid ? [tab.uid] : [];
-        const idsToSend = tab.id ? [tab.id] : [];
-
-        chrome.runtime.sendMessage(
-          {
-            type: "CLOSE_PHYSICAL_TABS",
-            payload: {
-              uids: uidsToSend,
-              internalWindowId: sId,
-              tabIds: idsToSend,
-            },
+        chrome.runtime.sendMessage({
+          type: "CLOSE_PHYSICAL_TABS",
+          payload: {
+            uids: [tab.uid],
+            internalWindowId: sId,
+            tabIds: tab.id ? [tab.id] : [],
           },
-          () => {}
-        );
+        });
 
         await NexusService.deleteTab(
           tab,
@@ -1465,27 +1400,21 @@ export const Dashboard = () => {
         ? "global"
         : selectedWorkspace?.id;
 
-    return list.map((tab: any, i: number) => {
-      const isSelected = selectedUrls.includes(tab.uid);
-      return (
-        <TabItem
-          key={tab.uid || i}
-          tab={tab}
-          isSelected={isSelected}
-          onSelect={handleTabSelect}
-          onDelete={handleTabDelete}
-          sourceWorkspaceId={sourceWSId}
-          userCategories={aiSettings.userCategories}
-          onShowReasoning={setReasoningData}
-          onOpenMenu={(e: MouseEvent, t: any) => {
-            setMenuData({
-              tab: t,
-              position: { x: e.clientX, y: e.clientY },
-            });
-          }}
-        />
-      );
-    });
+    return list.map((tab: any, i: number) => (
+      <TabItem
+        key={tab.uid || i}
+        tab={tab}
+        isSelected={selectedUrls.includes(tab.uid)}
+        onSelect={handleTabSelect}
+        onDelete={handleTabDelete}
+        sourceWorkspaceId={sourceWSId}
+        userCategories={aiSettings.userCategories}
+        onShowReasoning={setReasoningData}
+        onOpenMenu={(e: MouseEvent, t: any) => {
+          setMenuData({ tab: t, position: { x: e.clientX, y: e.clientY } });
+        }}
+      />
+    ));
   }, [
     viewMode,
     windows,
@@ -1671,9 +1600,11 @@ export const Dashboard = () => {
               const tJ = window.sessionStorage.getItem("draggedTab");
               if (tJ) {
                 const tab = JSON.parse(tJ);
-                const isValid =
-                  tab.sourceWorkspaceId !== "global" || tab.isIncognito;
-                setInboxDropStatus(isValid ? "valid" : "invalid");
+                setInboxDropStatus(
+                  tab.sourceWorkspaceId !== "global" || tab.isIncognito
+                    ? "valid"
+                    : "invalid"
+                );
               } else setDropTargetWinId("global");
             }}
             onDragEnter={() => {
@@ -1695,7 +1626,6 @@ export const Dashboard = () => {
                 setIsInboxDragOver(false);
                 setInboxDropStatus(null);
                 inboxDragCounter.current = 0;
-
                 const tab = JSON.parse(tJ);
                 if (tab.sourceWorkspaceId !== "global" || tab.isIncognito)
                   handleSidebarTabDrop("global");
@@ -1705,7 +1635,6 @@ export const Dashboard = () => {
             <label className="text-[10px] font-bold text-slate-400 uppercase px-2 mb-2 block tracking-widest">
               Opsamling
             </label>
-
             <div
               onClick={() => {
                 setSelectedWorkspace(null);
@@ -1728,7 +1657,6 @@ export const Dashboard = () => {
               )}
               <span>Inbox ({getFilteredInboxTabs(false).length})</span>
             </div>
-
             <div
               onClick={() => {
                 setSelectedWorkspace(null);
@@ -1791,7 +1719,6 @@ export const Dashboard = () => {
                     </span>
                   )}
                 </div>
-
                 {viewMode === "workspace" && (
                   <div className="flex gap-4 items-center flex-wrap">
                     {sortedWindows.map((win, idx) => (
@@ -1847,16 +1774,13 @@ export const Dashboard = () => {
                             onClick={async (e) => {
                               e.stopPropagation();
                               if (confirm("Slet vindue?"))
-                                chrome.runtime.sendMessage(
-                                  {
-                                    type: "DELETE_AND_CLOSE_WINDOW",
-                                    payload: {
-                                      workspaceId: selectedWorkspace?.id,
-                                      internalWindowId: win.id,
-                                    },
+                                chrome.runtime.sendMessage({
+                                  type: "DELETE_AND_CLOSE_WINDOW",
+                                  payload: {
+                                    workspaceId: selectedWorkspace?.id,
+                                    internalWindowId: win.id,
                                   },
-                                  () => {}
-                                ); // Callback
+                                });
                             }}
                             className="absolute -top-2 -right-2 p-1.5 bg-slate-800 border border-slate-600 rounded-full text-slate-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition shadow-sm z-10 cursor-pointer"
                           >
@@ -1866,18 +1790,14 @@ export const Dashboard = () => {
                       </div>
                     ))}
                     <button
-                      onClick={
-                        () =>
-                          chrome.runtime.sendMessage(
-                            {
-                              type: "CREATE_NEW_WINDOW_IN_WORKSPACE",
-                              payload: {
-                                workspaceId: selectedWorkspace?.id,
-                                name: selectedWorkspace?.name,
-                              },
-                            },
-                            () => {}
-                          ) // Callback
+                      onClick={() =>
+                        chrome.runtime.sendMessage({
+                          type: "CREATE_NEW_WINDOW_IN_WORKSPACE",
+                          payload: {
+                            workspaceId: selectedWorkspace?.id,
+                            name: selectedWorkspace?.name,
+                          },
+                        })
                       }
                       className="h-14 w-14 flex items-center justify-center rounded-xl border border-dashed border-slate-700 hover:border-blue-500 text-slate-500 transition cursor-pointer"
                     >
@@ -1903,11 +1823,10 @@ export const Dashboard = () => {
                       <Loader2 size={20} className="animate-spin" />
                     ) : (
                       <Wand2 size={20} />
-                    )}
+                    )}{" "}
                     AI Sortering
                   </button>
                 )}
-
                 <button
                   onClick={() => {
                     let list = [];
@@ -1919,7 +1838,6 @@ export const Dashboard = () => {
                       list =
                         windows.find((w) => w.id === selectedWindowId)?.tabs ||
                         [];
-
                     const allU = list.map((t: any) => t.uid);
                     setSelectedUrls(
                       selectedUrls.length === allU.length ? [] : allU
@@ -1941,21 +1859,14 @@ export const Dashboard = () => {
                           viewMode === "inbox" || viewMode === "incognito"
                             ? "global"
                             : selectedWindowId;
-
-                        const uidsToSend = selectedUrls;
-
-                        chrome.runtime.sendMessage(
-                          {
-                            type: "CLOSE_PHYSICAL_TABS",
-                            payload: {
-                              uids: uidsToSend,
-                              internalWindowId: sId,
-                              tabIds: [],
-                            },
+                        chrome.runtime.sendMessage({
+                          type: "CLOSE_PHYSICAL_TABS",
+                          payload: {
+                            uids: selectedUrls,
+                            internalWindowId: sId,
+                            tabIds: [],
                           },
-                          () => {}
-                        ); // Callback
-
+                        });
                         if (viewMode === "inbox" || viewMode === "incognito") {
                           const f = inboxData.tabs.filter(
                             (t: any) => !selectedUrls.includes(t.uid)
@@ -1983,7 +1894,6 @@ export const Dashboard = () => {
                             );
                           }
                         }
-
                         setSelectedUrls([]);
                       }
                     }}
@@ -1992,28 +1902,21 @@ export const Dashboard = () => {
                     <Trash2 size={20} /> Slet ({selectedUrls.length})
                   </button>
                 )}
-
                 {viewMode === "inbox" &&
                   getFilteredInboxTabs(false).length > 0 && (
                     <button
                       onClick={async () => {
                         if (confirm("Ryd Inbox?")) {
                           const normalTabs = getFilteredInboxTabs(false);
-                          const incognitoTabs = getFilteredInboxTabs(true);
-
-                          chrome.runtime.sendMessage(
-                            {
-                              type: "CLOSE_PHYSICAL_TABS",
-                              payload: {
-                                uids: normalTabs.map((t: any) => t.uid),
-                                internalWindowId: "global",
-                              },
+                          chrome.runtime.sendMessage({
+                            type: "CLOSE_PHYSICAL_TABS",
+                            payload: {
+                              uids: normalTabs.map((t: any) => t.uid),
+                              internalWindowId: "global",
                             },
-                            () => {}
-                          ); // Callback
-
+                          });
                           await updateDoc(doc(db, "inbox_data", "global"), {
-                            tabs: incognitoTabs,
+                            tabs: getFilteredInboxTabs(true),
                           });
                         }
                       }}
@@ -2022,7 +1925,6 @@ export const Dashboard = () => {
                       <Eraser size={20} /> Ryd Inbox
                     </button>
                   )}
-
                 {viewMode === "incognito" &&
                   getFilteredInboxTabs(true).length > 0 && (
                     <button
@@ -2052,22 +1954,17 @@ export const Dashboard = () => {
                       <Eraser size={20} /> Ryd Incognito
                     </button>
                   )}
-
                 {viewMode === "workspace" && (
                   <button
-                    onClick={
-                      () =>
-                        chrome.runtime.sendMessage(
-                          {
-                            type: "OPEN_WORKSPACE",
-                            payload: {
-                              workspaceId: selectedWorkspace?.id,
-                              windows: sortedWindows,
-                              name: selectedWorkspace?.name,
-                            },
-                          },
-                          () => {}
-                        ) // Callback
+                    onClick={() =>
+                      chrome.runtime.sendMessage({
+                        type: "OPEN_WORKSPACE",
+                        payload: {
+                          workspaceId: selectedWorkspace?.id,
+                          windows: sortedWindows,
+                          name: selectedWorkspace?.name,
+                        },
+                      })
                     }
                     className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 text-white active:scale-95 transition cursor-pointer"
                   >
@@ -2091,7 +1988,6 @@ export const Dashboard = () => {
         )}
       </main>
 
-      {/* MODALS */}
       {(modalType === "folder" || modalType === "workspace") && (
         <CreateItemModal
           type={modalType}
@@ -2115,14 +2011,12 @@ export const Dashboard = () => {
           setActiveProfile={setActiveProfile}
         />
       )}
-
       {reasoningData && (
         <ReasoningModal
           data={reasoningData}
           onClose={() => setReasoningData(null)}
         />
       )}
-
       {menuData && (
         <CategoryMenu
           tab={menuData.tab}
