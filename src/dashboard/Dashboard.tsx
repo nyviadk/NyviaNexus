@@ -555,6 +555,23 @@ const getCategoryStyle = (category: string) => {
   )
     return "bg-fuchsia-700 text-white border-fuchsia-600 shadow-md shadow-fuchsia-900/50";
 
+  if (
+    lower.includes("database") ||
+    lower.includes("backend") ||
+    lower.includes("api")
+  )
+    return "bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-900/50";
+
+  if (
+    lower.includes("research") ||
+    lower.includes("reference") ||
+    lower.includes("viden")
+  )
+    return "bg-teal-600 text-white border-teal-500 shadow-md shadow-teal-900/50";
+
+  if (lower.includes("design") || lower.includes("ui") || lower.includes("ux"))
+    return "bg-pink-500 text-white border-pink-400 shadow-md shadow-pink-900/50";
+
   // Default / Catch-all Fallback
   return "bg-slate-600 text-slate-200 border-slate-500 shadow-md";
 };

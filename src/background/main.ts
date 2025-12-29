@@ -232,7 +232,7 @@ interface QueueItem {
   title: string;
   tabId: number;
   attempts: number;
-  workspaceName?: string; // NYT: Context support
+  workspaceName?: string;
 }
 
 interface LockData {
@@ -275,7 +275,6 @@ async function extractMetadata(tabId: number): Promise<string> {
   }
 }
 
-// HELPER: Sletter item fra køen og kører videre
 async function cleanupQueueItem(uid: string) {
   const freshStorage = (await chrome.storage.local.get(
     AI_STORAGE_KEY
@@ -322,10 +321,8 @@ async function processAiQueue() {
 
     const now = Date.now();
 
-    // Check Global Storage Lock
     if (lock?.isProcessing && now - lock.timestamp < 30000) return;
 
-    // Check Rate Limit
     if (now - lastCall < 2000) {
       const delay = 2000 - (now - lastCall);
       chrome.alarms.create("process_ai_next", { when: now + delay });
@@ -334,21 +331,18 @@ async function processAiQueue() {
 
     const item = queue[0];
 
-    // MEMORY LOCK CHECK
     if (currentlyProcessing.has(item.uid)) {
       console.log("🔒 Skipping duplicate execution for:", item.title);
       return;
     }
     currentlyProcessing.add(item.uid);
 
-    // Set Storage Lock
     await chrome.storage.local.set({
       [AI_LOCK_KEY]: { isProcessing: true, timestamp: now },
     });
 
     broadcast("AI_STATUS_UPDATE", { uid: item.uid, status: "processing" });
 
-    // --- FIX 1: TJEK OM FANEN STADIG EKSISTERER ---
     try {
       await chrome.tabs.get(item.tabId);
     } catch (e) {
@@ -359,7 +353,6 @@ async function processAiQueue() {
       return;
     }
 
-    // Hent data (Hvis vi er her, findes fanen)
     let metadata = "";
     try {
       metadata = await extractMetadata(item.tabId);
@@ -367,7 +360,6 @@ async function processAiQueue() {
       console.warn("Could not extract metadata, using URL/Title only");
     }
 
-    // Kør AI - FIX 2: Send workspaceName med
     const result = await AiService.analyzeTab(
       item.title,
       item.url,
@@ -385,10 +377,9 @@ async function processAiQueue() {
         lastChecked: Date.now(),
       };
 
-      // --- LOGIC FIX: Check både Spaces og Inbox ---
       let handled = false;
 
-      // 1. Tjek om tabben tilhører et aktivt Space
+      // Check Space
       try {
         const tabInfo = await chrome.tabs.get(item.tabId);
         if (tabInfo && activeWindows.has(tabInfo.windowId)) {
@@ -416,11 +407,9 @@ async function processAiQueue() {
             }
           }
         }
-      } catch (e) {
-        // Tab kan være lukket i mellemtiden
-      }
+      } catch (e) {}
 
-      // 2. Hvis ikke håndteret i Space, tjek Inbox
+      // Check Inbox
       if (!handled) {
         const inboxRef = doc(db, "inbox_data", "global");
         const inboxSnap = await getDoc(inboxRef);
@@ -439,7 +428,6 @@ async function processAiQueue() {
       console.log("⚠️ AI Analysis failed or returned null");
     }
 
-    // Release & Next
     await cleanupQueueItem(item.uid);
   } catch (error) {
     console.error("AI Queue Error", error);
@@ -470,7 +458,6 @@ async function addToAiQueue(items: QueueItem[]) {
       : [];
 
     const newItems = items.filter((i) => {
-      // Tjek om den allerede er i køen
       const inQueue = currentQueue.some((q) => q.uid === i.uid);
       const recentlyAdded = recentQueueAdds.has(i.uid);
       const isProcessing = currentlyProcessing.has(i.uid);
@@ -619,12 +606,15 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       );
 
       let existingAiData = new Map<string, any>();
+      let existingUrls = new Map<string, string>(); // NYT: Map til URL tjek
+
       try {
         const snap = await getDoc(docRef);
         if (snap.exists()) {
           const oldTabs = (snap.data().tabs || []) as TabData[];
           oldTabs.forEach((t) => {
             if (t.aiData) existingAiData.set(t.uid, t.aiData);
+            existingUrls.set(t.uid, t.url); // Gem URL fra databasen
           });
         }
       } catch (e) {
@@ -637,9 +627,17 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       for (const t of tabs) {
         if (t.id && t.url && !t.url.startsWith("chrome") && !isDash(t.url)) {
           const uid = getOrAssignUid(t.id, t.url);
-          const aiData = existingAiData.get(uid) || { status: "pending" };
 
-          // NYT: TRIGGER LOGIK MED CONTEXT (mapping.workspaceName)
+          let aiData = existingAiData.get(uid) || { status: "pending" };
+          const oldUrl = existingUrls.get(uid);
+
+          // NYT: TJEK OM URL ER ÆNDRET (Fixer buggen hvor navigering ikke opdaterer)
+          if (oldUrl && oldUrl !== t.url) {
+            console.log(`🔄 URL changed in Space (uid: ${uid}). Resetting AI.`);
+            aiData = { status: "pending" };
+            recentQueueAdds.delete(uid); // Sørg for at den kan queues
+          }
+
           if (aiData.status === "pending" || !aiData.status) {
             console.log("🤖 Queuing Space tab for AI:", t.title);
             tabsToQueue.push({
@@ -648,7 +646,7 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
               title: t.title || "Ny fane",
               tabId: t.id,
               attempts: 0,
-              workspaceName: mapping.workspaceName, // HER SENDER VI SPACE NAVN
+              workspaceName: mapping.workspaceName,
             });
           }
 
@@ -758,7 +756,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
                 title: tab.title || "Ny Fane",
                 tabId: tabId,
                 attempts: 0,
-                workspaceName: "Inbox", // Explicit inbox context
+                workspaceName: "Inbox",
               },
             ]);
           }
@@ -918,7 +916,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (type === "OPEN_WORKSPACE") {
-    // ANTI-SPAM CHECK
     if (openingWorkspaces.has(payload.workspaceId)) {
       console.warn(
         "⚠️ Already opening this workspace, skipping duplicate request."
