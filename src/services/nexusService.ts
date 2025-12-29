@@ -1,5 +1,4 @@
 import {
-  arrayUnion,
   collection,
   doc,
   getDoc,
@@ -93,49 +92,6 @@ export const NexusService = {
       });
       await updateDoc(sourceRef, { tabs: newTabs });
     }
-  },
-
-  async moveTabBetweenWindows(
-    tab: any,
-    sourceWorkspaceId: string,
-    sourceWindowId: string,
-    targetWorkspaceId: string,
-    targetWindowId: string
-  ) {
-    // Helper to resolve reference
-    const getRef = (wsId: string, winId: string) => {
-      if (winId === "global" || winId === "incognito") {
-        return doc(db, "inbox_data", "global");
-      }
-      return doc(db, "workspaces_data", wsId, "windows", winId);
-    };
-
-    const sourceRef = getRef(sourceWorkspaceId, sourceWindowId);
-    const targetRef = getRef(targetWorkspaceId, targetWindowId);
-
-    // Sikr at tab har en UID (hvis det er gamle data)
-    const tabToMove = {
-      ...tab,
-      uid: tab.uid || crypto.randomUUID(),
-    };
-
-    const batch = writeBatch(db);
-
-    // Vi henter kilden, filtrerer og opdaterer.
-    const sourceSnap = await getDoc(sourceRef);
-    if (sourceSnap.exists()) {
-      const currentTabs = sourceSnap.data().tabs || [];
-      const newSourceTabs = currentTabs.filter((t: any) => {
-        if (tab.uid && t.uid) return t.uid !== tab.uid;
-        return t.url !== tab.url;
-      });
-      batch.update(sourceRef, { tabs: newSourceTabs });
-    }
-
-    // Tilføj til target (med UID)
-    batch.update(targetRef, { tabs: arrayUnion(tabToMove) });
-
-    return await batch.commit();
   },
 
   async createWorkspace(data: {

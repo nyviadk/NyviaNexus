@@ -74,6 +74,7 @@ export const AiService = {
     if (settings.allowDynamic) {
       systemPrompt = `
 Du er en intelligent assistent til browser-organisering.
+Du er en streng JSON-klassificerings-API. Du taler IKKE. Du udskriver KUN JSON.
 Din opgave er at tildele den mest præcise kategori til en fane.
 
 BRUGERENS FORETRUKNE KATEGORIER:
@@ -86,6 +87,9 @@ INSTRUKSER:
    - Kategorien skal være på Dansk.
    - Den skal være kort (1-3 ord).
    - Den skal beskrive indholdets emne.
+4. Du skal ikke modsige dine egne tanker. Hvis du tænker, at en fane ikke passer i de fortrukne kategorier, skal du ikke vælge en af de fortrukne kategorier. Du skal stole på dine tanker.
+5. Hvis Fane titlen og metadata ikke indeholder noget, som tyder på at den har noget at gøre med en fortrukne kategori, skal du lave din egen kategori. Du skal ikke være kreativ for at presse ned i en kategori.
+6. Tænk dig om. Hvis Workspacet hedder noget, og indholdet på siden ikke er relateret til workspace navnet, så lad vær med at være kreativ. Du skal igen opfinde din egen passende kategori.
 
 Output Format (JSON Only):
 { "category": "String", "confidence": Number (0-100), "reasoning": "Kort forklaring på dansk" }
