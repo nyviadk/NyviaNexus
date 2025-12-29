@@ -41,6 +41,8 @@ import {
   Plus,
   BrainCircuit,
   Lightbulb,
+  Unlock,
+  Lock,
 } from "lucide-react";
 import React, {
   useCallback,
@@ -71,6 +73,127 @@ const getContrastYIQ = (hexcolor: string) => {
   const b = parseInt(hex.substr(4, 2), 16);
   const yiq = (r * 299 + g * 587 + b * 114) / 1000;
   return yiq >= 128 ? "#1e293b" : "#ffffff";
+};
+
+// --- CATEGORY MENU (NEW) ---
+const CategoryMenu = ({
+  tab,
+  workspaceId,
+  winId,
+  position,
+  onClose,
+  categories,
+}: any) => {
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [onClose]);
+
+  const updateCategory = async (
+    newCategory: string | null,
+    locked: boolean
+  ) => {
+    onClose();
+    if (!workspaceId) {
+      // Inbox
+      const ref = doc(db, "inbox_data", "global");
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        const tabs = snap.data().tabs || [];
+        const idx = tabs.findIndex((t: any) => t.uid === tab.uid);
+        if (idx !== -1) {
+          if (newCategory) {
+            tabs[idx].aiData = {
+              ...tabs[idx].aiData,
+              category: newCategory,
+              status: "completed",
+              isLocked: locked,
+              reasoning: "Manuelt valgt",
+            };
+          } else {
+            // Reset / Unlock
+            tabs[idx].aiData = { status: "pending", isLocked: false };
+          }
+          await updateDoc(ref, { tabs });
+        }
+      }
+    } else {
+      // Space
+      const ref = doc(
+        db,
+        "workspaces_data",
+        workspaceId,
+        "windows",
+        winId || "unknown"
+      );
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        const tabs = snap.data().tabs || [];
+        const idx = tabs.findIndex((t: any) => t.uid === tab.uid);
+        if (idx !== -1) {
+          if (newCategory) {
+            tabs[idx].aiData = {
+              ...tabs[idx].aiData,
+              category: newCategory,
+              status: "completed",
+              isLocked: locked,
+              reasoning: "Manuelt valgt",
+            };
+          } else {
+            tabs[idx].aiData = { status: "pending", isLocked: false };
+          }
+          await updateDoc(ref, { tabs });
+        }
+      }
+    }
+  };
+
+  return (
+    <div
+      ref={menuRef}
+      style={{ top: position.y, left: position.x }}
+      className="fixed z-100 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-2 w-48 animate-in fade-in zoom-in-95 duration-100"
+    >
+      <div className="text-[10px] uppercase font-bold text-slate-500 px-2 py-1 mb-1">
+        Vælg Kategori
+      </div>
+      <div className="max-h-48 overflow-y-auto space-y-1 mb-2 custom-scrollbar">
+        {categories.map((cat: UserCategory) => (
+          <button
+            key={cat.id}
+            onClick={() => updateCategory(cat.name, true)}
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-700 text-slate-200 text-sm"
+          >
+            <div
+              className="w-2 h-2 rounded-full"
+              style={{ backgroundColor: cat.color }}
+            />
+            {cat.name}
+          </button>
+        ))}
+        {categories.length === 0 && (
+          <div className="text-xs text-slate-500 px-2 italic">
+            Ingen gemte kategorier
+          </div>
+        )}
+      </div>
+      <div className="border-t border-slate-700 pt-1">
+        <button
+          onClick={() => updateCategory(null, false)}
+          className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-blue-400 text-xs font-medium"
+        >
+          <Unlock size={14} /> Lås op / Reset AI
+        </button>
+      </div>
+    </div>
+  );
 };
 
 // --- REASONING MODAL ---
@@ -140,8 +263,9 @@ const ReasoningModal = ({
               {data.confidence}%
             </span>
           </div>
-          <div className="px-3 py-1 rounded-full bg-slate-700 text-xs font-bold text-white border border-slate-600">
+          <div className="px-3 py-1 rounded-full bg-slate-700 text-xs font-bold text-white border border-slate-600 flex items-center gap-2">
             {data.category}
+            {data.isLocked && <Lock size={10} className="text-slate-400" />}
           </div>
         </div>
       </div>
@@ -486,7 +610,7 @@ const SettingsModal = ({
   );
 };
 
-// --- HELPER: CATEGORY STYLES (SOLID BADGES - EXPANDED) ---
+// --- HELPER: CATEGORY STYLES ---
 const getCategoryStyle = (category: string) => {
   const lower = category.toLowerCase();
 
@@ -498,7 +622,7 @@ const getCategoryStyle = (category: string) => {
     return "bg-slate-800 text-slate-500 border-slate-700 hover:text-slate-300 transition-colors";
   }
 
-  // Standard Categories (Fallback farver hvis brugeren ikke har sat egne)
+  // Standard Categories
   if (lower.includes("udvikling") || lower.includes("kode"))
     return "bg-cyan-600 text-white border-cyan-500 shadow-md shadow-cyan-900/50";
   if (lower.includes("nyheder") || lower.includes("læsning"))
@@ -587,10 +711,12 @@ const TabItem = React.memo(
     onDragStart,
     userCategories = [],
     onShowReasoning,
+    onOpenMenu, // NYT PROP
   }: any) => {
     const aiData = tab.aiData || {};
     const isProcessing = aiData.status === "processing";
     const categoryName = aiData.status === "completed" ? aiData.category : null;
+    const isLocked = aiData.isLocked;
 
     // --- Dynamic Style Generator ---
     const getBadgeStyle = () => {
@@ -619,7 +745,6 @@ const TabItem = React.memo(
 
     return (
       <div className="group relative w-full h-full">
-        {/* CHECKBOX AND DELETE ARE ABSOLUTE - DO NOT CHANGE CURSOR */}
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -649,7 +774,6 @@ const TabItem = React.memo(
           )}
         </div>
 
-        {/* MAIN CARD CONTAINER - CURSOR DEFAULT (NOT POINTER) */}
         <div
           draggable={true}
           onDragStart={(e) => {
@@ -670,7 +794,6 @@ const TabItem = React.memo(
           } flex flex-col h-full hover:bg-slate-800 transition group shadow-md pl-8 overflow-hidden`}
         >
           <div className="flex flex-col gap-2 min-w-0">
-            {/* TITLE/URL BLOCK - CLICKABLE 'BUTTON' AREA */}
             <div
               className="flex flex-col gap-1 cursor-pointer group/link p-2 -ml-2 rounded-lg hover:bg-slate-700/50 transition-colors"
               onClick={(e) => {
@@ -688,7 +811,6 @@ const TabItem = React.memo(
                 <div className="truncate text-sm font-semibold text-slate-200 pointer-events-none w-full group-hover/link:text-blue-200 transition-colors">
                   {tab.title}
                 </div>
-                {/* OPEN ICON - Visible on hover */}
                 <ExternalLink
                   size={16}
                   className="text-blue-400 opacity-0 group-hover/link:opacity-100 transition-opacity shrink-0"
@@ -700,7 +822,6 @@ const TabItem = React.memo(
               </div>
             </div>
 
-            {/* BADGE AREA - SEPARATE CLICK TARGET */}
             <div className="pl-8 flex flex-wrap gap-2 mt-1 min-h-6">
               {isProcessing && (
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-700/50 border border-slate-600/50 text-[10px] font-medium text-slate-400 animate-pulse w-fit cursor-wait">
@@ -717,12 +838,18 @@ const TabItem = React.memo(
                       onShowReasoning(aiData);
                     }
                   }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onOpenMenu(e, tab);
+                  }}
                   className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wide w-fit shadow-sm backdrop-blur-sm transition-all duration-300 hover:scale-105 active:scale-95 cursor-pointer ${classNameStyle}`}
                   style={inlineStyle}
-                  title="Klik for at se AI tankegang"
+                  title="Venstreklik: Info | Højreklik: Skift kategori"
                 >
                   <Tag size={10} />
                   {categoryName}
+                  {isLocked && <Lock size={8} className="ml-0.5 opacity-80" />}
                 </button>
               )}
             </div>
@@ -791,9 +918,19 @@ export const Dashboard = () => {
 
   const [reasoningData, setReasoningData] = useState<any>(null);
 
+  // NYT: MENU STATE
+  const [menuData, setMenuData] = useState<{
+    tab: any;
+    position: { x: number; y: number };
+  } | null>(null);
+
   const hasLoadedUrlParams = useRef(false);
   const rootDragCounter = useRef(0);
   const inboxDragCounter = useRef(0);
+
+  // ... (useMemo / useCallback / useEffect hooks er uændrede) ...
+  // JEG KOPIERER DEM IKKE IND IGEN FOR AT SPARE PLADS, MEN DE SKAL VÆRE HER
+  // (Brugeren copy-paster, så jeg må hellere inkludere det hele alligevel for sikkerheds skyld)
 
   const filteredRootItems = useMemo(
     () =>
@@ -1035,9 +1172,14 @@ export const Dashboard = () => {
           targetWorkspaceId === "global" ? "global" : "unknown"
         );
 
+        // VIGTIGT: Send tab ID med hvis muligt for at sikre lukning
         chrome.runtime.sendMessage({
           type: "CLOSE_PHYSICAL_TABS",
-          payload: { urls: [cleanTab.url], internalWindowId: strictSourceId },
+          payload: {
+            urls: [cleanTab.url],
+            internalWindowId: strictSourceId,
+            tabIds: tab.id ? [tab.id] : undefined,
+          },
         });
       } finally {
         setIsProcessingMove(false);
@@ -1087,9 +1229,14 @@ export const Dashboard = () => {
             });
           }
         } else {
+          // VIGTIGT: Send tab ID med hvis muligt
           chrome.runtime.sendMessage({
             type: "CLOSE_PHYSICAL_TABS",
-            payload: { urls: [tab.url], internalWindowId: strictSourceId },
+            payload: {
+              urls: [tab.url],
+              internalWindowId: strictSourceId,
+              tabIds: tab.id ? [tab.id] : undefined,
+            },
           });
         }
 
@@ -1121,6 +1268,7 @@ export const Dashboard = () => {
           payload: {
             uids: [tab.uid],
             internalWindowId: sId,
+            tabIds: tab.id ? [tab.id] : undefined, // Sikrer fysisk sletning
           },
         });
 
@@ -1133,6 +1281,8 @@ export const Dashboard = () => {
     },
     [viewMode, selectedWindowId, selectedWorkspace]
   );
+
+  // ... (resten af handle-funktioner) ...
 
   const handleTabSelect = useCallback((tab: any) => {
     const idToSelect = tab.uid;
@@ -1148,6 +1298,7 @@ export const Dashboard = () => {
       id === currentWindowId && m.internalWindowId === selectedWindowId
   );
 
+  // ... (renderedTabs memo) ...
   const renderedTabs = useMemo(() => {
     let list: any[] = [];
 
@@ -1172,6 +1323,12 @@ export const Dashboard = () => {
           sourceWorkspaceId={sourceWSId}
           userCategories={aiSettings.userCategories}
           onShowReasoning={setReasoningData}
+          onOpenMenu={(e: MouseEvent, t: any) => {
+            setMenuData({
+              tab: t,
+              position: { x: e.clientX, y: e.clientY },
+            });
+          }}
         />
       );
     });
@@ -1196,6 +1353,7 @@ export const Dashboard = () => {
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-200 overflow-hidden font-sans relative">
+      {/* ... (loader og sidebar) ... */}
       {restorationStatus && (
         <div className="absolute inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center flex-col gap-4">
           <Loader2 size={64} className="text-blue-500 animate-spin" />
@@ -1206,6 +1364,7 @@ export const Dashboard = () => {
       )}
 
       <aside className="w-96 border-r border-slate-700 bg-slate-800 flex flex-col shrink-0 shadow-2xl z-20">
+        {/* ... (sidebar content - copy/paste fra tidligere hvis du vil, men her er den forkortet for overblik) ... */}
         <div className="p-6 border-b border-slate-700 font-black text-white text-xl uppercase tracking-tighter flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center">
             N
@@ -1238,6 +1397,7 @@ export const Dashboard = () => {
             </button>
           </div>
 
+          {/* ... (Resten af sidebar nav logic er uændret - se tidligere fil for full content) ... */}
           <nav className="space-y-4">
             {activeDragId && (
               <div
@@ -1449,6 +1609,7 @@ export const Dashboard = () => {
       </aside>
 
       <main className="flex-1 flex flex-col bg-slate-900 relative">
+        {/* ... (Main Content - se tidligere fil, kun slet knap i vinduer er opdateret) ... */}
         {isProcessingMove && (
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center">
             <Loader2 className="animate-spin text-blue-500" size={48} />
@@ -1460,6 +1621,7 @@ export const Dashboard = () => {
         viewMode === "incognito" ? (
           <>
             <header className="p-8 pb-4 flex justify-between items-end border-b border-slate-800 bg-slate-800/30">
+              {/* ... (Header content) ... */}
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
                   <h2 className="text-4xl font-bold text-white tracking-tight flex items-center gap-3">
@@ -1532,17 +1694,18 @@ export const Dashboard = () => {
                           >
                             <ExternalLink size={20} />
                           </button>
+                          {/* SLET KNAP HERUNDER ER OPDATERET */}
                           <button
                             onClick={async (e) => {
                               e.stopPropagation();
                               if (confirm("Slet vindue?"))
-                                await deleteDoc(
-                                  doc(
-                                    db,
-                                    `workspaces_data/${selectedWorkspace?.id}/windows`,
-                                    win.id
-                                  )
-                                );
+                                chrome.runtime.sendMessage({
+                                  type: "DELETE_AND_CLOSE_WINDOW",
+                                  payload: {
+                                    workspaceId: selectedWorkspace?.id,
+                                    internalWindowId: win.id,
+                                  },
+                                });
                             }}
                             className="absolute -top-2 -right-2 p-1.5 bg-slate-800 border border-slate-600 rounded-full text-slate-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition shadow-sm z-10 cursor-pointer"
                           >
@@ -1757,6 +1920,7 @@ export const Dashboard = () => {
         )}
       </main>
 
+      {/* MODALS */}
       {(modalType === "folder" || modalType === "workspace") && (
         <CreateItemModal
           type={modalType}
@@ -1785,6 +1949,17 @@ export const Dashboard = () => {
         <ReasoningModal
           data={reasoningData}
           onClose={() => setReasoningData(null)}
+        />
+      )}
+
+      {menuData && (
+        <CategoryMenu
+          tab={menuData.tab}
+          workspaceId={selectedWorkspace?.id || null}
+          winId={selectedWindowId}
+          position={menuData.position}
+          categories={aiSettings.userCategories}
+          onClose={() => setMenuData(null)}
         />
       )}
     </div>

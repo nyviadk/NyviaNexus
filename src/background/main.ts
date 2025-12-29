@@ -43,13 +43,9 @@ let lastDashboardTime = 0;
 let activeWindows = new Map<number, WinMapping>();
 const lockedWindowIds = new Set<number>();
 
-// ANTI-SPAM: Forhindrer at man åbner samme workspace flere gange oven i hinanden
+// ANTI-SPAM
 const openingWorkspaces = new Set<string>();
-
-// VIGTIGT: Debounce Set for at forhindre kø-spam (ADD protection)
 const recentQueueAdds = new Set<string>();
-
-// NYT: Processing Set for at forhindre dobbelt-kørsel (RUN protection)
 const currentlyProcessing = new Set<string>();
 
 let tabTracker = new Map<number, TrackerData>();
@@ -375,6 +371,7 @@ async function processAiQueue() {
         confidence: result.confidence,
         reasoning: result.reasoning,
         lastChecked: Date.now(),
+        isLocked: false, // Default: Ikke låst
       };
 
       let handled = false;
@@ -396,13 +393,16 @@ async function processAiQueue() {
             if (winSnap.exists()) {
               const tabs = winSnap.data().tabs || [];
               const idx = tabs.findIndex((t: any) => t.uid === item.uid);
-              if (idx !== -1) {
+              // LOCK CHECK: Overskriv kun hvis ikke låst
+              if (idx !== -1 && !tabs[idx].aiData?.isLocked) {
                 tabs[idx].aiData = aiData;
                 await updateDoc(winRef, { tabs });
                 console.log(
                   `💾 Space Firestore updated! (${mapping.workspaceName})`
                 );
                 handled = true;
+              } else if (idx !== -1 && tabs[idx].aiData?.isLocked) {
+                console.log("🔒 Tab is locked. Skipping AI update.");
               }
             }
           }
@@ -417,10 +417,13 @@ async function processAiQueue() {
         if (inboxSnap.exists()) {
           const tabs = inboxSnap.data().tabs || [];
           const idx = tabs.findIndex((t: any) => t.uid === item.uid);
-          if (idx !== -1) {
+          // LOCK CHECK
+          if (idx !== -1 && !tabs[idx].aiData?.isLocked) {
             tabs[idx].aiData = aiData;
             await updateDoc(inboxRef, { tabs });
             console.log("💾 Inbox Firestore updated!");
+          } else if (idx !== -1 && tabs[idx].aiData?.isLocked) {
+            console.log("🔒 Tab is locked. Skipping AI update.");
           }
         }
       }
@@ -484,54 +487,7 @@ async function addToAiQueue(items: QueueItem[]) {
   }
 }
 
-// --- STANDARD LOGIC ---
-async function updateWindowGrouping(
-  windowId: number,
-  mapping: WinMapping | null
-) {
-  try {
-    let groupName = "INBOX";
-    let color = "grey";
-
-    if (mapping) {
-      groupName = `${mapping.workspaceName.toUpperCase()} (${mapping.index})`;
-      color = "blue";
-    }
-
-    const tabs = await chrome.tabs.query({ windowId });
-    const tabsToGroup = tabs
-      .filter((t) => !t.pinned && t.id && !isDash(t.url))
-      .map((t) => t.id as number);
-
-    if (tabsToGroup.length === 0) return;
-
-    const groups = await chrome.tabGroups.query({ windowId });
-    const existingGroup = groups.find((g) => g.title === groupName);
-    const safeTabIds = tabsToGroup as [number, ...number[]];
-
-    if (existingGroup) {
-      await chrome.tabs.group({
-        tabIds: safeTabIds,
-        groupId: existingGroup.id,
-      });
-      if (existingGroup.color !== color) {
-        await chrome.tabGroups.update(existingGroup.id, {
-          color: color as any,
-        });
-      }
-    } else {
-      const groupId = (await chrome.tabs.group({
-        tabIds: safeTabIds,
-      })) as number;
-      await chrome.tabGroups.update(groupId, {
-        title: groupName,
-        color: color as any,
-        collapsed: false,
-      });
-    }
-  } catch (e) {}
-}
-
+// --- HELPER: getOrAssignUid ---
 function getOrAssignUid(tabId: number, url: string): string {
   const tracked = tabTracker.get(tabId);
   if (tracked) {
@@ -544,6 +500,9 @@ function getOrAssignUid(tabId: number, url: string): string {
   tabTracker.set(tabId, { uid: newUid, url });
   return newUid;
 }
+
+// --- STANDARD LOGIC ---
+// BEMÆRK: Tab Group Logik er FJERNET herfra!
 
 async function registerNewInboxWindow(windowId: number) {
   if (activeRestorations > 0) return;
@@ -596,7 +555,6 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       if (!windowExists) return;
       const tabs = await chrome.tabs.query({ windowId });
 
-      // Hent eksisterende data for at bevare AI kategorier
       const docRef = doc(
         db,
         "workspaces_data",
@@ -606,7 +564,7 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
       );
 
       let existingAiData = new Map<string, any>();
-      let existingUrls = new Map<string, string>(); // NYT: Map til URL tjek
+      let existingUrls = new Map<string, string>();
 
       try {
         const snap = await getDoc(docRef);
@@ -614,7 +572,7 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
           const oldTabs = (snap.data().tabs || []) as TabData[];
           oldTabs.forEach((t) => {
             if (t.aiData) existingAiData.set(t.uid, t.aiData);
-            existingUrls.set(t.uid, t.url); // Gem URL fra databasen
+            existingUrls.set(t.uid, t.url);
           });
         }
       } catch (e) {
@@ -631,14 +589,23 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
           let aiData = existingAiData.get(uid) || { status: "pending" };
           const oldUrl = existingUrls.get(uid);
 
-          // NYT: TJEK OM URL ER ÆNDRET (Fixer buggen hvor navigering ikke opdaterer)
           if (oldUrl && oldUrl !== t.url) {
-            console.log(`🔄 URL changed in Space (uid: ${uid}). Resetting AI.`);
-            aiData = { status: "pending" };
-            recentQueueAdds.delete(uid); // Sørg for at den kan queues
+            // Hvis tabben er låst, skal vi IKKE resette AI, men beholde data
+            if (!aiData.isLocked) {
+              console.log(
+                `🔄 URL changed in Space (uid: ${uid}). Resetting AI.`
+              );
+              aiData = { status: "pending" };
+              recentQueueAdds.delete(uid);
+            } else {
+              console.log(`🔒 URL changed, but AI Data is LOCKED. Keeping it.`);
+            }
           }
 
-          if (aiData.status === "pending" || !aiData.status) {
+          if (
+            (aiData.status === "pending" || !aiData.status) &&
+            !aiData.isLocked
+          ) {
             console.log("🤖 Queuing Space tab for AI:", t.title);
             tabsToQueue.push({
               uid,
@@ -661,7 +628,7 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
         }
       }
 
-      await updateWindowGrouping(windowId, mapping);
+      // INGEN updateWindowGrouping HER MERE!
 
       if (validTabs.length === 0 && isRemoval) {
         await deleteDoc(docRef);
@@ -679,11 +646,6 @@ async function saveToFirestore(windowId: number, isRemoval: boolean = false) {
 
       if (tabsToQueue.length > 0) {
         addToAiQueue(tabsToQueue);
-      }
-    } else {
-      if (windowExists) {
-        const win = await chrome.windows.get(windowId);
-        if (!win.incognito) await updateWindowGrouping(windowId, null);
       }
     }
   } catch (e) {
@@ -721,8 +683,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
           if (oldUrl !== url || oldTitle !== tab.title) {
             needsUpdate = true;
             if (oldUrl !== url) {
-              tabs[idx].aiData = { status: "pending" };
-              recentQueueAdds.delete(uid);
+              if (!tabs[idx].aiData?.isLocked) {
+                tabs[idx].aiData = { status: "pending" };
+                recentQueueAdds.delete(uid);
+              }
             }
           }
         } else {
@@ -744,9 +708,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
           });
 
           const currentTab = idx !== -1 ? tabs[idx] : tabs[tabs.length - 1];
+          // Tjek også isLocked her
           if (
             currentTab.aiData?.status !== "completed" &&
-            currentTab.aiData?.status !== "processing"
+            currentTab.aiData?.status !== "processing" &&
+            !currentTab.aiData?.isLocked
           ) {
             console.log("🤖 Attempting to queue AI for Inbox tab:", tab.title);
             addToAiQueue([
@@ -841,6 +807,47 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const { type, payload } = msg;
+
+  if (type === "DELETE_AND_CLOSE_WINDOW") {
+    const { workspaceId, internalWindowId } = payload;
+    console.log(
+      `🗑️ Deleting window ${internalWindowId} from workspace ${workspaceId}`
+    );
+
+    // 1. Find det fysiske ID først
+    let physicalId = null;
+    for (const [pId, map] of activeWindows.entries()) {
+      if (
+        map.workspaceId === workspaceId &&
+        map.internalWindowId === internalWindowId
+      ) {
+        physicalId = pId;
+        break;
+      }
+    }
+
+    // 2. Slet fra databasen
+    const docRef = doc(
+      db,
+      "workspaces_data",
+      workspaceId,
+      "windows",
+      internalWindowId
+    );
+    deleteDoc(docRef)
+      .then(async () => {
+        // 3. Luk fysisk vindue, hvis det findes
+        if (physicalId) {
+          console.log(`🪟 Closing physical window: ${physicalId}`);
+          activeWindows.delete(physicalId); // VIGTIGT: Fjern fra map før lukning
+          await saveActiveWindowsToStorage();
+          await chrome.windows.remove(physicalId).catch(() => {});
+        }
+      })
+      .catch((e) => console.error("Error deleting window:", e));
+
+    return true;
+  }
 
   if (type === "TRIGGER_AI_SORT") {
     console.log("🖱️ TRIGGER_AI_SORT received from UI");
@@ -1059,8 +1066,7 @@ async function handleOpenSpecificWindow(
       activeWindows.set(winId, mapping);
       await saveActiveWindowsToStorage();
 
-      updateRestorationStatus("Organiserer...");
-      await updateWindowGrouping(winId, mapping);
+      // INGEN updateWindowGrouping HER!
 
       if (urls.length > 0) {
         await waitForWindowToLoad(winId);
@@ -1099,7 +1105,7 @@ async function handleCreateNewWindowInWorkspace(
       };
       activeWindows.set(winId, mapping);
       await saveActiveWindowsToStorage();
-      await updateWindowGrouping(winId, mapping);
+      // INGEN updateWindowGrouping HER!
       await saveToFirestore(winId, false);
     }
   } finally {
@@ -1139,7 +1145,7 @@ async function handleForceSync(windowId: number) {
         if (tab.id && !isDash(tab.url) && !tab.pinned)
           await chrome.tabs.remove(tab.id);
       }
-      await updateWindowGrouping(windowId, mapping);
+      // INGEN updateWindowGrouping HER!
     }
   } finally {
     await waitForWindowToLoad(windowId);
