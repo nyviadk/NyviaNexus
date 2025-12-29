@@ -43,6 +43,7 @@ import {
   Lightbulb,
   Unlock,
   Lock,
+  Clock,
 } from "lucide-react";
 import React, {
   useCallback,
@@ -723,6 +724,7 @@ const TabItem = React.memo(
   }: any) => {
     const aiData = tab.aiData || {};
     const isProcessing = aiData.status === "processing";
+    const isPending = aiData.status === "pending"; // NYT: Pending state
     const categoryName = aiData.status === "completed" ? aiData.category : null;
     const isLocked = aiData.isLocked;
 
@@ -843,6 +845,15 @@ const TabItem = React.memo(
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-700/50 border border-slate-600/50 text-[10px] font-medium text-slate-400 animate-pulse w-fit cursor-wait">
                   <Loader2 size={10} className="animate-spin" />
                   AI sorterer...
+                </div>
+              )}
+
+              {isPending && (
+                <div
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-700/50 border border-slate-600/50 text-[10px] font-medium text-slate-400 w-fit cursor-help"
+                  title="Analyseres næste gang ai kører"
+                >
+                  <Clock size={10} />I kø til AI
                 </div>
               )}
 
