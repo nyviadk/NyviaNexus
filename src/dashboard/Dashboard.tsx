@@ -1094,6 +1094,7 @@ export const Dashboard = () => {
 
   const handleSidebarTabDrop = useCallback(
     async (targetItem: NexusItem | "global") => {
+      console.log("🖱️ handleSidebarTabDrop STARTED");
       const tabJson = window.sessionStorage.getItem("draggedTab");
       if (!tabJson) return;
       const tab = JSON.parse(tabJson);
@@ -1113,41 +1114,78 @@ export const Dashboard = () => {
       setIsProcessingMove(true);
       if (targetItem === "global") setIsInboxSyncing(true);
 
+      const cleanTab = {
+        uid: tab.uid || crypto.randomUUID(),
+        title: tab.title,
+        url: tab.url,
+        favIconUrl: tab.favIconUrl,
+        isIncognito: false,
+      };
+
+      console.log(
+        `🕵️‍♂️ Dropping Tab ${cleanTab.uid} (${cleanTab.url}) to ${targetWorkspaceId}`
+      );
+
+      // Send besked til background om at vi forventer denne URL -> UID mapping
+      chrome.runtime.sendMessage(
+        {
+          type: "EXPECT_TAB",
+          payload: { url: cleanTab.url, uid: cleanTab.uid },
+        },
+        () => console.log("📡 EXPECT_TAB ack received")
+      );
+
       try {
-        const cleanTab = {
-          uid: crypto.randomUUID(),
-          title: tab.title,
-          url: tab.url,
-          favIconUrl: tab.favIconUrl,
-          isIncognito: false,
-        };
+        let updateSuccess = false;
 
-        let targetPhysicalWindowId = null;
-
+        // 1. ADD TO TARGET DB
         if (targetWorkspaceId === "global") {
+          console.log("📥 Target is Global Inbox");
           const snap = await getDoc(doc(db, "inbox_data", "global"));
           const currentTabs = snap.exists() ? snap.data().tabs || [] : [];
-          await setDoc(
-            doc(db, "inbox_data", "global"),
-            {
-              tabs: [...currentTabs, cleanTab],
-              lastUpdate: serverTimestamp(),
-            },
-            { merge: true }
-          );
+
+          if (!currentTabs.some((t: any) => t.uid === cleanTab.uid)) {
+            console.log("💾 Writing to Inbox DB...");
+            await setDoc(
+              doc(db, "inbox_data", "global"),
+              {
+                tabs: [...currentTabs, cleanTab],
+                lastUpdate: serverTimestamp(),
+              },
+              { merge: true }
+            );
+            updateSuccess = true;
+          }
         } else {
+          console.log("📂 Target is Workspace:", targetWorkspaceId);
           const snap = await getDocs(
             collection(db, "workspaces_data", targetWorkspaceId, "windows")
           );
+
           let targetInternalId = "";
 
           if (!snap.empty) {
             const firstWin = snap.docs[0];
             targetInternalId = firstWin.id;
-            await updateDoc(firstWin.ref, {
-              tabs: [...(firstWin.data().tabs || []), cleanTab],
-            });
+
+            const existingTabs = (firstWin.data().tabs || []) as any[];
+            console.log(
+              `🕵️‍♂️ Found existing window ${targetInternalId} with ${existingTabs.length} tabs`
+            );
+
+            if (!existingTabs.some((t: any) => t.uid === cleanTab.uid)) {
+              const newTabs = [...existingTabs, cleanTab];
+              console.log(
+                `💾 Manual update: pushing tab to DB. New length: ${newTabs.length}`
+              );
+
+              await updateDoc(firstWin.ref, {
+                tabs: newTabs,
+              });
+              updateSuccess = true;
+            }
           } else {
+            console.log("🕵️‍♂️ Creating NEW logical window in workspace");
             const newRef = doc(
               collection(db, "workspaces_data", targetWorkspaceId, "windows")
             );
@@ -1158,8 +1196,10 @@ export const Dashboard = () => {
               isActive: false,
               lastActive: serverTimestamp(),
             });
+            updateSuccess = true;
           }
 
+          // Se om vinduet er fysisk åbent - og opret fane hvis det er
           const mapping = activeMappings.find(
             ([_id, mapData]: any) =>
               mapData.workspaceId === targetWorkspaceId &&
@@ -1167,7 +1207,8 @@ export const Dashboard = () => {
           );
 
           if (mapping) {
-            targetPhysicalWindowId = mapping[0];
+            console.log("🕵️‍♂️ Target window IS OPEN. creating physical tab.");
+            const targetPhysicalWindowId = mapping[0];
             await chrome.tabs.create({
               windowId: targetPhysicalWindowId,
               url: cleanTab.url,
@@ -1176,35 +1217,69 @@ export const Dashboard = () => {
           }
         }
 
-        await NexusService.moveTabBetweenWindows(
-          tab,
-          selectedWorkspace?.id || "global",
-          strictSourceId,
-          targetWorkspaceId,
-          targetWorkspaceId === "global" ? "global" : "unknown"
-        );
+        // 2. REMOVE FROM SOURCE (MANUALLY) - VI STOLER IKKE PÅ NEXUSSERVICE HER
+        if (updateSuccess) {
+          console.log(
+            "✅ Target update successful. Removing from source:",
+            strictSourceId
+          );
 
-        // VIGTIG RETTELSE: SIKR AT DATA SENDES KORREKT TIL BACKGROUND
-        const uidsToSend = tab.uid ? [tab.uid] : [];
-        const idsToSend = tab.id ? [tab.id] : [];
+          if (strictSourceId === "global") {
+            const snap = await getDoc(doc(db, "inbox_data", "global"));
+            if (snap.exists()) {
+              const tabs = snap.data().tabs || [];
+              const newTabs = tabs.filter((t: any) => t.uid !== cleanTab.uid);
+              await updateDoc(doc(db, "inbox_data", "global"), {
+                tabs: newTabs,
+              });
+            }
+          } else {
+            // Find source workspace ID... vent, vi har den ikke direkte.
+            // Vi må antage selectedWorkspace.
+            const sourceWSId = selectedWorkspace?.id || "global";
+            // Hvis sourceWSId er 'global', men strictSourceId IKKE er 'global' (dvs. et vindueID) -> Fejl.
+            // Men handleSidebarTabDrop kaldes typisk fra et aktivt view.
 
-        console.log("🔥 Sending CLOSE_PHYSICAL_TABS:", {
-          uids: uidsToSend,
-          ids: idsToSend,
-        });
+            if (sourceWSId !== "global") {
+              const sourceRef = doc(
+                db,
+                "workspaces_data",
+                sourceWSId,
+                "windows",
+                strictSourceId
+              );
+              const sSnap = await getDoc(sourceRef);
+              if (sSnap.exists()) {
+                const tabs = sSnap.data().tabs || [];
+                const newTabs = tabs.filter((t: any) => t.uid !== cleanTab.uid);
+                await updateDoc(sourceRef, { tabs: newTabs });
+              }
+            }
+          }
 
-        chrome.runtime.sendMessage({
-          type: "CLOSE_PHYSICAL_TABS",
-          payload: {
-            uids: uidsToSend,
-            internalWindowId: strictSourceId,
-            tabIds: idsToSend,
-          },
-        });
+          // 3. CLOSE PHYSICAL TAB
+          const uidsToSend = tab.uid ? [tab.uid] : [];
+          const idsToSend = tab.id ? [tab.id] : [];
+          console.log("🕵️‍♂️ Requesting physical close in source window");
+          chrome.runtime.sendMessage(
+            {
+              type: "CLOSE_PHYSICAL_TABS",
+              payload: {
+                uids: uidsToSend,
+                internalWindowId: strictSourceId,
+                tabIds: idsToSend,
+              },
+            },
+            () => console.log("✂️ Source closed")
+          );
+        }
+      } catch (err) {
+        console.error("🛑 ERROR in handleSidebarTabDrop:", err);
       } finally {
         setIsProcessingMove(false);
         setIsInboxSyncing(false);
         window.sessionStorage.removeItem("draggedTab");
+        console.log("✅ Drop handling finished");
       }
     },
     [activeMappings, viewMode, selectedWindowId, selectedWorkspace]
@@ -1212,6 +1287,7 @@ export const Dashboard = () => {
 
   const handleTabDrop = useCallback(
     async (targetWinId: string) => {
+      console.log("🖱️ handleTabDrop STARTED (Dashboard/Inbox)");
       setDropTargetWinId(null);
       const tabJson = window.sessionStorage.getItem("draggedTab");
       if (!tabJson) return;
@@ -1239,6 +1315,15 @@ export const Dashboard = () => {
           uid: tab.uid || crypto.randomUUID(),
         };
 
+        chrome.runtime.sendMessage(
+          {
+            type: "EXPECT_TAB",
+            payload: { url: cleanTab.url, uid: cleanTab.uid },
+          },
+          () => {}
+        );
+
+        // FYSISK
         if (sourceMapping && targetMapping) {
           const tabs = await chrome.tabs.query({ windowId: sourceMapping[0] });
           const targetTab = tabs.find((t) => t.url === tab.url);
@@ -1249,32 +1334,58 @@ export const Dashboard = () => {
             });
           }
         } else {
-          // VIGTIG RETTELSE: SIKR AT DATA SENDES KORREKT TIL BACKGROUND
+          // LUK GAMMEL
           const uidsToSend = tab.uid ? [tab.uid] : [];
           const idsToSend = tab.id ? [tab.id] : [];
-
-          console.log("🔥 Sending CLOSE_PHYSICAL_TABS (TabDrop):", {
-            uids: uidsToSend,
-            ids: idsToSend,
-          });
-
-          chrome.runtime.sendMessage({
-            type: "CLOSE_PHYSICAL_TABS",
-            payload: {
-              uids: uidsToSend,
-              internalWindowId: strictSourceId,
-              tabIds: idsToSend,
+          chrome.runtime.sendMessage(
+            {
+              type: "CLOSE_PHYSICAL_TABS",
+              payload: {
+                uids: uidsToSend,
+                internalWindowId: strictSourceId,
+                tabIds: idsToSend,
+              },
             },
-          });
+            () => {}
+          );
         }
 
-        await NexusService.moveTabBetweenWindows(
-          cleanTab,
-          selectedWorkspace?.id || "global",
-          strictSourceId,
-          selectedWorkspace?.id || "global",
+        // DATABASE MANUELT (Sikrere end NexusService i denne kontekst)
+        // 1. Add to target
+        const targetWSId = selectedWorkspace?.id || "global"; // Samme workspace, internt flyt
+        const targetRef = doc(
+          db,
+          "workspaces_data",
+          targetWSId,
+          "windows",
           targetWinId
         );
+        const tSnap = await getDoc(targetRef);
+        if (tSnap.exists()) {
+          const tabs = tSnap.data().tabs || [];
+          if (!tabs.some((t: any) => t.uid === cleanTab.uid)) {
+            await updateDoc(targetRef, { tabs: [...tabs, cleanTab] });
+          }
+        }
+
+        // 2. Remove from source
+        if (strictSourceId === "global") {
+          // Inbox logic if needed, but rarely happens here
+        } else {
+          const sourceRef = doc(
+            db,
+            "workspaces_data",
+            targetWSId,
+            "windows",
+            strictSourceId
+          );
+          const sSnap = await getDoc(sourceRef);
+          if (sSnap.exists()) {
+            const tabs = sSnap.data().tabs || [];
+            const newTabs = tabs.filter((t: any) => t.uid !== cleanTab.uid);
+            await updateDoc(sourceRef, { tabs: newTabs });
+          }
+        }
       } finally {
         window.sessionStorage.removeItem("draggedTab");
         setIsProcessingMove(false);
@@ -1294,14 +1405,17 @@ export const Dashboard = () => {
         const uidsToSend = tab.uid ? [tab.uid] : [];
         const idsToSend = tab.id ? [tab.id] : [];
 
-        chrome.runtime.sendMessage({
-          type: "CLOSE_PHYSICAL_TABS",
-          payload: {
-            uids: uidsToSend,
-            internalWindowId: sId,
-            tabIds: idsToSend, // Sikrer fysisk sletning
+        chrome.runtime.sendMessage(
+          {
+            type: "CLOSE_PHYSICAL_TABS",
+            payload: {
+              uids: uidsToSend,
+              internalWindowId: sId,
+              tabIds: idsToSend,
+            },
           },
-        });
+          () => {}
+        );
 
         await NexusService.deleteTab(
           tab,
@@ -1721,13 +1835,16 @@ export const Dashboard = () => {
                             onClick={async (e) => {
                               e.stopPropagation();
                               if (confirm("Slet vindue?"))
-                                chrome.runtime.sendMessage({
-                                  type: "DELETE_AND_CLOSE_WINDOW",
-                                  payload: {
-                                    workspaceId: selectedWorkspace?.id,
-                                    internalWindowId: win.id,
+                                chrome.runtime.sendMessage(
+                                  {
+                                    type: "DELETE_AND_CLOSE_WINDOW",
+                                    payload: {
+                                      workspaceId: selectedWorkspace?.id,
+                                      internalWindowId: win.id,
+                                    },
                                   },
-                                });
+                                  () => {}
+                                ); // Callback
                             }}
                             className="absolute -top-2 -right-2 p-1.5 bg-slate-800 border border-slate-600 rounded-full text-slate-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition shadow-sm z-10 cursor-pointer"
                           >
@@ -1737,14 +1854,18 @@ export const Dashboard = () => {
                       </div>
                     ))}
                     <button
-                      onClick={() =>
-                        chrome.runtime.sendMessage({
-                          type: "CREATE_NEW_WINDOW_IN_WORKSPACE",
-                          payload: {
-                            workspaceId: selectedWorkspace?.id,
-                            name: selectedWorkspace?.name,
-                          },
-                        })
+                      onClick={
+                        () =>
+                          chrome.runtime.sendMessage(
+                            {
+                              type: "CREATE_NEW_WINDOW_IN_WORKSPACE",
+                              payload: {
+                                workspaceId: selectedWorkspace?.id,
+                                name: selectedWorkspace?.name,
+                              },
+                            },
+                            () => {}
+                          ) // Callback
                       }
                       className="h-14 w-14 flex items-center justify-center rounded-xl border border-dashed border-slate-700 hover:border-blue-500 text-slate-500 transition cursor-pointer"
                     >
@@ -1811,14 +1932,17 @@ export const Dashboard = () => {
 
                         const uidsToSend = selectedUrls;
 
-                        chrome.runtime.sendMessage({
-                          type: "CLOSE_PHYSICAL_TABS",
-                          payload: {
-                            uids: uidsToSend,
-                            internalWindowId: sId,
-                            tabIds: [], // Tom array, da vi sletter via UID
+                        chrome.runtime.sendMessage(
+                          {
+                            type: "CLOSE_PHYSICAL_TABS",
+                            payload: {
+                              uids: uidsToSend,
+                              internalWindowId: sId,
+                              tabIds: [],
+                            },
                           },
-                        });
+                          () => {}
+                        ); // Callback
 
                         if (viewMode === "inbox" || viewMode === "incognito") {
                           const f = inboxData.tabs.filter(
@@ -1865,13 +1989,16 @@ export const Dashboard = () => {
                           const normalTabs = getFilteredInboxTabs(false);
                           const incognitoTabs = getFilteredInboxTabs(true);
 
-                          chrome.runtime.sendMessage({
-                            type: "CLOSE_PHYSICAL_TABS",
-                            payload: {
-                              uids: normalTabs.map((t: any) => t.uid),
-                              internalWindowId: "global",
+                          chrome.runtime.sendMessage(
+                            {
+                              type: "CLOSE_PHYSICAL_TABS",
+                              payload: {
+                                uids: normalTabs.map((t: any) => t.uid),
+                                internalWindowId: "global",
+                              },
                             },
-                          });
+                            () => {}
+                          ); // Callback
 
                           await updateDoc(doc(db, "inbox_data", "global"), {
                             tabs: incognitoTabs,
@@ -1892,13 +2019,16 @@ export const Dashboard = () => {
                           const normalTabs = getFilteredInboxTabs(false);
                           const incognitoTabs = getFilteredInboxTabs(true);
 
-                          chrome.runtime.sendMessage({
-                            type: "CLOSE_PHYSICAL_TABS",
-                            payload: {
-                              uids: incognitoTabs.map((t: any) => t.uid),
-                              internalWindowId: "global",
+                          chrome.runtime.sendMessage(
+                            {
+                              type: "CLOSE_PHYSICAL_TABS",
+                              payload: {
+                                uids: incognitoTabs.map((t: any) => t.uid),
+                                internalWindowId: "global",
+                              },
                             },
-                          });
+                            () => {}
+                          ); // Callback
 
                           await updateDoc(doc(db, "inbox_data", "global"), {
                             tabs: normalTabs,
@@ -1913,15 +2043,19 @@ export const Dashboard = () => {
 
                 {viewMode === "workspace" && (
                   <button
-                    onClick={() =>
-                      chrome.runtime.sendMessage({
-                        type: "OPEN_WORKSPACE",
-                        payload: {
-                          workspaceId: selectedWorkspace?.id,
-                          windows: sortedWindows,
-                          name: selectedWorkspace?.name,
-                        },
-                      })
+                    onClick={
+                      () =>
+                        chrome.runtime.sendMessage(
+                          {
+                            type: "OPEN_WORKSPACE",
+                            payload: {
+                              workspaceId: selectedWorkspace?.id,
+                              windows: sortedWindows,
+                              name: selectedWorkspace?.name,
+                            },
+                          },
+                          () => {}
+                        ) // Callback
                     }
                     className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 text-white active:scale-95 transition cursor-pointer"
                   >
