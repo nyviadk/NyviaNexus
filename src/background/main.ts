@@ -630,21 +630,25 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
     activeRestorations > 0 ||
     !tab.url ||
     isDash(tab.url) ||
-    tab.url.startsWith("chrome")
-  )
+    tab.url.startsWith("chrome") ||
+    tab.url.startsWith("edge")
+  ) {
     return;
+  }
 
   const isUrlChange = change.url !== undefined;
   const isStatusComplete = change.status === "complete";
+  const isTitleChange = change.title !== undefined;
 
-  if (isUrlChange || isStatusComplete) {
+  // Vi reagerer nu også på titelskift, da AI'en bruger titlen til kontekst
+  if (isUrlChange || isStatusComplete || isTitleChange) {
     const url = tab.url;
     const uid = getOrAssignUid(tabId, url);
-    const title = tab.title || "Ny Fane";
+    const title = tab.title || "Indlæser...";
     const mapping = activeWindows.get(tab.windowId);
 
-    // VIGTIGT: Trigger AI køen med det samme ved URL ændring
-    if (isUrlChange) {
+    // AI Kø Trigger logic
+    const triggerAi = () => {
       addToAiQueue([
         {
           uid,
@@ -655,7 +659,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
           workspaceName: mapping ? mapping.workspaceName : "Inbox",
         },
       ]);
-    }
+    };
 
     if (mapping) {
       const winRef = doc(
@@ -666,25 +670,32 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
         mapping.internalWindowId
       );
       const snap = await getDoc(winRef);
+
       if (snap.exists()) {
         let tabs = snap.data().tabs || [];
         const idx = tabs.findIndex((t: any) => t.uid === uid);
+
         if (idx !== -1) {
-          // Ved URL skift nulstiller vi status til pending
-          if (tabs[idx].url !== url) {
+          const oldUrl = tabs[idx].url;
+          const hasNoAiData =
+            !tabs[idx].aiData || tabs[idx].aiData.status === "pending";
+
+          if (oldUrl !== url || isStatusComplete || hasNoAiData) {
             tabs[idx].url = url;
             tabs[idx].title = title;
-            // Hvis den ikke er låst, nulstil til pending så AI kan tage den igen
-            if (!tabs[idx].aiData?.isLocked) {
+            tabs[idx].favIconUrl = tab.favIconUrl || tabs[idx].favIconUrl || "";
+
+            // Kun nulstil hvis URL rent faktisk er ændret, eller hvis vi mangler data
+            if (oldUrl !== url || hasNoAiData) {
               tabs[idx].aiData = { status: "pending" };
+              await updateDoc(winRef, { tabs });
+              triggerAi();
+            } else {
+              await updateDoc(winRef, { tabs });
             }
-            await updateDoc(winRef, { tabs });
-            processAiQueue(); // Væk AI'en
-          } else if (tabs[idx].title !== title) {
-            tabs[idx].title = title;
-            await updateDoc(winRef, { tabs });
           }
         } else {
+          // Ny tab fundet i et aktivt window
           tabs.push({
             uid,
             title,
@@ -693,10 +704,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
             aiData: { status: "pending" },
           });
           await updateDoc(winRef, { tabs });
-          processAiQueue();
+          triggerAi();
         }
       }
     } else {
+      // Inbox Logic
       const inboxRef = doc(db, "inbox_data", "global");
       const snap = await getDoc(inboxRef);
       if (snap.exists()) {
@@ -704,17 +716,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
         const idx = tabs.findIndex((t: any) => t.uid === uid);
 
         if (idx !== -1) {
-          if (tabs[idx].url !== url) {
+          if (tabs[idx].url !== url || !tabs[idx].aiData) {
             tabs[idx].url = url;
             tabs[idx].title = title;
-            if (!tabs[idx].aiData?.isLocked) {
-              tabs[idx].aiData = { status: "pending" };
-            }
+            tabs[idx].aiData = { status: "pending" };
             await updateDoc(inboxRef, { tabs });
-            processAiQueue();
-          } else if (tabs[idx].title !== title) {
-            tabs[idx].title = title;
-            await updateDoc(inboxRef, { tabs });
+            triggerAi();
           }
         } else {
           tabs.push({
@@ -726,7 +733,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
             aiData: { status: "pending" },
           });
           await updateDoc(inboxRef, { tabs, lastUpdate: serverTimestamp() });
-          processAiQueue();
+          triggerAi();
         }
       }
     }
