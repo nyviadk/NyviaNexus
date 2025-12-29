@@ -72,24 +72,19 @@ export const NexusService = {
   },
 
   async deleteTab(tab: any, workspaceId: string, windowId: string) {
-    const getRef = (wsId: string, winId: string) => {
-      if (winId === "global" || winId === "incognito" || wsId === "global") {
-        return doc(db, "inbox_data", "global");
-      }
-      return doc(db, "workspaces_data", wsId, "windows", winId);
-    };
+    const ref =
+      windowId === "global" ||
+      windowId === "incognito" ||
+      workspaceId === "global"
+        ? doc(db, "inbox_data", "global")
+        : doc(db, "workspaces_data", workspaceId, "windows", windowId);
 
-    const sourceRef = getRef(workspaceId, windowId);
-    const sourceSnap = await getDoc(sourceRef);
-
-    if (sourceSnap.exists()) {
-      const currentTabs = sourceSnap.data().tabs || [];
-      const newTabs = currentTabs.filter((t: any) => {
-        // Vi bruger UID som primær nøgle for at undgå race conditions
-        if (tab.uid && t.uid) return t.uid !== tab.uid;
-        return t.url !== tab.url;
-      });
-      await updateDoc(sourceRef, { tabs: newTabs });
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      const tabs = (snap.data().tabs || []).filter(
+        (t: any) => t.uid !== tab.uid
+      );
+      await updateDoc(ref, { tabs });
     }
   },
 
@@ -106,7 +101,6 @@ export const NexusService = {
       ...t,
       uid: t.uid || crypto.randomUUID(),
     }));
-
     batch.set(doc(db, "items", data.id), {
       id: data.id,
       name: data.name,
@@ -117,11 +111,7 @@ export const NexusService = {
     });
     batch.set(
       doc(db, "workspaces_data", data.id, "windows", data.internalWindowId),
-      {
-        tabs: tabsWithUid,
-        lastActive: Date.now(),
-        isActive: true,
-      }
+      { tabs: tabsWithUid, lastActive: Date.now(), isActive: true }
     );
     return await batch.commit();
   },

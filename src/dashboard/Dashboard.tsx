@@ -6,43 +6,42 @@ import {
   doc,
   getDoc,
   getDocs,
-  serverTimestamp,
   updateDoc,
   writeBatch,
 } from "firebase/firestore";
 import {
   Activity,
   ArrowUpCircle,
+  BrainCircuit,
   Check,
   CheckSquare,
+  Clock,
   Edit2,
   Eraser,
   ExternalLink,
   FolderPlus,
   Globe,
   Inbox as InboxIcon,
+  Key,
   LifeBuoy,
+  Lightbulb,
   Loader2,
+  Lock,
   LogOut,
   Monitor,
+  Plus,
   PlusCircle,
+  Save,
   Settings,
   Square,
-  Trash2,
-  VenetianMask,
-  X,
-  Wand2,
-  Key,
-  Save,
   Tag,
   ToggleLeft,
   ToggleRight,
-  Plus,
-  BrainCircuit,
-  Lightbulb,
+  Trash2,
   Unlock,
-  Lock,
-  Clock,
+  VenetianMask,
+  Wand2,
+  X,
 } from "lucide-react";
 import React, {
   useCallback,
@@ -55,14 +54,14 @@ import { CreateItemModal } from "../components/CreateItemModal";
 import { LoginForm } from "../components/LoginForm";
 import { SidebarItem } from "../components/SidebarItem";
 import { auth, db } from "../lib/firebase";
-import { NexusService } from "../services/nexusService";
 import { AiService } from "../services/aiService";
+import { NexusService } from "../services/nexusService";
 import {
+  AiSettings,
   NexusItem,
   Profile,
-  WorkspaceWindow,
-  AiSettings,
   UserCategory,
+  WorkspaceWindow,
 } from "../types";
 
 // --- HELPER: CONTRAST CHECKER ---
@@ -1104,133 +1103,91 @@ export const Dashboard = () => {
       const tabJson = window.sessionStorage.getItem("draggedTab");
       if (!tabJson) return;
       const tab = JSON.parse(tabJson);
-
-      const strictSourceId =
+      const targetWorkspaceId =
+        targetItem === "global" ? "global" : targetItem.id;
+      const sourceId =
         viewMode === "inbox" || viewMode === "incognito"
           ? "global"
           : selectedWindowId || "global";
 
-      const targetWorkspaceId =
-        targetItem === "global" ? "global" : targetItem.id;
-
-      if (strictSourceId === "global" && targetWorkspaceId === "global") {
-        if (!tab.isIncognito) return;
-      }
-
       setIsProcessingMove(true);
       if (targetItem === "global") setIsInboxSyncing(true);
-
-      const cleanTab = {
-        uid: tab.uid || crypto.randomUUID(),
-        title: tab.title,
-        url: tab.url,
-        favIconUrl: tab.favIconUrl,
-        isIncognito: false,
-        aiData: tab.aiData || { status: "pending" },
-      };
-
       try {
         const batch = writeBatch(db);
-        let updateSuccess = false;
+        let targetMapping = null;
 
-        // 1. TILFØJ TIL MÅL
-        if (targetWorkspaceId === "global") {
-          const snap = await getDoc(doc(db, "inbox_data", "global"));
-          const currentTabs = snap.exists() ? snap.data().tabs || [] : [];
-          if (!currentTabs.some((t: any) => t.uid === cleanTab.uid)) {
-            batch.set(
-              doc(db, "inbox_data", "global"),
-              {
-                tabs: [...currentTabs, cleanTab],
-                lastUpdate: serverTimestamp(),
-              },
-              { merge: true }
-            );
-            updateSuccess = true;
-          }
-        } else {
+        // Find ud af om målet er åbent
+        if (targetWorkspaceId !== "global") {
           const snap = await getDocs(
             collection(db, "workspaces_data", targetWorkspaceId, "windows")
           );
-          let targetInternalId = "";
-          if (!snap.empty) {
-            const firstWin = snap.docs[0];
-            targetInternalId = firstWin.id;
-            const existingTabs = firstWin.data().tabs || [];
-            if (!existingTabs.some((t: any) => t.uid === cleanTab.uid)) {
-              batch.update(firstWin.ref, { tabs: [...existingTabs, cleanTab] });
-              updateSuccess = true;
-            }
-          } else {
-            const newRef = doc(
-              collection(db, "workspaces_data", targetWorkspaceId, "windows")
-            );
-            targetInternalId = newRef.id;
-            batch.set(newRef, {
-              id: newRef.id,
-              tabs: [cleanTab],
-              isActive: false,
-              lastActive: serverTimestamp(),
-            });
-            updateSuccess = true;
-          }
-
-          const mapping = activeMappings.find(
+          const targetWinId = snap.docs[0]?.id;
+          targetMapping = activeMappings.find(
             ([_, m]) =>
               m.workspaceId === targetWorkspaceId &&
-              m.internalWindowId === targetInternalId
+              m.internalWindowId === targetWinId
           );
-          if (mapping) {
-            await chrome.tabs.create({
-              windowId: mapping[0],
-              url: cleanTab.url,
-              active: true,
-            });
-          }
         }
 
-        // 2. FJERN FRA KILDE (I SAMME BATCH)
-        if (updateSuccess) {
-          if (strictSourceId === "global") {
+        // 1. Hvis målet er lukket, skriv til DB. Hvis målet er åbent, lad background styre det via tab-event.
+        if (!targetMapping) {
+          if (targetWorkspaceId === "global") {
             const snap = await getDoc(doc(db, "inbox_data", "global"));
-            const newTabs = (snap.data()?.tabs || []).filter(
-              (t: any) => t.uid !== cleanTab.uid
+            const current = snap.data()?.tabs || [];
+            batch.set(
+              doc(db, "inbox_data", "global"),
+              { tabs: [...current, tab] },
+              { merge: true }
             );
-            batch.update(doc(db, "inbox_data", "global"), { tabs: newTabs });
           } else {
-            const sourceWSId = selectedWorkspace?.id || "global";
-            if (sourceWSId !== "global") {
-              const sourceRef = doc(
-                db,
-                "workspaces_data",
-                sourceWSId,
-                "windows",
-                strictSourceId
-              );
-              const sSnap = await getDoc(sourceRef);
-              if (sSnap.exists()) {
-                const newTabs = (sSnap.data()?.tabs || []).filter(
-                  (t: any) => t.uid !== cleanTab.uid
-                );
-                batch.update(sourceRef, { tabs: newTabs });
-              }
+            const snap = await getDocs(
+              collection(db, "workspaces_data", targetWorkspaceId, "windows")
+            );
+            if (!snap.empty) {
+              const current = snap.docs[0].data().tabs || [];
+              batch.update(snap.docs[0].ref, { tabs: [...current, tab] });
             }
           }
-
-          await batch.commit();
-
-          // 3. LUK FYSISK
-          chrome.runtime.sendMessage({
-            type: "CLOSE_PHYSICAL_TABS",
-            payload: {
-              uids: [cleanTab.uid],
-              internalWindowId: strictSourceId,
-              tabIds: tab.id ? [tab.id] : [],
-            },
+        } else {
+          // Mål er åbent -> Opret fysisk. Background scriptet opdager dette og opdaterer målvinduet i Firestore.
+          await chrome.tabs.create({
+            windowId: targetMapping[0],
+            url: tab.url,
+            active: true,
           });
         }
-      } catch (err) {
-        console.error("Drop error:", err);
+
+        // 2. FJERN FRA KILDE (Sker altid)
+        if (sourceId === "global") {
+          const snap = await getDoc(doc(db, "inbox_data", "global"));
+          const filtered = (snap.data()?.tabs || []).filter(
+            (t: any) => t.uid !== tab.uid
+          );
+          batch.update(doc(db, "inbox_data", "global"), { tabs: filtered });
+        } else {
+          const sourceRef = doc(
+            db,
+            "workspaces_data",
+            selectedWorkspace?.id || "",
+            "windows",
+            sourceId
+          );
+          const snap = await getDoc(sourceRef);
+          const filtered = (snap.data()?.tabs || []).filter(
+            (t: any) => t.uid !== tab.uid
+          );
+          batch.update(sourceRef, { tabs: filtered });
+        }
+
+        await batch.commit();
+        chrome.runtime.sendMessage({
+          type: "CLOSE_PHYSICAL_TABS",
+          payload: {
+            uids: [tab.uid],
+            internalWindowId: sourceId,
+            tabIds: tab.id ? [tab.id] : [],
+          },
+        });
       } finally {
         setIsProcessingMove(false);
         setIsInboxSyncing(false);
@@ -1246,102 +1203,85 @@ export const Dashboard = () => {
       const tabJson = window.sessionStorage.getItem("draggedTab");
       if (!tabJson) return;
       const tab = JSON.parse(tabJson);
-
-      const strictSourceId =
+      const sourceId =
         viewMode === "inbox" || viewMode === "incognito"
           ? "global"
           : selectedWindowId;
-
-      if (!strictSourceId || strictSourceId === targetWinId) return;
+      if (!sourceId || sourceId === targetWinId) return;
 
       setIsProcessingMove(true);
       try {
         const batch = writeBatch(db);
-        const sourceMapping = activeMappings.find(
-          ([_, m]) => m.internalWindowId === strictSourceId
-        );
         const targetMapping = activeMappings.find(
           ([_, m]) => m.internalWindowId === targetWinId
         );
-
-        const cleanTab = {
-          ...tab,
-          isIncognito: false,
-          uid: tab.uid || crypto.randomUUID(),
-          aiData: { status: "pending" },
-        };
-        const targetWSId = selectedWorkspace?.id || "global";
-
-        // ADD TO TARGET
-        const targetRef = doc(
-          db,
-          "workspaces_data",
-          targetWSId,
-          "windows",
-          targetWinId
+        const sourceMapping = activeMappings.find(
+          ([_, m]) => m.internalWindowId === sourceId
         );
-        const tSnap = await getDoc(targetRef);
-        if (tSnap.exists()) {
-          const tTabs = tSnap.data()?.tabs || [];
-          if (!tTabs.some((t: any) => t.uid === cleanTab.uid)) {
-            batch.update(targetRef, { tabs: [...tTabs, cleanTab] });
-          }
-        }
 
-        // REMOVE FROM SOURCE
-        const sourceRef = doc(
-          db,
-          "workspaces_data",
-          targetWSId,
-          "windows",
-          strictSourceId
-        );
-        const sSnap = await getDoc(sourceRef);
-        if (sSnap.exists()) {
-          const sTabs = sSnap.data()?.tabs || [];
-          batch.update(sourceRef, {
-            tabs: sTabs.filter((t: any) => t.uid !== cleanTab.uid),
+        // 1. Flyt i databasen kun hvis målet er LUKKET. Ellers gør background det.
+        if (!targetMapping) {
+          const targetRef = doc(
+            db,
+            "workspaces_data",
+            selectedWorkspace?.id || "",
+            "windows",
+            targetWinId
+          );
+          const tSnap = await getDoc(targetRef);
+          batch.update(targetRef, {
+            tabs: [...(tSnap.data()?.tabs || []), tab],
           });
-        }
-
-        await batch.commit();
-
-        // FYSISK HANDLING
-        if (targetMapping) {
+        } else {
+          // Mål er åbent -> Flyt fysisk
           if (sourceMapping) {
             const tabs = await chrome.tabs.query({
               windowId: sourceMapping[0],
             });
-            const targetTab = tabs.find(
-              (t) => t.url === tab.url || t.id === tab.id
+            const physicalTab = tabs.find(
+              (t) => t.id === tab.id || t.url === tab.url
             );
-            if (targetTab?.id) {
-              await chrome.tabs.move(targetTab.id, {
+            if (physicalTab?.id)
+              await chrome.tabs.move(physicalTab.id, {
                 windowId: targetMapping[0],
                 index: -1,
               });
-              await chrome.tabs.update(targetTab.id, { active: true });
-            }
           } else {
             await chrome.tabs.create({
               windowId: targetMapping[0],
-              url: cleanTab.url,
-              active: true,
+              url: tab.url,
             });
           }
-        } else {
+        }
+
+        // 2. FJERN FRA KILDE
+        const sourceRef = doc(
+          db,
+          "workspaces_data",
+          selectedWorkspace?.id || "",
+          "windows",
+          sourceId
+        );
+        const sSnap = await getDoc(sourceRef);
+        batch.update(sourceRef, {
+          tabs: (sSnap.data()?.tabs || []).filter(
+            (t: any) => t.uid !== tab.uid
+          ),
+        });
+
+        await batch.commit();
+        if (!targetMapping)
           chrome.runtime.sendMessage({
             type: "CLOSE_PHYSICAL_TABS",
             payload: {
-              uids: [cleanTab.uid],
-              internalWindowId: strictSourceId,
+              uids: [tab.uid],
+              internalWindowId: sourceId,
               tabIds: tab.id ? [tab.id] : [],
             },
           });
-        }
       } finally {
-        window.sessionStorage.removeItem("draggedTab");
         setIsProcessingMove(false);
+        window.sessionStorage.removeItem("draggedTab");
       }
     },
     [activeMappings, viewMode, selectedWindowId, selectedWorkspace]
