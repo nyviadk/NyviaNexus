@@ -5,6 +5,7 @@ import {
   getDocs,
   updateDoc,
   writeBatch,
+  arrayUnion,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { NexusItem } from "../types";
@@ -86,6 +87,44 @@ export const NexusService = {
       );
       await updateDoc(ref, { tabs });
     }
+  },
+
+  async moveTabBetweenWindows(
+    tab: any,
+    sourceWorkspaceId: string,
+    sourceWindowId: string,
+    targetWorkspaceId: string,
+    targetWindowId: string
+  ) {
+    const getRef = (wsId: string, winId: string) => {
+      if (winId === "global" || winId === "incognito" || wsId === "global") {
+        return doc(db, "inbox_data", "global");
+      }
+      return doc(db, "workspaces_data", wsId, "windows", winId);
+    };
+
+    const sourceRef = getRef(sourceWorkspaceId, sourceWindowId);
+    const targetRef = getRef(targetWorkspaceId, targetWindowId);
+
+    const tabToMove = {
+      ...tab,
+      uid: tab.uid || crypto.randomUUID(),
+    };
+
+    const batch = writeBatch(db);
+
+    const sourceSnap = await getDoc(sourceRef);
+    if (sourceSnap.exists()) {
+      const currentTabs = sourceSnap.data().tabs || [];
+      const newSourceTabs = currentTabs.filter(
+        (t: any) => t.uid !== tabToMove.uid
+      );
+      batch.update(sourceRef, { tabs: newSourceTabs });
+    }
+
+    batch.update(targetRef, { tabs: arrayUnion(tabToMove) });
+
+    return await batch.commit();
   },
 
   async createWorkspace(data: {
