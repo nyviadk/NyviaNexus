@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Inbox as InboxIcon } from "lucide-react";
 import { ClaimModal } from "./ClaimModal";
 import { NexusItem } from "../types";
@@ -13,7 +13,8 @@ export const Inbox = ({ activeProfile, items, onRefresh }: Props) => {
   const [unassignedWindows, setUnassignedWindows] = useState<any[]>([]);
   const [selectedWindowId, setSelectedWindowId] = useState<number | null>(null);
 
-  const checkUnsaved = () => {
+  // Denne funktion kører nu kun når den bliver bedt om det (Event driven)
+  const checkUnsaved = useCallback(() => {
     chrome.runtime.sendMessage({ type: "GET_ACTIVE_MAPPINGS" }, (response) => {
       chrome.windows.getAll({ populate: true }, (windows) => {
         const activeIds = new Set(response?.map((r: any) => r[0]));
@@ -24,13 +25,31 @@ export const Inbox = ({ activeProfile, items, onRefresh }: Props) => {
         setUnassignedWindows(unsaved);
       });
     });
-  };
+  }, []);
 
   useEffect(() => {
+    // 1. Kør tjekket med det samme komponenten mounter
     checkUnsaved();
-    const interval = setInterval(checkUnsaved, 5000);
-    return () => clearInterval(interval);
-  }, []);
+
+    // 2. Lyt på beskeder fra background scriptet
+    const messageListener = (msg: any) => {
+      // Hvis mappings ændrer sig (f.eks. et vindue bliver claimed), tjek igen
+      if (msg.type === "ACTIVE_MAPPINGS_UPDATED") {
+        checkUnsaved();
+      }
+      // Hvis fysiske vinduer åbnes/lukkes, tjek igen
+      if (msg.type === "PHYSICAL_WINDOWS_CHANGED") {
+        checkUnsaved();
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(messageListener);
+
+    // Cleanup listener ved unmount
+    return () => {
+      chrome.runtime.onMessage.removeListener(messageListener);
+    };
+  }, [checkUnsaved]);
 
   if (unassignedWindows.length === 0) return null;
 

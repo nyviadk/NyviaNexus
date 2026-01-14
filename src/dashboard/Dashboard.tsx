@@ -1083,10 +1083,19 @@ export const Dashboard = () => {
     }
   }, [items]);
 
+  // --- REFACTORED POLLING LOGIC ---
+  // Henter fysiske vinduer on-demand i stedet for i en loop
+  const refreshChromeWindows = useCallback(() => {
+    chrome.windows.getAll({ populate: false }, (wins) => {
+      setChromeWindows(wins);
+    });
+  }, []);
+
   useEffect(() => {
     onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (u) {
+        // Initial fetch når auth er klar
         chrome.windows.getCurrent(
           (win) => win.id && setCurrentWindowId(win.id)
         );
@@ -1094,10 +1103,19 @@ export const Dashboard = () => {
           { type: "GET_LATEST_STATE" },
           (state) => state && applyState(state)
         );
+        chrome.runtime.sendMessage(
+          { type: "GET_ACTIVE_MAPPINGS" },
+          (m) => m && setActiveMappings(m)
+        );
+        chrome.runtime.sendMessage({ type: "GET_RESTORING_STATUS" }, (res) =>
+          setRestorationStatus(res || null)
+        );
+        refreshChromeWindows();
       }
     });
 
     const messageListener = (msg: any) => {
+      // FIREBASE UPDATES
       if (msg.type === "STATE_UPDATED") applyState(msg.payload);
       if (msg.type === "WORKSPACE_WINDOWS_UPDATED") {
         if (
@@ -1107,31 +1125,26 @@ export const Dashboard = () => {
           setWindows(msg.payload.windows);
         }
       }
+
+      // CHROME/BACKGROUND UPDATES (PUSH NOTIFICATIONS)
       if (msg.type === "RESTORATION_STATUS_CHANGE") {
         setRestorationStatus(msg.payload || null);
+      }
+      if (msg.type === "ACTIVE_MAPPINGS_UPDATED") {
+        setActiveMappings(msg.payload);
+      }
+      if (msg.type === "PHYSICAL_WINDOWS_CHANGED") {
+        refreshChromeWindows();
       }
     };
 
     chrome.runtime.onMessage.addListener(messageListener);
-    const int = setInterval(() => {
-      chrome.runtime.sendMessage(
-        { type: "GET_ACTIVE_MAPPINGS" },
-        (m) => m && setActiveMappings(m)
-      );
-      chrome.runtime.sendMessage({ type: "GET_RESTORING_STATUS" }, (res) =>
-        setRestorationStatus(res || null)
-      );
-      // Hent alle fysiske vinduer for at kunne vise dem der ikke er mappet (Inbox/Incognito)
-      chrome.windows.getAll({ populate: false }, (wins) =>
-        setChromeWindows(wins)
-      );
-    }, 1000);
 
+    // Ingen interval længere!
     return () => {
       chrome.runtime.onMessage.removeListener(messageListener);
-      clearInterval(int);
     };
-  }, [applyState, selectedWorkspace]);
+  }, [applyState, selectedWorkspace, refreshChromeWindows]);
 
   useEffect(() => {
     if (selectedWorkspace) {

@@ -62,13 +62,22 @@ const activeListeners = new Map<string, () => void>();
 
 const isDash = (url?: string) => url?.includes("dashboard.html");
 
-function broadcast(type: string, payload: any) {
-  chrome.runtime.sendMessage({ type, payload }).catch(() => {});
+function broadcast(type: string, payload: any = null) {
+  chrome.runtime.sendMessage({ type, payload }).catch(() => {
+    // Ingen lyttere (f.eks. dashboard lukket), det er forventet.
+  });
 }
 
 function updateRestorationStatus(status: string) {
   restorationStatus = status;
   broadcast("RESTORATION_STATUS_CHANGE", status);
+}
+
+// --- HELPER: BROADCAST MAPPINGS ---
+// Sender den aktuelle mapping til frontend, så vi undgår polling
+function broadcastMappings() {
+  const mappingsArray = Array.from(activeWindows.entries());
+  broadcast("ACTIVE_MAPPINGS_UPDATED", mappingsArray);
 }
 
 // --- FIREBASE LISTENERS ---
@@ -115,6 +124,8 @@ auth.onAuthStateChanged((user) => {
 async function saveActiveWindowsToStorage() {
   const data = Array.from(activeWindows.entries());
   await chrome.storage.local.set({ nexus_active_windows: data });
+  // PUSH: Fortæl frontend at mappings er ændret
+  broadcastMappings();
 }
 
 async function loadAndVerifyWindows() {
@@ -146,6 +157,9 @@ async function loadAndVerifyWindows() {
     }
     await rebuildTabTracker();
     processAiQueue().catch(console.error);
+
+    // Initial sync efter load
+    broadcastMappings();
   } catch (error) {
     console.error("Critical error in loadAndVerifyWindows:", error);
   }
@@ -768,6 +782,10 @@ chrome.tabs.onRemoved.addListener(async (tabId, info) => {
 
 chrome.windows.onCreated.addListener(async (win) => {
   if (activeRestorations > 0) return;
+
+  // PUSH: Fysiske vinduer ændret -> Broadcast til dashboard
+  broadcast("PHYSICAL_WINDOWS_CHANGED");
+
   if (win.id && !activeWindows.has(win.id)) {
     setTimeout(() => registerNewInboxWindow(win.id!), 1000);
   }
@@ -794,6 +812,9 @@ chrome.windows.onFocusChanged.addListener(async (winId) => {
 });
 
 chrome.windows.onRemoved.addListener(async (windowId) => {
+  // PUSH: Fysiske vinduer ændret -> Broadcast til dashboard
+  broadcast("PHYSICAL_WINDOWS_CHANGED");
+
   const mapping = activeWindows.get(windowId);
   if (mapping) {
     const docRef = doc(
