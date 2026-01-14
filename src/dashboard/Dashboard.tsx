@@ -1529,10 +1529,10 @@ export const Dashboard = () => {
                 return (
                   <div
                     key={cWin.id}
-                    className={`flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer transition-all ${
+                    className={`flex items-center justify-between p-2 rounded-lg text-xs ${
                       isCurrent
-                        ? "bg-green-500/10 border border-green-500/30 hover:bg-green-500/20"
-                        : "bg-slate-700/30 border border-transparent hover:bg-slate-700/50 hover:border-slate-600"
+                        ? "bg-green-500/10 border border-green-500/30"
+                        : "bg-slate-700/30 border border-transparent"
                     }`}
                   >
                     <div className="flex flex-col truncate min-w-0">
