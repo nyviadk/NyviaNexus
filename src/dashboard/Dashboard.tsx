@@ -169,28 +169,33 @@ const CategoryMenu = ({
     <div
       ref={menuRef}
       style={{ top: position.y, left: position.x }}
-      className="fixed z-100 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-2 w-48 animate-in fade-in zoom-in-95 duration-100"
+      className="fixed z-100 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-2 w-56 animate-in fade-in zoom-in-95 duration-100"
     >
       <div className="text-[10px] uppercase font-bold text-slate-500 px-2 py-1 mb-1">
         Vælg Kategori
       </div>
-      <div className="max-h-48 overflow-y-auto space-y-1 mb-2 custom-scrollbar">
+      <div className="max-h-64 overflow-y-auto space-y-1 mb-2 custom-scrollbar">
         {categories.map((cat: UserCategory) => (
           <button
             key={cat.id}
             onClick={() => updateCategory(cat.name, true)}
-            className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-700 text-slate-200 text-sm"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-700 text-slate-200 text-sm group"
           >
             <div
-              className="w-2 h-2 rounded-full"
+              className="w-2.5 h-2.5 rounded-full shadow-sm shrink-0"
               style={{ backgroundColor: cat.color }}
             />
-            {cat.name}
+            <span className="truncate">{cat.name}</span>
+            {cat.id.startsWith("ai-") && (
+              <span className="ml-auto text-[9px] text-slate-500 uppercase tracking-tighter opacity-50 group-hover:opacity-100">
+                AI
+              </span>
+            )}
           </button>
         ))}
         {categories.length === 0 && (
           <div className="text-xs text-slate-500 px-2 italic">
-            Ingen gemte kategorier
+            Ingen kategorier fundet
           </div>
         )}
       </div>
@@ -952,6 +957,49 @@ export const Dashboard = () => {
         (i) => i.profileId === activeProfile && i.parentId === "root"
       ),
     [items, activeProfile]
+  );
+
+  // --- MERGE AI CATEGORIES ---
+  // Samler unikke kategorier fra alle indlæste tabs (Inbox + Active Workspace),
+  // som ikke allerede findes i userCategories, så brugeren kan vælge dem.
+  const aiGeneratedCategories = useMemo(() => {
+    const uniqueAiCats = new Set<string>();
+
+    const scanTabs = (tabs: any[]) => {
+      tabs?.forEach((t) => {
+        if (
+          t.aiData?.status === "completed" &&
+          t.aiData?.category &&
+          typeof t.aiData.category === "string"
+        ) {
+          uniqueAiCats.add(t.aiData.category);
+        }
+      });
+    };
+
+    // Scan Inbox
+    if (inboxData?.tabs) scanTabs(inboxData.tabs);
+    // Scan Windows i nuværende workspace
+    windows.forEach((w) => scanTabs(w.tabs));
+
+    // Filtrer dem fra, der allerede er i userCategories (case-insensitive check)
+    const existingNames = new Set(
+      aiSettings.userCategories.map((c) => c.name.toLowerCase())
+    );
+
+    return Array.from(uniqueAiCats)
+      .filter((catName) => !existingNames.has(catName.toLowerCase()))
+      .map((catName) => ({
+        id: `ai-${catName}`,
+        name: catName,
+        color: "#64748b", // Neutral slate farve for AI kategorier
+      }));
+  }, [inboxData, windows, aiSettings.userCategories]);
+
+  // Kombineret liste til menuen
+  const allAvailableCategories = useMemo(
+    () => [...aiSettings.userCategories, ...aiGeneratedCategories],
+    [aiSettings.userCategories, aiGeneratedCategories]
   );
 
   const getFilteredInboxTabs = useCallback(
@@ -1856,74 +1904,96 @@ export const Dashboard = () => {
                 </div>
                 {viewMode === "workspace" && (
                   <div className="flex gap-4 items-center flex-wrap">
-                    {sortedWindows.map((win, idx) => (
-                      <div
-                        key={win.id}
-                        className="flex flex-col gap-1 items-center"
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          setDropTargetWinId(win.id);
-                        }}
-                        onDrop={() => handleTabDrop(win.id)}
-                        onDragLeave={() => setDropTargetWinId(null)}
-                      >
+                    {sortedWindows.map((win, idx) => {
+                      const isDropTarget = dropTargetWinId === win.id;
+                      const isSourceWindow = selectedWindowId === win.id;
+                      let borderClass =
+                        "border-slate-700 hover:border-slate-500";
+                      let bgClass = "bg-slate-800";
+                      let shadowClass = "";
+
+                      if (isDropTarget) {
+                        if (isSourceWindow) {
+                          // Rød feedback hvis man dropper til sig selv
+                          bgClass = "bg-red-900/20";
+                          borderClass = "border-red-500/50";
+                        } else {
+                          // Blå feedback ved gyldigt drop
+                          bgClass = "bg-blue-600/10";
+                          borderClass = "border-blue-500/50";
+                          shadowClass = "shadow-lg";
+                        }
+                      } else if (isSourceWindow) {
+                        // Markering af aktivt valgt vindue
+                        bgClass = "bg-blue-600/10";
+                        borderClass = "border-blue-500/50";
+                        shadowClass = "shadow-lg";
+                      }
+
+                      return (
                         <div
-                          onClick={() =>
-                            setSelectedWindowId(
-                              selectedWindowId === win.id ? null : win.id
-                            )
-                          }
-                          className={`relative group px-4 py-3 rounded-xl border transition-all flex items-center gap-3 cursor-pointer ${
-                            selectedWindowId === win.id ||
-                            dropTargetWinId === win.id
-                              ? "bg-blue-600/10 border-blue-500/50 shadow-lg"
-                              : "bg-slate-800 border-slate-700 hover:border-slate-500"
-                          }`}
+                          key={win.id}
+                          className="flex flex-col gap-1 items-center"
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            setDropTargetWinId(win.id);
+                          }}
+                          onDrop={() => handleTabDrop(win.id)}
+                          onDragLeave={() => setDropTargetWinId(null)}
                         >
-                          <div className="flex flex-col">
-                            <span className="text-xs font-bold text-slate-300">
-                              Vindue {idx + 1}
-                            </span>
-                            <span className="text-[10px] text-slate-500">
-                              {win.tabs?.length || 0} tabs
-                            </span>
-                          </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              chrome.runtime.sendMessage({
-                                type: "OPEN_SPECIFIC_WINDOW",
-                                payload: {
-                                  workspaceId: selectedWorkspace?.id,
-                                  windowData: win,
-                                  name: selectedWorkspace?.name,
-                                  index: idx + 1,
-                                },
-                              });
-                            }}
-                            className="p-1.5 hover:bg-blue-500/20 rounded-lg text-slate-400 hover:text-blue-400 cursor-pointer"
+                          <div
+                            onClick={() =>
+                              setSelectedWindowId(
+                                selectedWindowId === win.id ? null : win.id
+                              )
+                            }
+                            className={`relative group px-4 py-3 rounded-xl border transition-all flex items-center gap-3 cursor-pointer ${bgClass} ${borderClass} ${shadowClass}`}
                           >
-                            <ExternalLink size={20} />
-                          </button>
-                          <button
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              if (confirm("Slet vindue?"))
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-slate-300">
+                                Vindue {idx + 1}
+                              </span>
+                              <span className="text-[10px] text-slate-500">
+                                {win.tabs?.length || 0} tabs
+                              </span>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 chrome.runtime.sendMessage({
-                                  type: "DELETE_AND_CLOSE_WINDOW",
+                                  type: "OPEN_SPECIFIC_WINDOW",
                                   payload: {
                                     workspaceId: selectedWorkspace?.id,
-                                    internalWindowId: win.id,
+                                    windowData: win,
+                                    name: selectedWorkspace?.name,
+                                    index: idx + 1,
                                   },
                                 });
-                            }}
-                            className="absolute -top-2 -right-2 p-1.5 bg-slate-800 border border-slate-600 rounded-full text-slate-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition shadow-sm z-10 cursor-pointer"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                              }}
+                              className="p-1.5 hover:bg-blue-500/20 rounded-lg text-slate-400 hover:text-blue-400 cursor-pointer"
+                            >
+                              <ExternalLink size={20} />
+                            </button>
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (confirm("Slet vindue?"))
+                                  chrome.runtime.sendMessage({
+                                    type: "DELETE_AND_CLOSE_WINDOW",
+                                    payload: {
+                                      workspaceId: selectedWorkspace?.id,
+                                      internalWindowId: win.id,
+                                    },
+                                  });
+                              }}
+                              className="absolute -top-2 -right-2 p-1.5 bg-slate-800 border border-slate-600 rounded-full text-slate-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition shadow-sm z-10 cursor-pointer"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     <button
                       onClick={() =>
                         chrome.runtime.sendMessage({
@@ -2158,7 +2228,7 @@ export const Dashboard = () => {
           workspaceId={selectedWorkspace?.id || null}
           winId={selectedWindowId}
           position={menuData.position}
-          categories={aiSettings.userCategories}
+          categories={allAvailableCategories}
           onClose={() => setMenuData(null)}
         />
       )}
