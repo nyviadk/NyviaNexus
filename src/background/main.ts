@@ -73,13 +73,6 @@ function updateRestorationStatus(status: string) {
   broadcast("RESTORATION_STATUS_CHANGE", status);
 }
 
-// --- HELPER: BROADCAST MAPPINGS ---
-// Sender den aktuelle mapping til frontend, så vi undgår polling
-function broadcastMappings() {
-  const mappingsArray = Array.from(activeWindows.entries());
-  broadcast("ACTIVE_MAPPINGS_UPDATED", mappingsArray);
-}
-
 // --- FIREBASE LISTENERS ---
 function startFirebaseListeners() {
   console.log("🔥 Starting Firebase Listeners...");
@@ -124,8 +117,9 @@ auth.onAuthStateChanged((user) => {
 async function saveActiveWindowsToStorage() {
   const data = Array.from(activeWindows.entries());
   await chrome.storage.local.set({ nexus_active_windows: data });
-  // PUSH: Fortæl frontend at mappings er ændret
-  broadcastMappings();
+  // Vi behøver ikke broadcaste her længere, da Dashboard lytter på storage changes directly
+  // Men vi gør det for god ordens skyld til komponenter der ikke bruger storage listener
+  broadcast("ACTIVE_MAPPINGS_UPDATED", data);
 }
 
 async function loadAndVerifyWindows() {
@@ -157,9 +151,6 @@ async function loadAndVerifyWindows() {
     }
     await rebuildTabTracker();
     processAiQueue().catch(console.error);
-
-    // Initial sync efter load
-    broadcastMappings();
   } catch (error) {
     console.error("Critical error in loadAndVerifyWindows:", error);
   }
@@ -781,10 +772,11 @@ chrome.tabs.onRemoved.addListener(async (tabId, info) => {
 });
 
 chrome.windows.onCreated.addListener(async (win) => {
-  if (activeRestorations > 0) return;
-
   // PUSH: Fysiske vinduer ændret -> Broadcast til dashboard
+  // Dette ligger nu FØR activeRestorations tjekket, så dashboard altid opdateres visuelt
   broadcast("PHYSICAL_WINDOWS_CHANGED");
+
+  if (activeRestorations > 0) return;
 
   if (win.id && !activeWindows.has(win.id)) {
     setTimeout(() => registerNewInboxWindow(win.id!), 1000);

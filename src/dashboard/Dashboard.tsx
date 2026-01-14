@@ -1130,19 +1130,25 @@ export const Dashboard = () => {
       if (msg.type === "RESTORATION_STATUS_CHANGE") {
         setRestorationStatus(msg.payload || null);
       }
-      if (msg.type === "ACTIVE_MAPPINGS_UPDATED") {
-        setActiveMappings(msg.payload);
-      }
+      // Note: Mappings are now handled by Storage Listener below for robustness
       if (msg.type === "PHYSICAL_WINDOWS_CHANGED") {
         refreshChromeWindows();
       }
     };
 
-    chrome.runtime.onMessage.addListener(messageListener);
+    // STORAGE LISTENER (Mappings) - Robust sync
+    const storageListener = (changes: any, area: string) => {
+      if (area === "local" && changes.nexus_active_windows) {
+        setActiveMappings(changes.nexus_active_windows.newValue);
+      }
+    };
 
-    // Ingen interval længere!
+    chrome.runtime.onMessage.addListener(messageListener);
+    chrome.storage.onChanged.addListener(storageListener);
+
     return () => {
       chrome.runtime.onMessage.removeListener(messageListener);
+      chrome.storage.onChanged.removeListener(storageListener);
     };
   }, [applyState, selectedWorkspace, refreshChromeWindows]);
 
