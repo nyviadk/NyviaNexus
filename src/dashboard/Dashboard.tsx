@@ -2134,17 +2134,32 @@ export const Dashboard = () => {
                     <button
                       onClick={async () => {
                         if (confirm("Ryd Inbox?")) {
-                          const normalTabs = getFilteredInboxTabs(false);
+                          // FIX START: Fetch latest data directly to avoid state race condition
+                          const ref = doc(db, "inbox_data", "global");
+                          const snap = await getDoc(ref);
+                          const allTabs = snap.data()?.tabs || [];
+
+                          // We want to delete normal tabs, so keep incognito.
+                          // !t.isIncognito will catch 'undefined' as true (normal).
+                          const tabsToDelete = allTabs.filter(
+                            (t: any) => !t.isIncognito
+                          );
+                          const tabsToKeep = allTabs.filter(
+                            (t: any) => t.isIncognito
+                          );
+
                           chrome.runtime.sendMessage({
                             type: "CLOSE_PHYSICAL_TABS",
                             payload: {
-                              uids: normalTabs.map((t: any) => t.uid),
+                              uids: tabsToDelete.map((t: any) => t.uid),
                               internalWindowId: "global",
                             },
                           });
-                          await updateDoc(doc(db, "inbox_data", "global"), {
-                            tabs: getFilteredInboxTabs(true),
+
+                          await updateDoc(ref, {
+                            tabs: tabsToKeep,
                           });
+                          // FIX END
                         }
                       }}
                       className="flex items-center gap-2 bg-orange-600/20 text-orange-400 hover:bg-orange-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
@@ -2157,23 +2172,31 @@ export const Dashboard = () => {
                     <button
                       onClick={async () => {
                         if (confirm("Ryd Incognito liste?")) {
-                          const normalTabs = getFilteredInboxTabs(false);
-                          const incognitoTabs = getFilteredInboxTabs(true);
+                          // FIX START: Fetch latest data directly to avoid state race condition
+                          const ref = doc(db, "inbox_data", "global");
+                          const snap = await getDoc(ref);
+                          const allTabs = snap.data()?.tabs || [];
 
-                          chrome.runtime.sendMessage(
-                            {
-                              type: "CLOSE_PHYSICAL_TABS",
-                              payload: {
-                                uids: incognitoTabs.map((t: any) => t.uid),
-                                internalWindowId: "global",
-                              },
+                          // We want to delete incognito tabs, so keep normal.
+                          const tabsToDelete = allTabs.filter(
+                            (t: any) => t.isIncognito
+                          );
+                          const tabsToKeep = allTabs.filter(
+                            (t: any) => !t.isIncognito
+                          );
+
+                          chrome.runtime.sendMessage({
+                            type: "CLOSE_PHYSICAL_TABS",
+                            payload: {
+                              uids: tabsToDelete.map((t: any) => t.uid),
+                              internalWindowId: "global",
                             },
-                            () => {}
-                          ); // Callback
-
-                          await updateDoc(doc(db, "inbox_data", "global"), {
-                            tabs: normalTabs,
                           });
+
+                          await updateDoc(ref, {
+                            tabs: tabsToKeep,
+                          });
+                          // FIX END
                         }
                       }}
                       className="flex items-center gap-2 bg-purple-600/20 text-purple-400 hover:bg-purple-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
