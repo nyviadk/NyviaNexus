@@ -64,6 +64,14 @@ import {
   WorkspaceWindow,
 } from "../types";
 
+// --- GLOBAL CACHE FOR WINDOW NUMBERS ---
+// Dette map lever uden for React Lifecycle, så det overlever navigation.
+// Key: WorkspaceID, Value: { signature: string, indices: { windowId: number } }
+const windowOrderCache = new Map<
+  string,
+  { signature: string; indices: Record<string, number> }
+>();
+
 const getContrastYIQ = (hexcolor: string) => {
   const hex = hexcolor.replace("#", "");
   const r = parseInt(hex.substr(0, 2), 16);
@@ -907,6 +915,8 @@ export const Dashboard = () => {
   const [restorationStatus, setRestorationStatus] = useState<string | null>(
     null
   );
+  const [chromeWindows, setChromeWindows] = useState<any[]>([]); // Fysiske vinduer
+
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -959,6 +969,29 @@ export const Dashboard = () => {
       [...windows].sort((a: any, b: any) => (a.index || 0) - (b.index || 0)),
     [windows]
   );
+
+  // --- NY LOGIK: CACHE WINDOW NUMBERS ---
+  // Dette kører synkront i render body (ingen useEffect), men kun når data ændrer sig.
+  if (selectedWorkspace && sortedWindows.length > 0) {
+    const wsId = selectedWorkspace.id;
+    // Generer signatur: ID + Antal + IDs i rækkefølge
+    const signature = `${wsId}-${sortedWindows.length}-${sortedWindows
+      .map((w) => w.id)
+      .join("")}`;
+
+    const cached = windowOrderCache.get(wsId);
+
+    // Opdater KUN hvis signatur er ændret (eller den ikke findes)
+    if (!cached || cached.signature !== signature) {
+      const indices: Record<string, number> = {};
+      sortedWindows.forEach((w, i) => {
+        indices[w.id] = i + 1;
+      });
+      windowOrderCache.set(wsId, { signature, indices });
+      console.log(`🔢 [Cache Updated] Workspace ${wsId} ->`, indices);
+    }
+  }
+  // --------------------------------------
 
   useEffect(() => {
     const lastProfile = localStorage.getItem("lastActiveProfileId");
@@ -1039,6 +1072,10 @@ export const Dashboard = () => {
       );
       chrome.runtime.sendMessage({ type: "GET_RESTORING_STATUS" }, (res) =>
         setRestorationStatus(res || null)
+      );
+      // Hent alle fysiske vinduer for at kunne vise dem der ikke er mappet (Inbox/Incognito)
+      chrome.windows.getAll({ populate: false }, (wins) =>
+        setChromeWindows(wins)
       );
     }, 1000);
 
@@ -1430,6 +1467,126 @@ export const Dashboard = () => {
           </div>{" "}
           NyviaNexus
         </div>
+
+        {/* --- ACTIVE WINDOWS VISUAL LIST --- */}
+        {chromeWindows.length > 0 && (
+          <div className="px-4 py-3 bg-slate-900/30 border-b border-slate-700/50">
+            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 px-1">
+              Åbne Vinduer
+            </div>
+            <div className="space-y-1.5">
+              {chromeWindows.map((cWin: any) => {
+                const isCurrent = cWin.id === currentWindowId;
+                const mappingEntry = activeMappings.find(
+                  ([wId]) => parseInt(wId) === cWin.id
+                );
+                const mapping = mappingEntry ? mappingEntry[1] : null;
+
+                let label = "Ukendt";
+                let subLabel = "";
+
+                const isInbox =
+                  !mapping ||
+                  (mapping && mapping.workspaceId === "global") ||
+                  cWin.type === "popup"; // Fallback if internal logic treats popup as inbox
+
+                if (isInbox) {
+                  label = cWin.incognito ? "Incognito Inbox" : "Inbox";
+                  subLabel = "Global";
+                } else if (mapping) {
+                  const ws = items.find((i) => i.id === mapping.workspaceId);
+                  label = ws ? ws.name : "Slettet Space";
+
+                  // --- NYT: TJEK CACHE FØRST ---
+                  // Vi slår op i vores statiske cache for at finde vinduesnummeret,
+                  // selv hvis `sortedWindows` er tømt pga navigation.
+                  const cachedOrder = windowOrderCache.get(mapping.workspaceId);
+
+                  if (
+                    cachedOrder &&
+                    cachedOrder.indices[mapping.internalWindowId]
+                  ) {
+                    subLabel = `Vindue ${
+                      cachedOrder.indices[mapping.internalWindowId]
+                    }`;
+                  }
+                  // Fallback: Hvis vi står på det aktive space, og cachen af en eller anden grund fejlede
+                  else if (
+                    selectedWorkspace &&
+                    mapping.workspaceId === selectedWorkspace.id
+                  ) {
+                    const idx = sortedWindows.findIndex(
+                      (w) => w.id === mapping.internalWindowId
+                    );
+                    if (idx !== -1) {
+                      subLabel = `Vindue ${idx + 1}`;
+                    } else {
+                      subLabel = "Sletter...";
+                    }
+                  }
+                }
+
+                return (
+                  <div
+                    key={cWin.id}
+                    className={`flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer transition-all ${
+                      isCurrent
+                        ? "bg-green-500/10 border border-green-500/30 hover:bg-green-500/20"
+                        : "bg-slate-700/30 border border-transparent hover:bg-slate-700/50 hover:border-slate-600"
+                    }`}
+                  >
+                    <div className="flex flex-col truncate min-w-0">
+                      <div className="flex items-center gap-2 truncate">
+                        {isInbox ? (
+                          cWin.incognito ? (
+                            <VenetianMask
+                              size={12}
+                              className={
+                                isCurrent ? "text-green-400" : "text-purple-400"
+                              }
+                            />
+                          ) : (
+                            <InboxIcon
+                              size={12}
+                              className={
+                                isCurrent ? "text-green-400" : "text-orange-400"
+                              }
+                            />
+                          )
+                        ) : (
+                          <Monitor
+                            size={12}
+                            className={
+                              isCurrent ? "text-green-400" : "text-blue-400"
+                            }
+                          />
+                        )}
+                        <span
+                          className={`font-bold truncate ${
+                            isCurrent ? "text-green-400" : "text-slate-300"
+                          }`}
+                        >
+                          {label}
+                        </span>
+                      </div>
+                      {subLabel && (
+                        <span className="text-[10px] text-slate-500 pl-5">
+                          {subLabel}
+                        </span>
+                      )}
+                    </div>
+                    {isCurrent && (
+                      <div className="text-[9px] font-black text-green-500 bg-green-500/20 px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0 ml-2">
+                        HER
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {/* ---------------------------------- */}
 
         <div className="p-4 flex-1 overflow-y-auto space-y-6">
           <div className="flex items-center gap-2">
