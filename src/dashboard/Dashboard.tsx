@@ -941,7 +941,6 @@ export const Dashboard = () => {
     "valid" | "invalid" | null
   >(null);
   const [isInboxSyncing, setIsInboxSyncing] = useState(false);
-  const [isTriggeringAi, setIsTriggeringAi] = useState(false);
 
   const [aiSettings, setAiSettings] = useState<AiSettings>({
     allowDynamic: true,
@@ -2055,26 +2054,6 @@ export const Dashboard = () => {
                 )}
               </div>
               <div className="flex gap-3 mb-1">
-                {viewMode === "inbox" && (
-                  <button
-                    onClick={() => {
-                      setIsTriggeringAi(true);
-                      chrome.runtime.sendMessage(
-                        { type: "TRIGGER_AI_SORT" },
-                        () => setIsTriggeringAi(false)
-                      );
-                    }}
-                    className="flex items-center gap-2 bg-linear-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-lg transition cursor-pointer disabled:opacity-50"
-                    disabled={isTriggeringAi}
-                  >
-                    {isTriggeringAi ? (
-                      <Loader2 size={20} className="animate-spin" />
-                    ) : (
-                      <Wand2 size={20} />
-                    )}{" "}
-                    AI Sortering
-                  </button>
-                )}
                 <button
                   onClick={() => {
                     let list = [];
