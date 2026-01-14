@@ -91,6 +91,12 @@ const CategoryMenu = ({
 }: any) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // FIX #3: Beregn om menuen skal vises over eller under cursoren
+  // Vi antager en ca. højde på menuen (300px) eller beregner det dynamisk hvis muligt.
+  // Her bruger vi simpel logik: Er vi i den nederste 1/3 af skærmen? Så vis opad.
+  const isNearBottom = position.y > window.innerHeight - 300;
+  const topPos = isNearBottom ? position.y - 280 : position.y; // 280px op hvis i bunden
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -168,8 +174,10 @@ const CategoryMenu = ({
   return (
     <div
       ref={menuRef}
-      style={{ top: position.y, left: position.x }}
-      className="fixed z-100 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-2 w-56 animate-in fade-in zoom-in-95 duration-100"
+      style={{ top: topPos, left: position.x }}
+      className={`fixed z-100 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-2 w-56 animate-in fade-in zoom-in-95 duration-100 ${
+        isNearBottom ? "origin-bottom-left" : "origin-top-left"
+      }`}
     >
       <div className="text-[10px] uppercase font-bold text-slate-500 px-2 py-1 mb-1">
         Vælg Kategori
@@ -1279,6 +1287,22 @@ export const Dashboard = () => {
               if (!snap.empty) {
                 const current = snap.docs[0].data().tabs || [];
                 batch.update(snap.docs[0].ref, { tabs: [...current, tab] });
+              } else {
+                // FIX #1: Ingen vinduer fundet (snap.empty). Opret nyt vindue!
+                const newWinId = `win_${Date.now()}`;
+                const newWinRef = doc(
+                  db,
+                  "workspaces_data",
+                  targetWorkspaceId,
+                  "windows",
+                  newWinId
+                );
+                batch.set(newWinRef, {
+                  id: newWinId,
+                  tabs: [tab],
+                  isActive: false,
+                  lastActive: Date.now(),
+                });
               }
             }
           } else {
