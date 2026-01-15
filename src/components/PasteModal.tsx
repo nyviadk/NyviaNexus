@@ -1,0 +1,191 @@
+import {
+  arrayUnion,
+  doc,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
+import {
+  ClipboardPaste,
+  Link as LinkIcon,
+  Loader2,
+  PlusCircle,
+  Save,
+  X,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { db } from "../lib/firebase";
+import { LinkManager } from "../services/linkManager";
+
+interface PasteModalProps {
+  workspaceId: string;
+  windowId?: string | null; // Nu valgfri. Hvis null = Nyt Vindue
+  windowName?: string;
+  onClose: () => void;
+}
+
+export const PasteModal = ({
+  workspaceId,
+  windowId,
+  windowName,
+  onClose,
+}: PasteModalProps) => {
+  const [text, setText] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [previewCount, setPreviewCount] = useState(0);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    if (dialogRef.current && !dialogRef.current.open) {
+      dialogRef.current.showModal();
+    }
+  }, []);
+
+  useEffect(() => {
+    const urls = LinkManager.parseAndCreateTabs(text);
+    setPreviewCount(urls.length);
+  }, [text]);
+
+  const handleSave = async () => {
+    if (previewCount === 0) return;
+    setIsSaving(true);
+
+    try {
+      const newTabs = LinkManager.parseAndCreateTabs(text);
+
+      if (windowId) {
+        // SCENARIE A: Indsæt i eksisterende vindue
+        const windowRef = doc(
+          db,
+          "workspaces_data",
+          workspaceId,
+          "windows",
+          windowId
+        );
+        await updateDoc(windowRef, {
+          tabs: arrayUnion(...newTabs),
+        });
+      } else {
+        // SCENARIE B: Opret nyt vindue i spacet (Empty space logic)
+        const newWinId = `win_${Date.now()}`;
+        const newWindowRef = doc(
+          db,
+          "workspaces_data",
+          workspaceId,
+          "windows",
+          newWinId
+        );
+
+        await setDoc(newWindowRef, {
+          id: newWinId,
+          tabs: newTabs,
+          isActive: false,
+          lastActive: serverTimestamp(), // Sorteres øverst/nederst afhængig af sortering
+        });
+      }
+
+      onClose();
+    } catch (error) {
+      console.error("Fejl ved import af links:", error);
+      alert("Der skete en fejl. Tjek konsollen.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const isCreatingNew = !windowId;
+
+  return (
+    <dialog
+      ref={dialogRef}
+      onCancel={onClose}
+      className="bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm open:animate-in open:fade-in open:zoom-in-95 m-auto"
+      onClick={(e) => e.target === dialogRef.current && onClose()}
+    >
+      <div className="bg-slate-800 border border-slate-600 w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+        {/* Header */}
+        <div className="p-4 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-purple-600/20 rounded-lg text-purple-400">
+              {isCreatingNew ? (
+                <PlusCircle size={20} />
+              ) : (
+                <ClipboardPaste size={20} />
+              )}
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-200">
+                {isCreatingNew ? "Importer til Nyt Vindue" : "Importer Links"}
+              </h3>
+              <p className="text-xs text-slate-500">
+                {isCreatingNew ? (
+                  "Opretter et nyt vindue med disse links"
+                ) : (
+                  <>
+                    Tilføj til{" "}
+                    <span className="text-slate-300">{windowName}</span>
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-slate-500 hover:text-white transition cursor-pointer"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-4 flex-1 flex flex-col gap-4">
+          <textarea
+            autoFocus
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Indsæt liste af links her..."
+            className="flex-1 min-h-50 bg-slate-900/50 border border-slate-700 rounded-xl p-4 text-sm font-mono text-slate-300 outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 resize-none placeholder:text-slate-600 custom-scrollbar"
+          />
+
+          {/* Stats Bar */}
+          <div className="flex items-center gap-4 bg-slate-900 rounded-lg p-3 border border-slate-700/50">
+            <div
+              className={`flex items-center gap-2 text-xs font-bold ${
+                previewCount > 0 ? "text-green-400" : "text-slate-500"
+              }`}
+            >
+              <LinkIcon size={14} />
+              <span>Links fundet: {previewCount}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 bg-slate-900/50 border-t border-slate-700 flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-slate-400 hover:text-white text-sm font-medium transition cursor-pointer"
+          >
+            Annuller
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={previewCount === 0 || isSaving}
+            className={`px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition shadow-lg cursor-pointer ${
+              previewCount > 0 && !isSaving
+                ? "bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/20 active:scale-95"
+                : "bg-slate-700 text-slate-500 cursor-not-allowed"
+            }`}
+          >
+            {isSaving ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Save size={16} />
+            )}
+            {isCreatingNew ? "Opret Vindue" : "Importer"}
+          </button>
+        </div>
+      </div>
+    </dialog>
+  );
+};

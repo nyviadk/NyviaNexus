@@ -15,7 +15,9 @@ import {
   BrainCircuit,
   Check,
   CheckSquare,
+  ClipboardPaste,
   Clock,
+  Copy,
   Edit2,
   Eraser,
   ExternalLink,
@@ -52,9 +54,11 @@ import React, {
 } from "react";
 import { CreateItemModal } from "../components/CreateItemModal";
 import { LoginForm } from "../components/LoginForm";
+import { PasteModal } from "../components/PasteModal"; // NYT
 import { SidebarItem } from "../components/SidebarItem";
 import { auth, db } from "../lib/firebase";
 import { AiService } from "../services/aiService";
+import { LinkManager } from "../services/linkManager"; // NYT
 import { NexusService } from "../services/nexusService";
 import {
   AiSettings,
@@ -187,7 +191,7 @@ const CategoryMenu = ({
           <button
             key={cat.id}
             onClick={() => updateCategory(cat.name, true)}
-            className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-700 text-slate-200 text-sm group"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-700 text-slate-200 text-sm group cursor-pointer"
           >
             <div
               className="w-2.5 h-2.5 rounded-full shadow-sm shrink-0"
@@ -210,7 +214,7 @@ const CategoryMenu = ({
       <div className="border-t border-slate-700 pt-1">
         <button
           onClick={() => updateCategory(null, false)}
-          className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-blue-400 text-xs font-medium"
+          className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-blue-400 text-xs font-medium cursor-pointer"
         >
           <Unlock size={14} /> Lås op / Reset AI
         </button>
@@ -418,7 +422,7 @@ const SettingsModal = ({
           </h3>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white outline-none focus:ring-2 ring-blue-500 rounded"
+            className="text-slate-400 hover:text-white outline-none focus:ring-2 ring-blue-500 rounded cursor-pointer"
           >
             <X size={24} />
           </button>
@@ -441,7 +445,7 @@ const SettingsModal = ({
                   />
                   <button
                     onClick={handleSaveApiKey}
-                    className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-xl transition outline-none focus:ring-2 ring-blue-400 flex items-center justify-center min-w-11"
+                    className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-xl transition outline-none focus:ring-2 ring-blue-400 flex items-center justify-center min-w-11 cursor-pointer"
                   >
                     {isSavingKey ? <Check size={20} /> : <Save size={20} />}
                   </button>
@@ -460,7 +464,7 @@ const SettingsModal = ({
                   </span>
                   <button
                     onClick={toggleDynamic}
-                    className="text-blue-400 hover:text-blue-300"
+                    className="text-blue-400 hover:text-blue-300 cursor-pointer"
                   >
                     {aiSettings.allowDynamic ? (
                       <ToggleRight size={32} />
@@ -484,7 +488,7 @@ const SettingsModal = ({
                       </span>
                       <button
                         onClick={toggleUncategorized}
-                        className="text-blue-400 hover:text-blue-300"
+                        className="text-blue-400 hover:text-blue-300 cursor-pointer"
                       >
                         {aiSettings.useUncategorized ? (
                           <ToggleRight size={32} />
@@ -523,7 +527,7 @@ const SettingsModal = ({
                 />
                 <button
                   type="submit"
-                  className="bg-slate-600 hover:bg-slate-500 text-white px-3 rounded-xl"
+                  className="bg-slate-600 hover:bg-slate-500 text-white px-3 rounded-xl cursor-pointer"
                 >
                   <Plus size={20} />
                 </button>
@@ -549,7 +553,7 @@ const SettingsModal = ({
                     </span>
                     <button
                       onClick={() => removeCategory(cat.id)}
-                      className="text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition"
+                      className="text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition cursor-pointer"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -571,7 +575,7 @@ const SettingsModal = ({
                 />
                 <button
                   type="submit"
-                  className="bg-slate-600 hover:bg-slate-500 text-white px-3 rounded-xl"
+                  className="bg-slate-600 hover:bg-slate-500 text-white px-3 rounded-xl cursor-pointer"
                 >
                   <Plus size={20} />
                 </button>
@@ -593,7 +597,7 @@ const SettingsModal = ({
                         />
                         <button
                           onClick={() => saveEdit(p.id)}
-                          className="text-green-500"
+                          className="text-green-500 cursor-pointer"
                         >
                           <Check size={18} />
                         </button>
@@ -608,13 +612,13 @@ const SettingsModal = ({
                             setEditingId(p.id);
                             setEditName(p.name);
                           }}
-                          className="text-slate-400 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition"
+                          className="text-slate-400 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition cursor-pointer"
                         >
                           <Edit2 size={16} />
                         </button>
                         <button
                           onClick={() => removeProfile(p.id)}
-                          className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
+                          className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition cursor-pointer"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -942,6 +946,16 @@ export const Dashboard = () => {
   >(null);
   const [isInboxSyncing, setIsInboxSyncing] = useState(false);
 
+  // --- NEW MODAL & COPY STATES ---
+  const [pasteModalData, setPasteModalData] = useState<{
+    workspaceId: string;
+    windowId?: string | null;
+    windowName?: string;
+  } | null>(null);
+  const [headerCopyStatus, setHeaderCopyStatus] = useState<"idle" | "copied">(
+    "idle"
+  );
+
   const [aiSettings, setAiSettings] = useState<AiSettings>({
     allowDynamic: true,
     useUncategorized: false,
@@ -1022,6 +1036,12 @@ export const Dashboard = () => {
   const sortedWindows = useMemo(
     () =>
       [...windows].sort((a: any, b: any) => (a.index || 0) - (b.index || 0)),
+    [windows]
+  );
+
+  // --- TOTAL TABS CALCULATION (FOR COPY BUTTON) ---
+  const totalTabsInSpace = useMemo(
+    () => windows.reduce((acc, win) => acc + (win.tabs?.length || 0), 0),
     [windows]
   );
 
@@ -1192,6 +1212,19 @@ export const Dashboard = () => {
     setWindows([]);
     setSelectedWorkspace(item);
   }, []);
+
+  // --- COPY SPACE LOGIC ---
+  const handleCopySpace = async () => {
+    if (!selectedWorkspace) return;
+    const allTabs = windows.flatMap((w) => w.tabs || []);
+    if (allTabs.length === 0) return;
+
+    const count = await LinkManager.copyTabsToClipboard(allTabs);
+    if (count > 0) {
+      setHeaderCopyStatus("copied");
+      setTimeout(() => setHeaderCopyStatus("idle"), 2000);
+    }
+  };
 
   const handleSidebarTabDrop = useCallback(
     async (targetItem: NexusItem | "global") => {
@@ -1676,7 +1709,6 @@ export const Dashboard = () => {
             </div>
           </div>
         )}
-        {/* ---------------------------------- */}
 
         <div className="p-4 flex-1 overflow-y-auto space-y-6">
           <div className="flex items-center gap-2">
@@ -1995,7 +2027,7 @@ export const Dashboard = () => {
                               <span className="text-xs font-bold text-slate-300">
                                 Vindue {idx + 1}
                               </span>
-                              <span className="text-[10px] text-slate-500">
+                              <span className="text-[10px] text-slate-500 mt-1">
                                 {win.tabs?.length || 0} tabs
                               </span>
                             </div>
@@ -2054,6 +2086,49 @@ export const Dashboard = () => {
                 )}
               </div>
               <div className="flex gap-3 mb-1">
+                {viewMode === "workspace" && (
+                  <>
+                    <button
+                      onClick={handleCopySpace}
+                      disabled={totalTabsInSpace === 0}
+                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition border ${
+                        totalTabsInSpace === 0
+                          ? "border-slate-800 text-slate-600 bg-slate-800 cursor-not-allowed"
+                          : "bg-slate-800 border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white cursor-pointer"
+                      }`}
+                      title="Kopier alle tabs i dette space"
+                    >
+                      {headerCopyStatus === "copied" ? (
+                        <>
+                          <Check size={18} className="text-green-500" />
+                          <span className="text-green-500">Kopieret!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={18} />
+                          <span>Kopier Space</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={() =>
+                        setPasteModalData({
+                          workspaceId: selectedWorkspace!.id,
+                          windowId: null,
+                          windowName: "Nyt Vindue",
+                        })
+                      }
+                      className="flex items-center gap-2 bg-slate-800 border border-slate-700 hover:border-purple-500 text-purple-400 hover:text-purple-300 hover:bg-purple-900/20 px-4 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
+                      title="Indsæt links i et nyt vindue"
+                    >
+                      <ClipboardPaste size={18} />
+                      <span>Indsæt</span>
+                    </button>
+                    <div className="w-px h-8 bg-slate-700 mx-1"></div>
+                  </>
+                )}
+
                 <button
                   onClick={() => {
                     let list = [];
@@ -2134,13 +2209,9 @@ export const Dashboard = () => {
                     <button
                       onClick={async () => {
                         if (confirm("Ryd Inbox?")) {
-                          // FIX START: Fetch latest data directly to avoid state race condition
                           const ref = doc(db, "inbox_data", "global");
                           const snap = await getDoc(ref);
                           const allTabs = snap.data()?.tabs || [];
-
-                          // We want to delete normal tabs, so keep incognito.
-                          // !t.isIncognito will catch 'undefined' as true (normal).
                           const tabsToDelete = allTabs.filter(
                             (t: any) => !t.isIncognito
                           );
@@ -2159,7 +2230,6 @@ export const Dashboard = () => {
                           await updateDoc(ref, {
                             tabs: tabsToKeep,
                           });
-                          // FIX END
                         }
                       }}
                       className="flex items-center gap-2 bg-orange-600/20 text-orange-400 hover:bg-orange-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
@@ -2172,12 +2242,9 @@ export const Dashboard = () => {
                     <button
                       onClick={async () => {
                         if (confirm("Ryd Incognito liste?")) {
-                          // FIX START: Fetch latest data directly to avoid state race condition
                           const ref = doc(db, "inbox_data", "global");
                           const snap = await getDoc(ref);
                           const allTabs = snap.data()?.tabs || [];
-
-                          // We want to delete incognito tabs, so keep normal.
                           const tabsToDelete = allTabs.filter(
                             (t: any) => t.isIncognito
                           );
@@ -2196,7 +2263,6 @@ export const Dashboard = () => {
                           await updateDoc(ref, {
                             tabs: tabsToKeep,
                           });
-                          // FIX END
                         }
                       }}
                       className="flex items-center gap-2 bg-purple-600/20 text-purple-400 hover:bg-purple-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
@@ -2216,7 +2282,12 @@ export const Dashboard = () => {
                         },
                       })
                     }
-                    className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 text-white active:scale-95 transition cursor-pointer"
+                    disabled={windows.length === 0}
+                    className={`px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg transition cursor-pointer ${
+                      windows.length === 0
+                        ? "bg-slate-800 text-slate-500 cursor-not-allowed shadow-none"
+                        : "bg-blue-600 hover:bg-blue-500 shadow-blue-600/20 text-white active:scale-95"
+                    }`}
                   >
                     Åbn Space
                   </button>
@@ -2275,6 +2346,14 @@ export const Dashboard = () => {
           position={menuData.position}
           categories={allAvailableCategories}
           onClose={() => setMenuData(null)}
+        />
+      )}
+      {pasteModalData && (
+        <PasteModal
+          workspaceId={pasteModalData.workspaceId}
+          windowId={pasteModalData.windowId}
+          windowName={pasteModalData.windowName}
+          onClose={() => setPasteModalData(null)}
         />
       )}
     </div>
