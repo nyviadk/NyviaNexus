@@ -10,7 +10,7 @@ import {
   getDocs,
   query,
   orderBy,
-  onSnapshot,
+  writeBatch,
 } from "firebase/firestore";
 import { AiService } from "../services/aiService";
 
@@ -40,6 +40,8 @@ interface TrackerData {
 let activeRestorations = 0;
 let restorationStatus = "";
 let lastDashboardTime = 0;
+
+// VIGTIGT: Dette map nulstilles når SW sover. Vi stoler på storage og hydration.
 let activeWindows = new Map<number, WinMapping>();
 const lockedWindowIds = new Set<number>();
 
@@ -51,20 +53,11 @@ const currentlyProcessing = new Set<string>();
 // TAB TRACKING
 let tabTracker = new Map<number, TrackerData>();
 
-let globalState = {
-  profiles: [] as any[],
-  items: [] as any[],
-  inbox: null as any,
-  workspaceWindows: {} as Record<string, any[]>,
-};
-
-const activeListeners = new Map<string, () => void>();
-
 const isDash = (url?: string) => url?.includes("dashboard.html");
 
 function broadcast(type: string, payload: any = null) {
   chrome.runtime.sendMessage({ type, payload }).catch(() => {
-    // Ingen lyttere (f.eks. dashboard lukket), det er forventet.
+    // Forventet fejl hvis ingen lytter (f.eks. dashboard lukket)
   });
 }
 
@@ -73,57 +66,83 @@ function updateRestorationStatus(status: string) {
   broadcast("RESTORATION_STATUS_CHANGE", status);
 }
 
-// --- FIREBASE LISTENERS ---
-function startFirebaseListeners() {
-  console.log("🔥 Starting Firebase Listeners...");
-  if (!activeListeners.has("profiles")) {
-    const unsub = onSnapshot(collection(db, "profiles"), (snap) => {
-      globalState.profiles = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      broadcast("STATE_UPDATED", { profiles: globalState.profiles });
-    });
-    activeListeners.set("profiles", unsub);
+// --- CRITICAL: STATE HYDRATION & CLEANUP ---
+
+// Denne funktion køres ved opstart af Chrome eller Service Worker.
+// Den fjerner "Spøgelses-vinduer" fra vores records.
+async function validateAndCleanupState() {
+  // 1. Hent gemte mappings
+  const data = await chrome.storage.local.get("nexus_active_windows");
+  let storedMappings: [number, WinMapping][] = [];
+
+  if (data?.nexus_active_windows && Array.isArray(data.nexus_active_windows)) {
+    storedMappings = data.nexus_active_windows;
   }
 
-  if (!activeListeners.has("items")) {
-    const unsub = onSnapshot(collection(db, "items"), (snap) => {
-      globalState.items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      broadcast("STATE_UPDATED", { items: globalState.items });
-    });
-    activeListeners.set("items", unsub);
+  if (storedMappings.length === 0) {
+    activeWindows.clear();
+    return;
   }
 
-  if (!activeListeners.has("inbox")) {
-    const unsub = onSnapshot(doc(db, "inbox_data", "global"), (snap) => {
-      globalState.inbox = snap.exists()
-        ? { id: snap.id, ...snap.data() }
-        : { tabs: [] };
-      broadcast("STATE_UPDATED", { inbox: globalState.inbox });
-    });
-    activeListeners.set("inbox", unsub);
-  }
-}
+  // 2. Hent alle FYSISKE vinduer lige nu
+  const physicalWindows = await chrome.windows.getAll();
+  const physicalIds = new Set(physicalWindows.map((w) => w.id));
 
-auth.onAuthStateChanged((user) => {
-  if (user) {
-    startFirebaseListeners();
-    loadAndVerifyWindows();
+  const validMappings: [number, WinMapping][] = [];
+  const batch = writeBatch(db);
+  let dirty = false;
+
+  console.log("🧹 Running Startup Cleanup...");
+
+  for (const [winId, mapping] of storedMappings) {
+    // Hvis vinduet fysisk findes, beholder vi det (f.eks. ved extension reload)
+    // Hvis Chrome er genstartet, vil physicalIds typisk være helt nye, og de gamle winId findes ikke.
+    if (physicalIds.has(winId)) {
+      validMappings.push([winId, mapping]);
+      activeWindows.set(winId, mapping);
+    } else {
+      // 3. Vinduet er dødt -> Opdater Firestore til isActive = false
+      console.log(
+        `💀 Cleaning up dead window: ID ${winId} (${mapping.workspaceName})`
+      );
+      dirty = true;
+      const docRef = doc(
+        db,
+        "workspaces_data",
+        mapping.workspaceId,
+        "windows",
+        mapping.internalWindowId
+      );
+      // Vi bruger batch for effektivitet, men sætter isActive: false
+      batch.update(docRef, { isActive: false });
+    }
+  }
+
+  // 4. Gem oprydning
+  if (dirty) {
+    await batch
+      .commit()
+      .catch((e) => console.warn("Cleanup Firestore error:", e));
+    await chrome.storage.local.set({ nexus_active_windows: validMappings });
+    // Opdater activeWindows map i hukommelsen
+    activeWindows.clear();
+    validMappings.forEach(([id, map]) => activeWindows.set(id, map));
   } else {
-    activeListeners.forEach((unsub) => unsub());
-    activeListeners.clear();
+    // Ingen ændringer, men sørg for hukommelsen er synkroniseret
+    activeWindows.clear();
+    storedMappings.forEach(([id, map]) => activeWindows.set(id, map));
   }
-});
 
-// --- STORAGE & RESTORATION ---
-async function saveActiveWindowsToStorage() {
-  const data = Array.from(activeWindows.entries());
-  await chrome.storage.local.set({ nexus_active_windows: data });
-  // Vi behøver ikke broadcaste her længere, da Dashboard lytter på storage changes directly
-  // Men vi gør det for god ordens skyld til komponenter der ikke bruger storage listener
-  broadcast("ACTIVE_MAPPINGS_UPDATED", data);
+  await rebuildTabTracker();
 }
 
-async function loadAndVerifyWindows() {
-  console.log("🔥 Loading and verifying windows...");
+// Hydration wrapper til events: Sikrer at vi ikke arbejder med tomt map efter sleep
+async function ensureStateHydrated() {
+  if (activeWindows.size > 0) return;
+
+  // Forsøg at hente fra storage, men valider IKKE (for dyrt at gøre ved hver event).
+  // Vi antager at validateAndCleanupState har kørt ved startup/wake,
+  // eller at vi blot skal indlæse hvad vi har.
   try {
     const data = await chrome.storage.local.get("nexus_active_windows");
     if (
@@ -147,17 +166,39 @@ async function loadAndVerifyWindows() {
           updateDoc(docRef, { isActive: false }).catch(() => {});
         }
       }
-      await saveActiveWindowsToStorage();
     }
-    await rebuildTabTracker();
-    processAiQueue().catch(console.error);
-  } catch (error) {
-    console.error("Critical error in loadAndVerifyWindows:", error);
+  } catch (e) {
+    console.error("Hydration failed:", e);
   }
 }
 
+// --- BOOTSTRAP ---
+
+// Kør cleanup når Chrome starter
+chrome.runtime.onStartup.addListener(() => {
+  validateAndCleanupState();
+});
+
+// Kør cleanup når extension installeres/opdateres/reloader
+chrome.runtime.onInstalled.addListener(() => {
+  validateAndCleanupState();
+});
+
+auth.onAuthStateChanged((user) => {
+  if (user) {
+    // Kør også cleanup når bruger logger ind, for at være sikker
+    validateAndCleanupState();
+  }
+});
+
+// --- STORAGE SAVE ---
+async function saveActiveWindowsToStorage() {
+  const data = Array.from(activeWindows.entries());
+  await chrome.storage.local.set({ nexus_active_windows: data });
+  // Broadcast så dashboard opdaterer visuelt (via storage listener i dashboard)
+}
+
 async function rebuildTabTracker() {
-  console.log("🔥 Rebuilding Tab Tracker...");
   try {
     const allWindows = await chrome.windows.getAll();
     const unmappedWindows = allWindows.filter(
@@ -221,7 +262,6 @@ async function rebuildTabTracker() {
         }
       }
     }
-    console.log(`🔥 Tab Tracker Rebuilt. Tracking ${tabTracker.size} tabs.`);
   } catch (e) {
     console.error("Error rebuilding tab tracker:", e);
   }
@@ -320,10 +360,8 @@ async function processAiQueue() {
     if (queue.length === 0) return;
 
     const now = Date.now();
-    // Timeout på lock efter 30 sekunder
     if (lock?.isProcessing && now - lock.timestamp < 30000) return;
 
-    // Throttle AI calls to avoid rate limits (2 sekunder mellem kald)
     if (now - lastCall < 2000) {
       const delay = 2000 - (now - lastCall);
       chrome.alarms.create("process_ai_next", { when: now + delay });
@@ -339,6 +377,9 @@ async function processAiQueue() {
     });
 
     broadcast("AI_STATUS_UPDATE", { uid: item.uid, status: "processing" });
+
+    // Hent vindues-mapping for at se om vi stadig kender vinduet
+    await ensureStateHydrated();
 
     try {
       await chrome.tabs.get(item.tabId);
@@ -383,6 +424,7 @@ async function processAiQueue() {
               "windows",
               mapping.internalWindowId
             );
+            // Hent frisk data direkte før opdatering (ingen listener nødvendig)
             const winSnap = await getDoc(winRef);
             if (winSnap.exists()) {
               const tabs = winSnap.data().tabs || [];
@@ -443,21 +485,18 @@ async function addToAiQueue(items: QueueItem[]) {
       const existingIndex = currentQueue.findIndex((q) => q.uid === i.uid);
 
       if (existingIndex !== -1) {
-        // Hvis URL'en er ændret, fjerner vi den gamle for at tvinge en ny analyse
         if (currentQueue[existingIndex].url !== i.url) {
           console.log(`🔄 URL changed for ${i.uid}, re-queuing...`);
           currentQueue.splice(existingIndex, 1);
           return true;
         }
-        return false; // Allerede i kø med samme URL
+        return false;
       }
 
       const recentlyAdded = recentQueueAdds.has(i.uid + i.url);
       const isProcessing = currentlyProcessing.has(i.uid);
 
-      // Hvis vi allerede processerer dette UID, men URL er ny, skal vi lade den komme i køen bagefter
       if (isProcessing) {
-        // Tjek om det er en ny URL i forhold til tabTracker
         const tracked = [...tabTracker.values()].find((t) => t.uid === i.uid);
         if (tracked && tracked.url !== i.url) return true;
         return false;
@@ -481,7 +520,6 @@ async function addToAiQueue(items: QueueItem[]) {
     const updatedQueue = [...currentQueue, ...newItems];
     await chrome.storage.local.set({ [AI_STORAGE_KEY]: updatedQueue });
 
-    // Vigtigt: Prøv at køre køen med det samme
     processAiQueue();
   } catch (e) {
     console.error("Error adding to AI queue:", e);
@@ -555,6 +593,9 @@ async function saveToFirestore(
     } catch (e) {
       windowExists = false;
     }
+
+    await ensureStateHydrated();
+
     const mapping = activeWindows.get(windowId);
     if (mapping) {
       if (!windowExists) return;
@@ -641,18 +682,18 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
     return;
   }
 
+  await ensureStateHydrated();
+
   const isUrlChange = change.url !== undefined;
   const isStatusComplete = change.status === "complete";
   const isTitleChange = change.title !== undefined;
 
-  // Vi reagerer nu også på titelskift, da AI'en bruger titlen til kontekst
   if (isUrlChange || isStatusComplete || isTitleChange) {
     const url = tab.url;
     const uid = getOrAssignUid(tabId, url);
     const title = tab.title || "Indlæser...";
     const mapping = activeWindows.get(tab.windowId);
 
-    // AI Kø Trigger logic
     const triggerAi = () => {
       addToAiQueue([
         {
@@ -690,7 +731,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
             tabs[idx].title = title;
             tabs[idx].favIconUrl = tab.favIconUrl || tabs[idx].favIconUrl || "";
 
-            // Kun nulstil hvis URL rent faktisk er ændret, eller hvis vi mangler data
             if (oldUrl !== url || hasNoAiData) {
               tabs[idx].aiData = { status: "pending" };
               await updateDoc(winRef, { tabs });
@@ -700,7 +740,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
             }
           }
         } else {
-          // Ny tab fundet i et aktivt window
           tabs.push({
             uid,
             title,
@@ -714,6 +753,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
       }
     } else {
       // Inbox Logic
+      // Hvis vi når herned, og ensureStateHydrated har kørt, er det en "ægte" ukendt fane
       const inboxRef = doc(db, "inbox_data", "global");
       const snap = await getDoc(inboxRef);
       if (snap.exists()) {
@@ -747,6 +787,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
 
 chrome.tabs.onRemoved.addListener(async (tabId, info) => {
   if (activeRestorations > 0) return;
+  await ensureStateHydrated();
+
   const tracked = tabTracker.get(tabId);
   tabTracker.delete(tabId);
 
@@ -772,11 +814,10 @@ chrome.tabs.onRemoved.addListener(async (tabId, info) => {
 });
 
 chrome.windows.onCreated.addListener(async (win) => {
-  // PUSH: Fysiske vinduer ændret -> Broadcast til dashboard
-  // Dette ligger nu FØR activeRestorations tjekket, så dashboard altid opdateres visuelt
   broadcast("PHYSICAL_WINDOWS_CHANGED");
-
   if (activeRestorations > 0) return;
+
+  await ensureStateHydrated();
 
   if (win.id && !activeWindows.has(win.id)) {
     setTimeout(() => registerNewInboxWindow(win.id!), 1000);
@@ -785,6 +826,9 @@ chrome.windows.onCreated.addListener(async (win) => {
 
 chrome.windows.onFocusChanged.addListener(async (winId) => {
   if (winId === chrome.windows.WINDOW_ID_NONE || activeRestorations > 0) return;
+
+  await ensureStateHydrated();
+
   const now = Date.now();
   if (now - lastDashboardTime < 1500) return;
   try {
@@ -804,8 +848,8 @@ chrome.windows.onFocusChanged.addListener(async (winId) => {
 });
 
 chrome.windows.onRemoved.addListener(async (windowId) => {
-  // PUSH: Fysiske vinduer ændret -> Broadcast til dashboard
   broadcast("PHYSICAL_WINDOWS_CHANGED");
+  await ensureStateHydrated();
 
   const mapping = activeWindows.get(windowId);
   if (mapping) {
@@ -828,115 +872,102 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const { type, payload } = msg;
 
   if (type === "DELETE_AND_CLOSE_WINDOW") {
-    const { workspaceId, internalWindowId } = payload;
-    let physicalId: number | null = null;
-    for (const [pId, map] of activeWindows.entries()) {
-      if (
-        map.workspaceId === workspaceId &&
-        map.internalWindowId === internalWindowId
-      ) {
-        physicalId = pId;
-        break;
+    ensureStateHydrated().then(async () => {
+      const { workspaceId, internalWindowId } = payload;
+      let physicalId: number | null = null;
+      for (const [pId, map] of activeWindows.entries()) {
+        if (
+          map.workspaceId === workspaceId &&
+          map.internalWindowId === internalWindowId
+        ) {
+          physicalId = pId;
+          break;
+        }
       }
-    }
-    const docRef = doc(
-      db,
-      "workspaces_data",
-      workspaceId,
-      "windows",
-      internalWindowId
-    );
-    deleteDoc(docRef)
-      .then(async () => {
+      const docRef = doc(
+        db,
+        "workspaces_data",
+        workspaceId,
+        "windows",
+        internalWindowId
+      );
+      try {
+        await deleteDoc(docRef);
         if (physicalId) {
           activeWindows.delete(physicalId);
           await saveActiveWindowsToStorage();
           await chrome.windows.remove(physicalId).catch(() => {});
         }
         sendResponse({ success: true });
-      })
-      .catch((e) => {
+      } catch (e: any) {
         console.error("Error deleting window:", e);
         sendResponse({ success: false, error: e.message });
-      });
+      }
+    });
     return true;
   }
 
   if (type === "TRIGGER_AI_SORT") {
-    getDoc(doc(db, "inbox_data", "global"))
-      .then(async (snap) => {
-        if (snap.exists()) {
-          const tabs = (snap.data().tabs || []) as TabData[];
-          const queueItems: QueueItem[] = [];
-          for (const t of tabs) {
-            if (
-              (t.aiData?.status === "pending" || !t.aiData?.status) &&
-              !t.aiData?.isLocked
-            ) {
-              let physId = -1;
-              for (const [pid, data] of tabTracker.entries()) {
-                if (data.uid === t.uid) {
-                  physId = pid;
-                  break;
+    ensureStateHydrated().then(async () => {
+      getDoc(doc(db, "inbox_data", "global"))
+        .then(async (snap) => {
+          if (snap.exists()) {
+            const tabs = (snap.data().tabs || []) as TabData[];
+            const queueItems: QueueItem[] = [];
+            for (const t of tabs) {
+              if (
+                (t.aiData?.status === "pending" || !t.aiData?.status) &&
+                !t.aiData?.isLocked
+              ) {
+                let physId = -1;
+                for (const [pid, data] of tabTracker.entries()) {
+                  if (data.uid === t.uid) {
+                    physId = pid;
+                    break;
+                  }
+                }
+                if (physId !== -1) {
+                  queueItems.push({
+                    uid: t.uid,
+                    url: t.url,
+                    title: t.title,
+                    tabId: physId,
+                    attempts: 0,
+                    workspaceName: "Inbox",
+                  });
                 }
               }
-              if (physId !== -1) {
-                queueItems.push({
-                  uid: t.uid,
-                  url: t.url,
-                  title: t.title,
-                  tabId: physId,
-                  attempts: 0,
-                  workspaceName: "Inbox",
-                });
-              }
             }
-          }
-          if (queueItems.length > 0) {
-            addToAiQueue(queueItems);
-            sendResponse({ success: true, count: queueItems.length });
+            if (queueItems.length > 0) {
+              addToAiQueue(queueItems);
+              sendResponse({ success: true, count: queueItems.length });
+            } else {
+              sendResponse({ success: false, reason: "No processable tabs" });
+            }
           } else {
-            sendResponse({ success: false, reason: "No processable tabs" });
+            sendResponse({ success: false, reason: "Inbox not found" });
           }
-        } else {
-          sendResponse({ success: false, reason: "Inbox not found" });
-        }
-      })
-      .catch((e) => sendResponse({ success: false, error: e.message }));
+        })
+        .catch((e) => sendResponse({ success: false, error: e.message }));
+    });
     return true;
   }
 
   if (type === "GET_WINDOW_NAME") {
-    const mapping = activeWindows.get(payload.windowId);
-    sendResponse({ name: mapping ? mapping.workspaceName : "Inbox" });
-    return false;
+    ensureStateHydrated().then(() => {
+      const mapping = activeWindows.get(payload.windowId);
+      sendResponse({ name: mapping ? mapping.workspaceName : "Inbox" });
+    });
+    return true;
   }
 
   if (type === "GET_LATEST_STATE") {
-    sendResponse(globalState);
+    // Kun relevant hvis baggrund har nyere state end dashboard, hvilket er sjældent nu
+    sendResponse(null);
     return false;
   }
 
   if (type === "WATCH_WORKSPACE") {
-    const workspaceId = payload;
-    if (activeListeners.has(`workspace_${workspaceId}`)) {
-      const cached = globalState.workspaceWindows[workspaceId];
-      if (cached)
-        broadcast("WORKSPACE_WINDOWS_UPDATED", {
-          workspaceId,
-          windows: cached,
-        });
-    } else {
-      const unsub = onSnapshot(
-        collection(db, "workspaces_data", workspaceId, "windows"),
-        (snap) => {
-          const windows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-          globalState.workspaceWindows[workspaceId] = windows;
-          broadcast("WORKSPACE_WINDOWS_UPDATED", { workspaceId, windows });
-        }
-      );
-      activeListeners.set(`workspace_${workspaceId}`, unsub);
-    }
     sendResponse({ success: true });
     return false;
   }
@@ -947,30 +978,36 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return false;
     }
     openingWorkspaces.add(payload.workspaceId);
-    handleOpenWorkspace(
-      payload.workspaceId,
-      payload.windows,
-      payload.name
-    ).finally(() => {
-      setTimeout(() => openingWorkspaces.delete(payload.workspaceId), 2000);
-      sendResponse({ success: true });
+    ensureStateHydrated().then(() => {
+      handleOpenWorkspace(
+        payload.workspaceId,
+        payload.windows,
+        payload.name
+      ).finally(() => {
+        setTimeout(() => openingWorkspaces.delete(payload.workspaceId), 2000);
+        sendResponse({ success: true });
+      });
     });
     return true;
   }
 
   if (type === "OPEN_SPECIFIC_WINDOW") {
-    handleOpenSpecificWindow(
-      payload.workspaceId,
-      payload.windowData,
-      payload.name,
-      payload.index
-    ).then(() => sendResponse({ success: true }));
+    ensureStateHydrated().then(() => {
+      handleOpenSpecificWindow(
+        payload.workspaceId,
+        payload.windowData,
+        payload.name,
+        payload.index
+      ).then(() => sendResponse({ success: true }));
+    });
     return true;
   }
 
   if (type === "GET_ACTIVE_MAPPINGS") {
-    sendResponse(Array.from(activeWindows.entries()));
-    return false;
+    ensureStateHydrated().then(() => {
+      sendResponse(Array.from(activeWindows.entries()));
+    });
+    return true;
   }
 
   if (type === "GET_RESTORING_STATUS") {
@@ -979,26 +1016,32 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (type === "FORCE_SYNC_ACTIVE_WINDOW") {
-    handleForceSync(payload.windowId).then(() =>
-      sendResponse({ success: true })
-    );
+    ensureStateHydrated().then(() => {
+      handleForceSync(payload.windowId).then(() =>
+        sendResponse({ success: true })
+      );
+    });
     return true;
   }
 
   if (type === "CREATE_NEW_WINDOW_IN_WORKSPACE") {
-    handleCreateNewWindowInWorkspace(payload.workspaceId, payload.name).then(
-      () => sendResponse({ success: true })
-    );
+    ensureStateHydrated().then(() => {
+      handleCreateNewWindowInWorkspace(payload.workspaceId, payload.name).then(
+        () => sendResponse({ success: true })
+      );
+    });
     return true;
   }
 
   if (type === "CLOSE_PHYSICAL_TABS") {
     const { uids, tabIds } = payload;
-    handleClosePhysicalTabs(uids, tabIds)
-      .then(() => {
-        sendResponse({ success: true });
-      })
-      .catch((e) => sendResponse({ success: false, error: e.message }));
+    ensureStateHydrated().then(() => {
+      handleClosePhysicalTabs(uids, tabIds)
+        .then(() => {
+          sendResponse({ success: true });
+        })
+        .catch((e) => sendResponse({ success: false, error: e.message }));
+    });
     return true;
   }
 

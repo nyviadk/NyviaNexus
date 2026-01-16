@@ -8,6 +8,10 @@ import {
   getDocs,
   updateDoc,
   writeBatch,
+  onSnapshot,
+  query,
+  orderBy,
+  serverTimestamp,
 } from "firebase/firestore";
 import {
   Activity,
@@ -54,11 +58,11 @@ import React, {
 } from "react";
 import { CreateItemModal } from "../components/CreateItemModal";
 import { LoginForm } from "../components/LoginForm";
-import { PasteModal } from "../components/PasteModal"; // NYT
+import { PasteModal } from "../components/PasteModal";
 import { SidebarItem } from "../components/SidebarItem";
 import { auth, db } from "../lib/firebase";
 import { AiService } from "../services/aiService";
-import { LinkManager } from "../services/linkManager"; // NYT
+import { LinkManager } from "../services/linkManager";
 import { NexusService } from "../services/nexusService";
 import {
   AiSettings,
@@ -85,6 +89,8 @@ const getContrastYIQ = (hexcolor: string) => {
   return yiq >= 128 ? "#1e293b" : "#ffffff";
 };
 
+// --- HELPER COMPONENTS ---
+
 const CategoryMenu = ({
   tab,
   workspaceId,
@@ -95,11 +101,8 @@ const CategoryMenu = ({
 }: any) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // FIX #3: Beregn om menuen skal vises over eller under cursoren
-  // Vi antager en ca. højde på menuen (300px) eller beregner det dynamisk hvis muligt.
-  // Her bruger vi simpel logik: Er vi i den nederste 1/3 af skærmen? Så vis opad.
   const isNearBottom = position.y > window.innerHeight - 300;
-  const topPos = isNearBottom ? position.y - 280 : position.y; // 280px op hvis i bunden
+  const topPos = isNearBottom ? position.y - 280 : position.y;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -635,7 +638,6 @@ const SettingsModal = ({
   );
 };
 
-// --- HELPER: CATEGORY STYLES ---
 const getCategoryStyle = (category: string) => {
   const lower = category.toLowerCase();
 
@@ -907,6 +909,8 @@ const TabItem = React.memo(
   }
 );
 
+// --- MAIN DASHBOARD COMPONENT ---
+
 export const Dashboard = () => {
   const [user, setUser] = useState<any>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -946,7 +950,6 @@ export const Dashboard = () => {
   >(null);
   const [isInboxSyncing, setIsInboxSyncing] = useState(false);
 
-  // --- NEW MODAL & COPY STATES ---
   const [pasteModalData, setPasteModalData] = useState<{
     workspaceId: string;
     windowId?: string | null;
@@ -998,12 +1001,9 @@ export const Dashboard = () => {
       });
     };
 
-    // Scan Inbox
     if (inboxData?.tabs) scanTabs(inboxData.tabs);
-    // Scan Windows i nuværende workspace
     windows.forEach((w) => scanTabs(w.tabs));
 
-    // Filtrer dem fra, der allerede er i userCategories (case-insensitive check)
     const existingNames = new Set(
       aiSettings.userCategories.map((c) => c.name.toLowerCase())
     );
@@ -1013,11 +1013,10 @@ export const Dashboard = () => {
       .map((catName) => ({
         id: `ai-${catName}`,
         name: catName,
-        color: "#64748b", // Neutral slate farve for AI kategorier
+        color: "#64748b",
       }));
   }, [inboxData, windows, aiSettings.userCategories]);
 
-  // Kombineret liste til menuen
   const allAvailableCategories = useMemo(
     () => [...aiSettings.userCategories, ...aiGeneratedCategories],
     [aiSettings.userCategories, aiGeneratedCategories]
@@ -1039,24 +1038,20 @@ export const Dashboard = () => {
     [windows]
   );
 
-  // --- TOTAL TABS CALCULATION (FOR COPY BUTTON) ---
   const totalTabsInSpace = useMemo(
     () => windows.reduce((acc, win) => acc + (win.tabs?.length || 0), 0),
     [windows]
   );
 
-  // --- NY LOGIK: CACHE WINDOW NUMBERS ---
-  // Dette kører synkront i render body (ingen useEffect), men kun når data ændrer sig.
+  // --- WINDOW ORDER CACHING ---
   if (selectedWorkspace && sortedWindows.length > 0) {
     const wsId = selectedWorkspace.id;
-    // Generer signatur: ID + Antal + IDs i rækkefølge
     const signature = `${wsId}-${sortedWindows.length}-${sortedWindows
       .map((w) => w.id)
       .join("")}`;
 
     const cached = windowOrderCache.get(wsId);
 
-    // Opdater KUN hvis signatur er ændret (eller den ikke findes)
     if (!cached || cached.signature !== signature) {
       const indices: Record<string, number> = {};
       sortedWindows.forEach((w, i) => {
@@ -1066,8 +1061,8 @@ export const Dashboard = () => {
       console.log(`🔢 [Cache Updated] Workspace ${wsId} ->`, indices);
     }
   }
-  // --------------------------------------
 
+  // --- STARTUP EFFECTS ---
   useEffect(() => {
     const lastProfile = localStorage.getItem("lastActiveProfileId");
     if (lastProfile) setActiveProfile(lastProfile);
@@ -1085,12 +1080,116 @@ export const Dashboard = () => {
       localStorage.setItem("lastActiveProfileId", activeProfile);
   }, [activeProfile]);
 
-  const applyState = useCallback((state: any) => {
-    if (state.profiles) setProfiles(state.profiles);
-    if (state.items) setItems(state.items);
-    if (state.inbox) setInboxData(state.inbox);
+  const refreshChromeWindows = useCallback(() => {
+    chrome.windows.getAll({ populate: false }, (wins) => {
+      setChromeWindows(wins);
+    });
   }, []);
 
+  // --- FIRESTORE & STORAGE LISTENERS ---
+
+  // 1. Core Data (Profiles, Items, Inbox)
+  useEffect(() => {
+    if (!user) return;
+
+    const unsubProfiles = onSnapshot(collection(db, "profiles"), (snap) => {
+      const p = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Profile[];
+      setProfiles(p);
+    });
+
+    const unsubItems = onSnapshot(collection(db, "items"), (snap) => {
+      const i = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as NexusItem[];
+      setItems(i);
+    });
+
+    const unsubInbox = onSnapshot(doc(db, "inbox_data", "global"), (snap) => {
+      setInboxData(
+        snap.exists() ? { id: snap.id, ...snap.data() } : { tabs: [] }
+      );
+    });
+
+    return () => {
+      unsubProfiles();
+      unsubItems();
+      unsubInbox();
+    };
+  }, [user]);
+
+  // 2. Active Workspace Windows Listener
+  useEffect(() => {
+    if (!user || !selectedWorkspace) {
+      setWindows([]);
+      return;
+    }
+
+    // Sort by lastActive to maintain some order, though sortedWindows handles index
+    const q = query(
+      collection(db, "workspaces_data", selectedWorkspace.id, "windows"),
+      orderBy("lastActive", "asc")
+    );
+
+    const unsubWindows = onSnapshot(q, (snap) => {
+      const w = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as WorkspaceWindow[];
+      setWindows(w);
+    });
+
+    return () => unsubWindows();
+  }, [user, selectedWorkspace]);
+
+  // 3. Chrome Events & Storage Mappings
+  useEffect(() => {
+    // Initial fetch
+    onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      if (u) {
+        chrome.windows.getCurrent(
+          (win) => win.id && setCurrentWindowId(win.id)
+        );
+        // Hent initial mappings
+        chrome.storage.local.get("nexus_active_windows", (data) => {
+          // FIX: TypeScript fejl 2345 løst med 'as any[]'
+          if (data?.nexus_active_windows)
+            setActiveMappings(data.nexus_active_windows as any[]);
+        });
+        chrome.runtime.sendMessage({ type: "GET_RESTORING_STATUS" }, (res) =>
+          setRestorationStatus(res || null)
+        );
+        refreshChromeWindows();
+      }
+    });
+
+    const messageListener = (msg: any) => {
+      if (msg.type === "RESTORATION_STATUS_CHANGE") {
+        setRestorationStatus(msg.payload || null);
+      }
+      if (msg.type === "PHYSICAL_WINDOWS_CHANGED") {
+        refreshChromeWindows();
+      }
+    };
+
+    // Lyt direkte på storage changes for at holde mappings synkroniseret
+    const storageListener = (changes: any, area: string) => {
+      if (area === "local" && changes.nexus_active_windows) {
+        setActiveMappings(changes.nexus_active_windows.newValue || []);
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(messageListener);
+    chrome.storage.onChanged.addListener(storageListener);
+
+    return () => {
+      chrome.runtime.onMessage.removeListener(messageListener);
+      chrome.storage.onChanged.removeListener(storageListener);
+    };
+  }, [refreshChromeWindows]);
+
+  // --- URL PARAMS HANDLER ---
   useEffect(() => {
     if (items.length > 0 && !hasLoadedUrlParams.current) {
       const params = new URLSearchParams(window.location.search);
@@ -1110,84 +1209,7 @@ export const Dashboard = () => {
     }
   }, [items]);
 
-  // --- REFACTORED POLLING LOGIC ---
-  // Henter fysiske vinduer on-demand i stedet for i en loop
-  const refreshChromeWindows = useCallback(() => {
-    chrome.windows.getAll({ populate: false }, (wins) => {
-      setChromeWindows(wins);
-    });
-  }, []);
-
-  useEffect(() => {
-    onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      if (u) {
-        // Initial fetch når auth er klar
-        chrome.windows.getCurrent(
-          (win) => win.id && setCurrentWindowId(win.id)
-        );
-        chrome.runtime.sendMessage(
-          { type: "GET_LATEST_STATE" },
-          (state) => state && applyState(state)
-        );
-        chrome.runtime.sendMessage(
-          { type: "GET_ACTIVE_MAPPINGS" },
-          (m) => m && setActiveMappings(m)
-        );
-        chrome.runtime.sendMessage({ type: "GET_RESTORING_STATUS" }, (res) =>
-          setRestorationStatus(res || null)
-        );
-        refreshChromeWindows();
-      }
-    });
-
-    const messageListener = (msg: any) => {
-      // FIREBASE UPDATES
-      if (msg.type === "STATE_UPDATED") applyState(msg.payload);
-      if (msg.type === "WORKSPACE_WINDOWS_UPDATED") {
-        if (
-          selectedWorkspace &&
-          msg.payload.workspaceId === selectedWorkspace.id
-        ) {
-          setWindows(msg.payload.windows);
-        }
-      }
-
-      // CHROME/BACKGROUND UPDATES (PUSH NOTIFICATIONS)
-      if (msg.type === "RESTORATION_STATUS_CHANGE") {
-        setRestorationStatus(msg.payload || null);
-      }
-      // Note: Mappings are now handled by Storage Listener below for robustness
-      if (msg.type === "PHYSICAL_WINDOWS_CHANGED") {
-        refreshChromeWindows();
-      }
-    };
-
-    // STORAGE LISTENER (Mappings) - Robust sync
-    const storageListener = (changes: any, area: string) => {
-      if (area === "local" && changes.nexus_active_windows) {
-        setActiveMappings(changes.nexus_active_windows.newValue);
-      }
-    };
-
-    chrome.runtime.onMessage.addListener(messageListener);
-    chrome.storage.onChanged.addListener(storageListener);
-
-    return () => {
-      chrome.runtime.onMessage.removeListener(messageListener);
-      chrome.storage.onChanged.removeListener(storageListener);
-    };
-  }, [applyState, selectedWorkspace, refreshChromeWindows]);
-
-  useEffect(() => {
-    if (selectedWorkspace) {
-      chrome.runtime.sendMessage({
-        type: "WATCH_WORKSPACE",
-        payload: selectedWorkspace.id,
-      });
-    }
-  }, [selectedWorkspace]);
-
+  // --- SELECTION LOGIC ---
   useEffect(() => {
     if (
       selectedWorkspace &&
@@ -1213,7 +1235,6 @@ export const Dashboard = () => {
     setSelectedWorkspace(item);
   }, []);
 
-  // --- COPY SPACE LOGIC ---
   const handleCopySpace = async () => {
     if (!selectedWorkspace) return;
     const allTabs = windows.flatMap((w) => w.tabs || []);
@@ -1270,7 +1291,6 @@ export const Dashboard = () => {
           ([_, m]) => m.internalWindowId === sourceId
         );
 
-        // OPTIMERING: Hvis det er på tværs af spaces, slet kilden og lader destinationen synke selv
         if (targetMapping && sourceMapping) {
           if (sourceWorkspaceId === targetWorkspaceId) {
             await NexusService.moveTabBetweenWindows(
@@ -1301,7 +1321,6 @@ export const Dashboard = () => {
             },
           });
         } else {
-          // Fallback til manuel batch hvis vindue er lukket
           const batch = writeBatch(db);
           if (!targetMapping) {
             if (targetWorkspaceId === "global") {
@@ -1320,7 +1339,6 @@ export const Dashboard = () => {
                 const current = snap.docs[0].data().tabs || [];
                 batch.update(snap.docs[0].ref, { tabs: [...current, tab] });
               } else {
-                // FIX #1: Ingen vinduer fundet (snap.empty). Opret nyt vindue!
                 const newWinId = `win_${Date.now()}`;
                 const newWinRef = doc(
                   db,
@@ -1333,7 +1351,7 @@ export const Dashboard = () => {
                   id: newWinId,
                   tabs: [tab],
                   isActive: false,
-                  lastActive: Date.now(),
+                  lastActive: serverTimestamp(),
                 });
               }
             }
@@ -1345,7 +1363,6 @@ export const Dashboard = () => {
             });
           }
 
-          // Slet fra kilde
           if (sourceId === "global") {
             const snap = await getDoc(doc(db, "inbox_data", "global"));
             batch.update(doc(db, "inbox_data", "global"), {
@@ -1412,7 +1429,6 @@ export const Dashboard = () => {
           ([_, m]) => m.internalWindowId === sourceId
         );
 
-        // LOGIK: Begge er åbne (Flytning)
         if (targetMapping && sourceMapping) {
           await NexusService.moveTabBetweenWindows(
             tab,
@@ -1432,9 +1448,7 @@ export const Dashboard = () => {
               windowId: targetMapping[0],
               index: -1,
             });
-        }
-        // LOGIK: Ellers kør som før
-        else {
+        } else {
           const batch = writeBatch(db);
           if (!targetMapping) {
             const targetRef = doc(
@@ -1591,7 +1605,6 @@ export const Dashboard = () => {
           NyviaNexus
         </div>
 
-        {/* --- ACTIVE WINDOWS VISUAL LIST --- */}
         {chromeWindows.length > 0 && (
           <div className="px-4 py-3 bg-slate-900/30 border-b border-slate-700/50">
             <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 px-1">
@@ -1611,7 +1624,7 @@ export const Dashboard = () => {
                 const isInbox =
                   !mapping ||
                   (mapping && mapping.workspaceId === "global") ||
-                  cWin.type === "popup"; // Fallback if internal logic treats popup as inbox
+                  cWin.type === "popup";
 
                 if (isInbox) {
                   label = cWin.incognito ? "Incognito Inbox" : "Inbox";
@@ -1620,9 +1633,6 @@ export const Dashboard = () => {
                   const ws = items.find((i) => i.id === mapping.workspaceId);
                   label = ws ? ws.name : "Slettet Space";
 
-                  // --- NYT: TJEK CACHE FØRST ---
-                  // Vi slår op i vores statiske cache for at finde vinduesnummeret,
-                  // selv hvis `sortedWindows` er tømt pga navigation.
                   const cachedOrder = windowOrderCache.get(mapping.workspaceId);
 
                   if (
@@ -1632,9 +1642,7 @@ export const Dashboard = () => {
                     subLabel = `Vindue ${
                       cachedOrder.indices[mapping.internalWindowId]
                     }`;
-                  }
-                  // Fallback: Hvis vi står på det aktive space, og cachen af en eller anden grund fejlede
-                  else if (
+                  } else if (
                     selectedWorkspace &&
                     mapping.workspaceId === selectedWorkspace.id
                   ) {
@@ -1988,17 +1996,14 @@ export const Dashboard = () => {
 
                       if (isDropTarget) {
                         if (isSourceWindow) {
-                          // Rød feedback hvis man dropper til sig selv
                           bgClass = "bg-red-900/20";
                           borderClass = "border-red-500/50";
                         } else {
-                          // Blå feedback ved gyldigt drop
                           bgClass = "bg-blue-600/10";
                           borderClass = "border-blue-500/50";
                           shadowClass = "shadow-lg";
                         }
                       } else if (isSourceWindow) {
-                        // Markering af aktivt valgt vindue
                         bgClass = "bg-blue-600/10";
                         borderClass = "border-blue-500/50";
                         shadowClass = "shadow-lg";
