@@ -22,17 +22,18 @@ export const LinkManager = {
   /**
    * Parser rå tekst for URL'er og genererer NexusTab objekter.
    * Returnerer en liste af objekter klar til Firestore.
+   * @param rawText Teksten der skal parses
+   * @param uniqueOnly Hvis true, fjernes dubletter. Hvis false (default), tillades dubletter.
    */
-  parseAndCreateTabs(rawText: string): any[] {
+  parseAndCreateTabs(rawText: string, uniqueOnly: boolean = false): any[] {
     // Regex der fanger http/https URL'er.
-    // Den er bred for at fange det meste, men kræver protokol for ikke at fange alm. tekst.
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const foundUrls = rawText.match(urlRegex) || [];
 
-    // Fjern dubletter fra inputtet
-    const uniqueUrls = [...new Set(foundUrls)];
+    // Håndter dubletter baseret på toggle
+    const urlsToProcess = uniqueOnly ? [...new Set(foundUrls)] : foundUrls;
 
-    return uniqueUrls.map((url) => ({
+    return urlsToProcess.map((url) => ({
       uid: crypto.randomUUID(), // Kritisk for systemets drag-n-drop
       url: url.trim(),
       title: "Importeret Link", // Placeholder indtil Chrome besøger den

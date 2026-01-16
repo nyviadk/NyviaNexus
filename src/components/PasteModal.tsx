@@ -11,6 +11,8 @@ import {
   Loader2,
   PlusCircle,
   Save,
+  ToggleLeft,
+  ToggleRight,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -31,6 +33,7 @@ export const PasteModal = ({
   onClose,
 }: PasteModalProps) => {
   const [text, setText] = useState("");
+  const [uniqueOnly, setUniqueOnly] = useState(false); // Default: Tillad dubletter
   const [isSaving, setIsSaving] = useState(false);
   const [previewCount, setPreviewCount] = useState(0);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -41,17 +44,19 @@ export const PasteModal = ({
     }
   }, []);
 
+  // Opdater preview når tekst ELLER toggle ændres
   useEffect(() => {
-    const urls = LinkManager.parseAndCreateTabs(text);
+    const urls = LinkManager.parseAndCreateTabs(text, uniqueOnly);
     setPreviewCount(urls.length);
-  }, [text]);
+  }, [text, uniqueOnly]);
 
   const handleSave = async () => {
     if (previewCount === 0) return;
     setIsSaving(true);
 
     try {
-      const newTabs = LinkManager.parseAndCreateTabs(text);
+      // VIGTIGT: Send uniqueOnly flaget med her
+      const newTabs = LinkManager.parseAndCreateTabs(text, uniqueOnly);
 
       if (windowId) {
         // SCENARIE A: Indsæt i eksisterende vindue
@@ -81,6 +86,7 @@ export const PasteModal = ({
           tabs: newTabs,
           isActive: false,
           lastActive: serverTimestamp(), // Sorteres øverst/nederst afhængig af sortering
+          title: windowName || "Importeret Vindue", // Fallback titel hvis windowName mangler
         });
       }
 
@@ -138,7 +144,7 @@ export const PasteModal = ({
         </div>
 
         {/* Body */}
-        <div className="p-4 flex-1 flex flex-col gap-4">
+        <div className="p-4 flex-1 flex flex-col gap-4 overflow-y-auto">
           <textarea
             autoFocus
             value={text}
@@ -147,43 +153,84 @@ export const PasteModal = ({
             className="flex-1 min-h-50 bg-slate-900/50 border border-slate-700 rounded-xl p-4 text-sm font-mono text-slate-300 outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 resize-none placeholder:text-slate-600 custom-scrollbar"
           />
 
-          {/* Stats Bar */}
-          <div className="flex items-center gap-4 bg-slate-900 rounded-lg p-3 border border-slate-700/50">
+          {/* Controls Bar: Unique Toggle & Stats */}
+          <div className="flex items-center gap-2">
+            {/* Toggle Switch */}
             <div
-              className={`flex items-center gap-2 text-xs font-bold ${
-                previewCount > 0 ? "text-green-400" : "text-slate-500"
+              onClick={() => setUniqueOnly(!uniqueOnly)}
+              className={`flex-1 flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all select-none ${
+                uniqueOnly
+                  ? "bg-blue-900/20 border-blue-500/50"
+                  : "bg-slate-900 border-slate-700/50 hover:border-slate-600"
               }`}
             >
-              <LinkIcon size={14} />
-              <span>Links fundet: {previewCount}</span>
+              <div className="flex flex-col">
+                <span
+                  className={`text-xs font-bold ${
+                    uniqueOnly ? "text-blue-400" : "text-slate-400"
+                  }`}
+                >
+                  Kun Unikke Links
+                </span>
+                <span className="text-[10px] text-slate-500">
+                  Fjern dubletter automatisk
+                </span>
+              </div>
+              <div
+                className={`transition-colors ${
+                  uniqueOnly ? "text-blue-400" : "text-slate-600"
+                }`}
+              >
+                {uniqueOnly ? (
+                  <ToggleRight size={28} />
+                ) : (
+                  <ToggleLeft size={28} />
+                )}
+              </div>
             </div>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="p-4 bg-slate-900/50 border-t border-slate-700 flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-slate-400 hover:text-white text-sm font-medium transition cursor-pointer"
-          >
-            Annuller
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={previewCount === 0 || isSaving}
-            className={`px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition shadow-lg cursor-pointer ${
-              previewCount > 0 && !isSaving
-                ? "bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/20 active:scale-95"
-                : "bg-slate-700 text-slate-500 cursor-not-allowed"
-            }`}
-          >
-            {isSaving ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : (
-              <Save size={16} />
-            )}
-            {isCreatingNew ? "Opret Vindue" : "Importer"}
-          </button>
+        <div className="p-4 bg-slate-900/50 border-t border-slate-700 flex justify-between gap-2 ">
+          {/* Stats */}
+          <div className="flex-1 flex items-center justify-center gap-2 bg-slate-900 rounded-lg p-3 border border-slate-700/50">
+            <LinkIcon
+              size={16}
+              className={previewCount > 0 ? "text-green-400" : "text-slate-500"}
+            />
+            <span
+              className={`text-sm font-bold ${
+                previewCount > 0 ? "text-green-400" : "text-slate-500"
+              }`}
+            >
+              {previewCount} links fundet
+            </span>
+          </div>
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-slate-400 hover:text-white text-sm font-medium transition cursor-pointer"
+            >
+              Annuller
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={previewCount === 0 || isSaving}
+              className={`px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition shadow-lg cursor-pointer ${
+                previewCount > 0 && !isSaving
+                  ? "bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/20 active:scale-95"
+                  : "bg-slate-700 text-slate-500 cursor-not-allowed"
+              }`}
+            >
+              {isSaving ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Save size={16} />
+              )}
+              {isCreatingNew ? "Opret Vindue" : "Importer"}
+            </button>
+          </div>
         </div>
       </div>
     </dialog>
