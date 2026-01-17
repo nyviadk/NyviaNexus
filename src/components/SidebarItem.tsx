@@ -80,7 +80,38 @@ export const SidebarItem = ({
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm(`Slet "${item.name}"?`)) {
+
+    // 1. Tjek om space'et (eller mappen) har aktive vinduer
+    let hasActiveWindows = false;
+    try {
+      const storage = await chrome.storage.local.get("nexus_active_windows");
+      const mappings = (storage.nexus_active_windows || []) as any[];
+
+      if (item.type === "workspace") {
+        hasActiveWindows = mappings.some(
+          ([_, map]: any) => map.workspaceId === item.id
+        );
+      } else {
+        // Hvis det er en mappe, tjek om nogen af dens spaces er aktive
+        const childIds = allItems
+          .filter((i) => i.parentId === item.id)
+          .map((i) => i.id);
+        hasActiveWindows = mappings.some(([_, map]: any) =>
+          childIds.includes(map.workspaceId)
+        );
+      }
+    } catch (err) {
+      console.warn("Kunne ikke tjekke aktive vinduer:", err);
+    }
+
+    // 2. Bestem besked baseret på status
+    let message = `Slet "${item.name}"?`;
+    if (hasActiveWindows) {
+      message = `⚠️ ADVARSEL: "${item.name}" har åbne vinduer!\n\nHvis du sletter dette space, vil de tilhørende vinduer blive lukket øjeblikkeligt.\n\nEr du sikker på, du vil fortsætte?`;
+    }
+
+    // 3. Bekræft og slet
+    if (confirm(message)) {
       setIsSyncing(true);
       await NexusService.deleteItem(item, allItems);
       await new Promise((r) => setTimeout(r, 500));
@@ -311,7 +342,6 @@ export const SidebarItem = ({
         </span>
 
         {!isSyncing && (
-          // Ændret fra hover:opacity-100 til group-hover:opacity-100
           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800/50 rounded-lg px-1">
             {isFolder && (
               <>

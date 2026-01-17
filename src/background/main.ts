@@ -121,8 +121,6 @@ async function validateAndCleanupState() {
           mapping.internalWindowId
         );
 
-        // Fail-safe update. Hvis dokumentet er slettet (projects/nyvianexus/... not found),
-        // så er det fint - vinduet er jo væk. Vi catcher fejlen.
         try {
           await updateDoc(docRef, { isActive: false });
         } catch (error: any) {
@@ -943,6 +941,29 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
 // --- MESSAGING ---
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const { type, payload } = msg;
+
+  if (type === "DELETE_WORKSPACE_WINDOWS") {
+    ensureStateHydrated().then(async () => {
+      const { workspaceId } = payload;
+      const windowsToClose: number[] = [];
+
+      for (const [winId, mapping] of activeWindows.entries()) {
+        if (mapping.workspaceId === workspaceId) {
+          windowsToClose.push(winId);
+          activeWindows.delete(winId); // Remove from memory immediately
+        }
+      }
+
+      if (windowsToClose.length > 0) {
+        await saveActiveWindowsToStorage();
+        // Close physical windows
+        windowsToClose.forEach((wid) =>
+          chrome.windows.remove(wid).catch(() => {})
+        );
+      }
+    });
+    return false; // No response needed
+  }
 
   if (type === "DELETE_AND_CLOSE_WINDOW") {
     ensureStateHydrated().then(async () => {

@@ -14,16 +14,36 @@ export const NexusService = {
   async deleteItem(item: NexusItem, allItems: NexusItem[]) {
     const batch = writeBatch(db);
     const itemsToDelete: string[] = [];
+
+    // Rekursiv funktion til at finde alle børn (hvis man sletter en mappe)
     const findChildren = (parentId: string) => {
       itemsToDelete.push(parentId);
       const children = allItems.filter((i) => i.parentId === parentId);
       children.forEach((child) => findChildren(child.id));
     };
+
     findChildren(item.id);
+
+    // FIX: Luk fysiske vinduer for alle workspaces der slettes
     for (const id of itemsToDelete) {
-      batch.delete(doc(db, "items", id));
       const currentItem = allItems.find((i) => i.id === id);
+
+      // Hvis vi sletter et workspace, skal vi bede baggrunds-scriptet om at lukke vinduerne
       if (currentItem?.type === "workspace") {
+        try {
+          chrome.runtime.sendMessage({
+            type: "DELETE_WORKSPACE_WINDOWS",
+            payload: { workspaceId: id },
+          });
+        } catch (e) {
+          // Ignorer fejl hvis extension context er ugyldig (sker sjældent)
+          console.warn(
+            "Kunne ikke sende lukke-besked til background script",
+            e
+          );
+        }
+
+        // Slet windows-subcollection i Firestore
         const winSnap = await getDocs(
           collection(db, "workspaces_data", id, "windows")
         );
@@ -31,7 +51,11 @@ export const NexusService = {
           batch.delete(doc(db, "workspaces_data", id, "windows", winDoc.id));
         });
       }
+
+      // Slet selve itemet
+      batch.delete(doc(db, "items", id));
     }
+
     return await batch.commit();
   },
 
