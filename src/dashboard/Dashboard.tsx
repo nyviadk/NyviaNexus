@@ -835,8 +835,60 @@ const TabItem = React.memo(
           <div className="flex flex-col gap-2 min-w-0">
             <div
               className="flex flex-col gap-1 cursor-pointer group/link p-2 -ml-2 rounded-lg hover:bg-slate-700/50 transition-colors"
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.stopPropagation();
+
+                // Helper function til at fokusere en fundet fane
+                const focusTab = async (t: chrome.tabs.Tab) => {
+                  if (t.id && t.windowId) {
+                    // Fokusér vinduet først (ellers ser man det ikke)
+                    await chrome.windows.update(t.windowId, { focused: true });
+                    // Gør fanen aktiv
+                    await chrome.tabs.update(t.id, { active: true });
+                  }
+                };
+
+                try {
+                  // 1. GULD STANDARD: Forsøg specifikt ID først (Den helt rigtige fane)
+                  if (tab.id) {
+                    const existing = await chrome.tabs
+                      .get(tab.id)
+                      .catch(() => null);
+                    if (existing) {
+                      await focusTab(existing);
+                      return;
+                    }
+                  }
+
+                  // 2. SØLV STANDARD: Søg efter URL (Fall-back hvis ID er dødt/gammelt)
+                  // Dette forhindrer dubletter. Vi finder alle med samme URL.
+                  const matches = await chrome.tabs.query({ url: tab.url });
+
+                  // Filtrer efter incognito-status, så vi ikke blander alm/incognito sammen
+                  const exactMatches = matches.filter(
+                    (t) => t.incognito === tab.isIncognito
+                  );
+
+                  if (exactMatches.length > 0) {
+                    // Sortering: Prøv at finde en i DETTE vindue først (currentWindowId), ellers tag den første
+                    const currentWin = await chrome.windows
+                      .getCurrent()
+                      .catch(() => null);
+                    const bestMatch =
+                      exactMatches.find((t) => t.windowId === currentWin?.id) ||
+                      exactMatches[0];
+
+                    await focusTab(bestMatch);
+                    return;
+                  }
+                } catch (err) {
+                  console.warn(
+                    "Smart-focus failed, falling back to create:",
+                    err
+                  );
+                }
+
+                // 3. BRONZE: Intet fundet -> Åbn ny
                 if (tab.isIncognito) {
                   chrome.windows.create({
                     url: tab.url,
