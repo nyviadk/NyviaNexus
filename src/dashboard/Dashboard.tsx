@@ -837,7 +837,15 @@ const TabItem = React.memo(
               className="flex flex-col gap-1 cursor-pointer group/link p-2 -ml-2 rounded-lg hover:bg-slate-700/50 transition-colors"
               onClick={(e) => {
                 e.stopPropagation();
-                chrome.tabs.create({ url: tab.url, active: true });
+                if (tab.isIncognito) {
+                  chrome.windows.create({
+                    url: tab.url,
+                    incognito: true,
+                    focused: true,
+                  });
+                } else {
+                  chrome.tabs.create({ url: tab.url, active: true });
+                }
               }}
             >
               <div className="flex items-center gap-3">
