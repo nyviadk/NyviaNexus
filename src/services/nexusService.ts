@@ -1,22 +1,35 @@
+import { getAuth } from "firebase/auth";
 import {
+  arrayUnion,
   collection,
   doc,
   getDoc,
   getDocs,
   updateDoc,
   writeBatch,
-  arrayUnion,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { NexusItem } from "../types";
 
+// Hjælpefunktion til at hente nuværende bruger ID sikkert
+const getUid = () => {
+  const auth = getAuth();
+  if (!auth.currentUser) {
+    throw new Error(
+      "Critical: Ingen bruger logget ind ved database operation."
+    );
+  }
+  return auth.currentUser.uid;
+};
+
 export const NexusService = {
   async deleteItem(item: NexusItem, allItems: NexusItem[]) {
+    const uid = getUid();
     const batch = writeBatch(db);
     const itemsToDelete: string[] = [];
-    const workspacesToClose: string[] = []; // Vi gemmer ID'erne til sidst
+    const workspacesToClose: string[] = [];
 
-    // Rekursiv funktion til at finde alle børn (hvis man sletter en mappe)
+    // Rekursiv funktion til at finde alle børn
     const findChildren = (parentId: string) => {
       itemsToDelete.push(parentId);
       const children = allItems.filter((i) => i.parentId === parentId);
@@ -30,30 +43,28 @@ export const NexusService = {
       const currentItem = allItems.find((i) => i.id === id);
 
       if (currentItem?.type === "workspace") {
-        workspacesToClose.push(id); // Gem ID til senere lukning
+        workspacesToClose.push(id);
 
-        // Slet windows-subcollection i Firestore
+        // Slet windows-subcollection under users/{uid}/workspaces_data/{id}/windows
         const winSnap = await getDocs(
-          collection(db, "workspaces_data", id, "windows")
+          collection(db, "users", uid, "workspaces_data", id, "windows")
         );
         winSnap.docs.forEach((winDoc) => {
-          batch.delete(doc(db, "workspaces_data", id, "windows", winDoc.id));
+          batch.delete(
+            doc(db, "users", uid, "workspaces_data", id, "windows", winDoc.id)
+          );
         });
       }
 
-      // Slet selve itemet
-      batch.delete(doc(db, "items", id));
+      // Slet selve itemet fra users/{uid}/items
+      batch.delete(doc(db, "users", uid, "items", id));
     }
 
-    // 2. COMMIT TIL DATABASEN (VIGTIGT: FØR VI LUKKER VINDUET)
-    // Vi venter på, at databasen bekræfter sletningen.
-    // Hvis vi er i det vindue, der skal slettes, SKAL dette ske, før vinduet dør.
+    // 2. COMMIT TIL DATABASEN
     await batch.commit();
     console.log("✅ Data slettet succesfuldt fra Firestore");
 
-    // 3. LUK FYSISKE VINDUER (NU MÅ VI GODT DØ)
-    // Nu sender vi beskeden til "Hjernen" (background.ts) om at lukke vinduerne.
-    // Hvis dette vindue lukkes her, er det fint, for dataen ER væk.
+    // 3. LUK FYSISKE VINDUER
     for (const wsId of workspacesToClose) {
       try {
         chrome.runtime.sendMessage({
@@ -75,9 +86,12 @@ export const NexusService = {
     parentId: string;
     profileId: string;
   }) {
+    const uid = getUid();
     const id = `${data.type === "folder" ? "fol" : "ws"}_${Date.now()}`;
     const batch = writeBatch(db);
-    batch.set(doc(db, "items", id), {
+
+    // Opret item i users/{uid}/items
+    batch.set(doc(db, "users", uid, "items", id), {
       id,
       name: data.name,
       type: data.type,
@@ -85,37 +99,58 @@ export const NexusService = {
       profileId: data.profileId,
       createdAt: Date.now(),
     });
+
     if (data.type === "workspace") {
       const winId = `win_${Date.now()}`;
-      batch.set(doc(db, "workspaces_data", id, "windows", winId), {
-        tabs: [],
-        lastActive: Date.now(),
-        isActive: false,
-      });
+      // Opret workspace data i users/{uid}/workspaces_data
+      batch.set(
+        doc(db, "users", uid, "workspaces_data", id, "windows", winId),
+        {
+          tabs: [],
+          lastActive: Date.now(),
+          isActive: false,
+        }
+      );
     }
     await batch.commit();
     return id;
   },
 
   async renameItem(id: string, newName: string) {
-    return await updateDoc(doc(db, "items", id), { name: newName });
+    const uid = getUid();
+    return await updateDoc(doc(db, "users", uid, "items", id), {
+      name: newName,
+    });
   },
 
   async moveItem(itemId: string, newParentId: string) {
+    const uid = getUid();
     if (!itemId || itemId === newParentId) return Promise.resolve();
-    return await updateDoc(doc(db, "items", itemId), { parentId: newParentId });
+    return await updateDoc(doc(db, "users", uid, "items", itemId), {
+      parentId: newParentId,
+    });
   },
 
   async deleteTab(tab: any, workspaceId: string, windowId: string) {
+    const uid = getUid();
     console.log(
       `🗑️ [NexusService] deleteTab: ${tab.title} (UID: ${tab.uid}) fra ${workspaceId}/${windowId}`
     );
+
     const ref =
       windowId === "global" ||
       windowId === "incognito" ||
       workspaceId === "global"
-        ? doc(db, "inbox_data", "global")
-        : doc(db, "workspaces_data", workspaceId, "windows", windowId);
+        ? doc(db, "users", uid, "inbox_data", "global")
+        : doc(
+            db,
+            "users",
+            uid,
+            "workspaces_data",
+            workspaceId,
+            "windows",
+            windowId
+          );
 
     const snap = await getDoc(ref);
     if (snap.exists()) {
@@ -134,14 +169,16 @@ export const NexusService = {
     targetWorkspaceId: string,
     targetWindowId: string
   ) {
+    const uid = getUid();
     console.log(
       "🚀 [NexusService] START moveTabBetweenWindows (Samme Space logic)"
     );
+
     const getRef = (wsId: string, winId: string) => {
       if (winId === "global" || winId === "incognito" || wsId === "global") {
-        return doc(db, "inbox_data", "global");
+        return doc(db, "users", uid, "inbox_data", "global");
       }
-      return doc(db, "workspaces_data", wsId, "windows", winId);
+      return doc(db, "users", uid, "workspaces_data", wsId, "windows", winId);
     };
 
     const sourceRef = getRef(sourceWorkspaceId, sourceWindowId);
@@ -154,6 +191,7 @@ export const NexusService = {
 
     const batch = writeBatch(db);
 
+    // Håndter kilden (fjern fane)
     const sourceSnap = await getDoc(sourceRef);
     if (sourceSnap.exists()) {
       const currentTabs = sourceSnap.data().tabs || [];
@@ -163,7 +201,10 @@ export const NexusService = {
       batch.update(sourceRef, { tabs: newSourceTabs });
     }
 
-    batch.update(targetRef, { tabs: arrayUnion(tabToMove) });
+    // Håndter målet (tilføj fane) - Brug SET med merge for robusthed (Fallback Creation)
+    // Dette sikrer, at hvis vi flytter til Inbox/Global, og den ikke findes, bliver den oprettet.
+    batch.set(targetRef, { tabs: arrayUnion(tabToMove) }, { merge: true });
+
     const result = await batch.commit();
     console.log("✅ [NexusService] Flytning færdiggjort i Firestore.");
     return result;
@@ -177,12 +218,15 @@ export const NexusService = {
     internalWindowId: string;
     tabs: any[];
   }) {
+    const uid = getUid();
     const batch = writeBatch(db);
     const tabsWithUid = data.tabs.map((t) => ({
       ...t,
       uid: t.uid || crypto.randomUUID(),
     }));
-    batch.set(doc(db, "items", data.id), {
+
+    // Opret item
+    batch.set(doc(db, "users", uid, "items", data.id), {
       id: data.id,
       name: data.name,
       type: "workspace" as const,
@@ -190,8 +234,18 @@ export const NexusService = {
       profileId: data.profileId,
       createdAt: Date.now(),
     });
+
+    // Opret initial window data
     batch.set(
-      doc(db, "workspaces_data", data.id, "windows", data.internalWindowId),
+      doc(
+        db,
+        "users",
+        uid,
+        "workspaces_data",
+        data.id,
+        "windows",
+        data.internalWindowId
+      ),
       { tabs: tabsWithUid, lastActive: Date.now(), isActive: true }
     );
     return await batch.commit();

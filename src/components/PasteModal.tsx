@@ -5,6 +5,7 @@ import {
   setDoc,
   updateDoc,
 } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 import {
   ClipboardPaste,
   Link as LinkIcon,
@@ -52,7 +53,17 @@ export const PasteModal = ({
 
   const handleSave = async () => {
     if (previewCount === 0) return;
+
+    const auth = getAuth();
+    const currentUser = auth.currentUser;
+
+    if (!currentUser) {
+      alert("Fejl: Ingen bruger logget ind.");
+      return;
+    }
+
     setIsSaving(true);
+    const uid = currentUser.uid;
 
     try {
       // VIGTIGT: Send uniqueOnly flaget med her
@@ -60,8 +71,11 @@ export const PasteModal = ({
 
       if (windowId) {
         // SCENARIE A: Indsæt i eksisterende vindue
+        // Path: users/{uid}/workspaces_data/{workspaceId}/windows/{windowId}
         const windowRef = doc(
           db,
+          "users",
+          uid,
           "workspaces_data",
           workspaceId,
           "windows",
@@ -72,9 +86,12 @@ export const PasteModal = ({
         });
       } else {
         // SCENARIE B: Opret nyt vindue i spacet (Empty space logic)
+        // Path: users/{uid}/workspaces_data/{workspaceId}/windows/{newWinId}
         const newWinId = `win_${Date.now()}`;
         const newWindowRef = doc(
           db,
+          "users",
+          uid,
           "workspaces_data",
           workspaceId,
           "windows",

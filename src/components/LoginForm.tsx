@@ -1,17 +1,63 @@
 import React, { useState } from "react";
-import { auth } from "../lib/firebase";
+import { auth, db } from "../lib/firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  serverTimestamp,
+  collection,
+  getDocs,
+  addDoc,
+} from "firebase/firestore";
+import { Loader2 } from "lucide-react";
 
 export const LoginForm = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
+      const uid = userCredential.user.uid;
+
+      // --- BOOTSTRAP CHECK ---
+      // Tjek om inbox_data/global findes for denne bruger.
+      // Hvis ikke, opret den, så Extensionen har et sted at gemme tabs.
+      const inboxRef = doc(db, "users", uid, "inbox_data", "global");
+      const inboxSnap = await getDoc(inboxRef);
+
+      if (!inboxSnap.exists()) {
+        console.log("Creating initial Inbox for user...");
+        await setDoc(inboxRef, {
+          tabs: [],
+          lastUpdate: serverTimestamp(),
+        });
+      }
+
+      // 2. Tjek og opret en Profil hvis brugeren ingen har
+      const profilesCollection = collection(db, "users", uid, "profiles");
+      const profilesSnap = await getDocs(profilesCollection);
+
+      if (profilesSnap.empty) {
+        console.log("Creating default Profile for user...");
+        // Her bruger vi addDoc, så Firestore genererer et unikt ID (f.eks. "7f8g9d...")
+        // præcis som når man opretter profiler i indstillingerne.
+        await addDoc(profilesCollection, {
+          name: "Privat",
+        });
+      }
     } catch (error) {
       alert("Login fejlede: " + error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -35,8 +81,11 @@ export const LoginForm = () => {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
-        <button className="bg-blue-600 hover:bg-blue-500 p-2 rounded font-bold transition active:scale-95">
-          Log ind
+        <button
+          disabled={loading}
+          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 p-2 rounded font-bold transition active:scale-95 flex justify-center"
+        >
+          {loading ? <Loader2 className="animate-spin" size={20} /> : "Log ind"}
         </button>
       </form>
     </div>

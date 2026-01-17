@@ -6,12 +6,12 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
   updateDoc,
   writeBatch,
-  onSnapshot,
-  query,
-  orderBy,
-  serverTimestamp,
 } from "firebase/firestore";
 import {
   Activity,
@@ -73,9 +73,6 @@ import {
 } from "../types";
 
 // --- GLOBAL CACHE FOR WINDOW NUMBERS ---
-// Dette map lever uden for React Lifecycle, så det overlever navigation.
-// Key: WorkspaceID, Value: { signature: string, indices: { windowId: number } }
-
 const windowOrderCache = new Map<
   string,
   { signature: string; indices: Record<string, number> }
@@ -118,10 +115,15 @@ const CategoryMenu = ({
     locked: boolean
   ) => {
     onClose();
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+    const uid = currentUser.uid;
+
     let updated = false;
 
     if (!workspaceId) {
-      const ref = doc(db, "inbox_data", "global");
+      // Inbox update
+      const ref = doc(db, "users", uid, "inbox_data", "global");
       const snap = await getDoc(ref);
       if (snap.exists()) {
         const tabs = snap.data().tabs || [];
@@ -143,8 +145,11 @@ const CategoryMenu = ({
         }
       }
     } else {
+      // Workspace update
       const ref = doc(
         db,
+        "users",
+        uid,
         "workspaces_data",
         workspaceId,
         "windows",
@@ -389,22 +394,28 @@ const SettingsModal = ({
 
   const addProfile = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (!auth.currentUser) return;
     if (!newProfileName.trim()) return;
-    await addDoc(collection(db, "profiles"), { name: newProfileName });
+
+    await addDoc(collection(db, "users", auth.currentUser.uid, "profiles"), {
+      name: newProfileName,
+    });
     setNewProfileName("");
   };
 
   const saveEdit = async (id: string) => {
-    if (!id) return;
-    await updateDoc(doc(db, "profiles", id), { name: editName });
+    if (!id || !auth.currentUser) return;
+    await updateDoc(doc(db, "users", auth.currentUser.uid, "profiles", id), {
+      name: editName,
+    });
     setEditingId(null);
   };
 
   const removeProfile = async (id: string) => {
-    if (!id) return;
+    if (!id || !auth.currentUser) return;
     if (profiles.length <= 1) return alert("Mindst én profil påkrævet.");
     if (confirm("Slet profil?")) {
-      await deleteDoc(doc(db, "profiles", id));
+      await deleteDoc(doc(db, "users", auth.currentUser.uid, "profiles", id));
       if (activeProfile === id)
         setActiveProfile(profiles.find((p: Profile) => p.id !== id)?.id || "");
     }
@@ -935,7 +946,7 @@ export const Dashboard = () => {
   const [restorationStatus, setRestorationStatus] = useState<string | null>(
     null
   );
-  const [chromeWindows, setChromeWindows] = useState<any[]>([]); // Fysiske vinduer
+  const [chromeWindows, setChromeWindows] = useState<any[]>([]);
 
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
@@ -985,11 +996,10 @@ export const Dashboard = () => {
   // --- NY CALLBACK: SLETNING I UI ---
   const handleDeleteSuccess = useCallback(
     (deletedId: string) => {
-      // Hvis vi sletter det space, vi står i, skal vi gå tilbage til oversigten
       if (selectedWorkspace?.id === deletedId) {
         setSelectedWorkspace(null);
-        setWindows([]); // Tøm vindues-listen for en sikkerheds skyld
-        setViewMode("workspace"); // Sørg for at vi er i standard view
+        setWindows([]);
+        setViewMode("workspace");
       }
     },
     [selectedWorkspace]
@@ -1098,28 +1108,40 @@ export const Dashboard = () => {
 
   // --- FIRESTORE & STORAGE LISTENERS ---
 
-  // 1. Core Data (Profiles, Items, Inbox)
+  // 1. Core Data (Profiles, Items, Inbox) - Now scoped to User UID
   useEffect(() => {
     if (!user) return;
 
-    const unsubProfiles = onSnapshot(collection(db, "profiles"), (snap) => {
-      const p = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Profile[];
-      setProfiles(p);
-    });
+    const unsubProfiles = onSnapshot(
+      collection(db, "users", user.uid, "profiles"),
+      (snap) => {
+        const p = snap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        })) as Profile[];
+        setProfiles(p);
+      }
+    );
 
-    const unsubItems = onSnapshot(collection(db, "items"), (snap) => {
-      const i = snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      })) as NexusItem[];
-      setItems(i);
-    });
+    const unsubItems = onSnapshot(
+      collection(db, "users", user.uid, "items"),
+      (snap) => {
+        const i = snap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        })) as NexusItem[];
+        setItems(i);
+      }
+    );
 
-    const unsubInbox = onSnapshot(doc(db, "inbox_data", "global"), (snap) => {
-      setInboxData(
-        snap.exists() ? { id: snap.id, ...snap.data() } : { tabs: [] }
-      );
-    });
+    const unsubInbox = onSnapshot(
+      doc(db, "users", user.uid, "inbox_data", "global"),
+      (snap) => {
+        setInboxData(
+          snap.exists() ? { id: snap.id, ...snap.data() } : { tabs: [] }
+        );
+      }
+    );
 
     return () => {
       unsubProfiles();
@@ -1135,9 +1157,15 @@ export const Dashboard = () => {
       return;
     }
 
-    // Sort by lastActive to maintain some order, though sortedWindows handles index
     const q = query(
-      collection(db, "workspaces_data", selectedWorkspace.id, "windows"),
+      collection(
+        db,
+        "users",
+        user.uid,
+        "workspaces_data",
+        selectedWorkspace.id,
+        "windows"
+      ),
       orderBy("lastActive", "asc")
     );
 
@@ -1161,9 +1189,7 @@ export const Dashboard = () => {
         chrome.windows.getCurrent(
           (win) => win.id && setCurrentWindowId(win.id)
         );
-        // Hent initial mappings
         chrome.storage.local.get("nexus_active_windows", (data) => {
-          // FIX: TypeScript fejl 2345 løst med 'as any[]'
           if (data?.nexus_active_windows)
             setActiveMappings(data.nexus_active_windows as any[]);
         });
@@ -1183,7 +1209,6 @@ export const Dashboard = () => {
       }
     };
 
-    // Lyt direkte på storage changes for at holde mappings synkroniseret
     const storageListener = (changes: any, area: string) => {
       if (area === "local" && changes.nexus_active_windows) {
         setActiveMappings(changes.nexus_active_windows.newValue || []);
@@ -1240,11 +1265,9 @@ export const Dashboard = () => {
 
   const handleWorkspaceClick = useCallback(
     (item: NexusItem) => {
-      // Hvis vi allerede kigger på dette space, skal stoppe
       if (selectedWorkspace?.id === item.id) {
         return;
       }
-
       setViewMode("workspace");
       setSelectedWindowId(null);
       setWindows([]);
@@ -1267,6 +1290,10 @@ export const Dashboard = () => {
 
   const handleSidebarTabDrop = useCallback(
     async (targetItem: NexusItem | "global") => {
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+      const uid = currentUser.uid;
+
       const tabJson = window.sessionStorage.getItem("draggedTab");
       if (!tabJson) return;
       const tab = JSON.parse(tabJson);
@@ -1295,7 +1322,14 @@ export const Dashboard = () => {
 
         if (targetWorkspaceId !== "global") {
           const snap = await getDocs(
-            collection(db, "workspaces_data", targetWorkspaceId, "windows")
+            collection(
+              db,
+              "users",
+              uid,
+              "workspaces_data",
+              targetWorkspaceId,
+              "windows"
+            )
           );
           targetWinId = snap.docs[0]?.id || "unknown";
           targetMapping = activeMappings.find(
@@ -1342,16 +1376,22 @@ export const Dashboard = () => {
           const batch = writeBatch(db);
           if (!targetMapping) {
             if (targetWorkspaceId === "global") {
-              const snap = await getDoc(doc(db, "inbox_data", "global"));
-              const current = snap.data()?.tabs || [];
-              batch.set(
-                doc(db, "inbox_data", "global"),
-                { tabs: [...current, tab] },
-                { merge: true }
-              );
+              const ref = doc(db, "users", uid, "inbox_data", "global");
+              // Fallback creation for global inbox
+              // We use set with merge via batch logic manually or by reading first
+              const snap = await getDoc(ref);
+              const current = snap.exists() ? snap.data()?.tabs || [] : [];
+              batch.set(ref, { tabs: [...current, tab] }, { merge: true });
             } else {
               const snap = await getDocs(
-                collection(db, "workspaces_data", targetWorkspaceId, "windows")
+                collection(
+                  db,
+                  "users",
+                  uid,
+                  "workspaces_data",
+                  targetWorkspaceId,
+                  "windows"
+                )
               );
               if (!snap.empty) {
                 const current = snap.docs[0].data().tabs || [];
@@ -1360,6 +1400,8 @@ export const Dashboard = () => {
                 const newWinId = `win_${Date.now()}`;
                 const newWinRef = doc(
                   db,
+                  "users",
+                  uid,
                   "workspaces_data",
                   targetWorkspaceId,
                   "windows",
@@ -1382,26 +1424,33 @@ export const Dashboard = () => {
           }
 
           if (sourceId === "global") {
-            const snap = await getDoc(doc(db, "inbox_data", "global"));
-            batch.update(doc(db, "inbox_data", "global"), {
-              tabs: (snap.data()?.tabs || []).filter(
-                (t: any) => t.uid !== tab.uid
-              ),
-            });
+            const ref = doc(db, "users", uid, "inbox_data", "global");
+            const snap = await getDoc(ref);
+            if (snap.exists()) {
+              batch.update(ref, {
+                tabs: (snap.data()?.tabs || []).filter(
+                  (t: any) => t.uid !== tab.uid
+                ),
+              });
+            }
           } else {
             const sourceRef = doc(
               db,
+              "users",
+              uid,
               "workspaces_data",
               selectedWorkspace?.id || "",
               "windows",
               sourceId
             );
             const snap = await getDoc(sourceRef);
-            batch.update(sourceRef, {
-              tabs: (snap.data()?.tabs || []).filter(
-                (t: any) => t.uid !== tab.uid
-              ),
-            });
+            if (snap.exists()) {
+              batch.update(sourceRef, {
+                tabs: (snap.data()?.tabs || []).filter(
+                  (t: any) => t.uid !== tab.uid
+                ),
+              });
+            }
           }
           await batch.commit();
           chrome.runtime.sendMessage({
@@ -1424,6 +1473,10 @@ export const Dashboard = () => {
 
   const handleTabDrop = useCallback(
     async (targetWinId: string) => {
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+      const uid = currentUser.uid;
+
       setDropTargetWinId(null);
       const tabJson = window.sessionStorage.getItem("draggedTab");
       if (!tabJson) return;
@@ -1471,6 +1524,8 @@ export const Dashboard = () => {
           if (!targetMapping) {
             const targetRef = doc(
               db,
+              "users",
+              uid,
               "workspaces_data",
               selectedWorkspace?.id || "",
               "windows",
@@ -1484,11 +1539,14 @@ export const Dashboard = () => {
             await chrome.tabs.create({
               windowId: targetMapping[0],
               url: tab.url,
+              active: true,
             });
           }
 
           const sourceRef = doc(
             db,
+            "users",
+            uid,
             "workspaces_data",
             selectedWorkspace?.id || "",
             "windows",
@@ -1811,6 +1869,7 @@ export const Dashboard = () => {
                 <div className="flex gap-2">
                   <button
                     onClick={async () => {
+                      if (!auth.currentUser) return;
                       if (confirm("Nulstil hierarki?")) {
                         const b = writeBatch(db);
                         items
@@ -1820,9 +1879,18 @@ export const Dashboard = () => {
                               i.parentId !== "root"
                           )
                           .forEach((it) =>
-                            b.update(doc(db, "items", it.id), {
-                              parentId: "root",
-                            })
+                            b.update(
+                              doc(
+                                db,
+                                "users",
+                                auth.currentUser!.uid,
+                                "items",
+                                it.id
+                              ),
+                              {
+                                parentId: "root",
+                              }
+                            )
                           );
                         await b.commit();
                       }
@@ -1871,7 +1939,7 @@ export const Dashboard = () => {
                     }}
                     activeDragId={activeDragId}
                     onTabDrop={handleSidebarTabDrop}
-                    onDeleteSuccess={handleDeleteSuccess} // --- Sendes ned til SidebarItem
+                    onDeleteSuccess={handleDeleteSuccess}
                   />
                 ))}
               </div>
@@ -2180,6 +2248,8 @@ export const Dashboard = () => {
                 {selectedUrls.length > 0 && (
                   <button
                     onClick={async () => {
+                      if (!auth.currentUser) return;
+                      const uid = auth.currentUser.uid;
                       if (confirm(`Slet ${selectedUrls.length} tabs?`)) {
                         const sId =
                           viewMode === "inbox" || viewMode === "incognito"
@@ -2197,9 +2267,12 @@ export const Dashboard = () => {
                           const f = inboxData.tabs.filter(
                             (t: any) => !selectedUrls.includes(t.uid)
                           );
-                          await updateDoc(doc(db, "inbox_data", "global"), {
-                            tabs: f,
-                          });
+                          await updateDoc(
+                            doc(db, "users", uid, "inbox_data", "global"),
+                            {
+                              tabs: f,
+                            }
+                          );
                         } else if (selectedWorkspace && selectedWindowId) {
                           const w = windows.find(
                             (win) => win.id === selectedWindowId
@@ -2211,6 +2284,8 @@ export const Dashboard = () => {
                             await updateDoc(
                               doc(
                                 db,
+                                "users",
+                                uid,
                                 "workspaces_data",
                                 selectedWorkspace.id,
                                 "windows",
@@ -2232,8 +2307,16 @@ export const Dashboard = () => {
                   getFilteredInboxTabs(false).length > 0 && (
                     <button
                       onClick={async () => {
+                        if (!auth.currentUser) return;
+                        const uid = auth.currentUser.uid;
                         if (confirm("Ryd Inbox?")) {
-                          const ref = doc(db, "inbox_data", "global");
+                          const ref = doc(
+                            db,
+                            "users",
+                            uid,
+                            "inbox_data",
+                            "global"
+                          );
                           const snap = await getDoc(ref);
                           const allTabs = snap.data()?.tabs || [];
                           const tabsToDelete = allTabs.filter(
@@ -2265,8 +2348,16 @@ export const Dashboard = () => {
                   getFilteredInboxTabs(true).length > 0 && (
                     <button
                       onClick={async () => {
+                        if (!auth.currentUser) return;
+                        const uid = auth.currentUser.uid;
                         if (confirm("Ryd Incognito liste?")) {
-                          const ref = doc(db, "inbox_data", "global");
+                          const ref = doc(
+                            db,
+                            "users",
+                            uid,
+                            "inbox_data",
+                            "global"
+                          );
                           const snap = await getDoc(ref);
                           const allTabs = snap.data()?.tabs || [];
                           const tabsToDelete = allTabs.filter(

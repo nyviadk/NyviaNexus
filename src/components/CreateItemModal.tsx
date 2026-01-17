@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { X, FolderPlus, Monitor, Loader2 } from "lucide-react";
-import { addDoc, collection } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { NexusService } from "../services/nexusService";
 
 interface CreateItemModalProps {
   type: "folder" | "workspace";
@@ -40,16 +39,19 @@ export const CreateItemModal = ({
 
     setLoading(true);
     try {
-      await addDoc(collection(db, "items"), {
+      // Vi bruger NexusService her, da den håndterer:
+      // 1. Den korrekte sti: users/{uid}/items
+      // 2. Oprettelse af tilhørende windows-data, hvis det er et workspace (Batch write)
+      await NexusService.createItem({
         name: name.trim(),
         type,
         profileId: activeProfile,
         parentId,
-        createdAt: Date.now(),
       });
       onSuccess();
     } catch (error) {
       console.error("Error creating item:", error);
+      alert("Der skete en fejl under oprettelsen.");
     } finally {
       setLoading(false);
     }

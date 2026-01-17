@@ -13,6 +13,7 @@ import {
 import { NexusItem } from "../types";
 import { db } from "../lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 import { NexusService } from "../services/nexusService";
 
 interface Props {
@@ -25,7 +26,7 @@ interface Props {
   onDragEndCleanup: () => void;
   activeDragId: string | null;
   onTabDrop?: (targetItem: NexusItem) => Promise<void>;
-  onDeleteSuccess?: (deletedId: string) => void; // NY PROP
+  onDeleteSuccess?: (deletedId: string) => void;
 }
 
 export const SidebarItem = ({
@@ -38,7 +39,7 @@ export const SidebarItem = ({
   onDragEndCleanup,
   activeDragId,
   onTabDrop,
-  onDeleteSuccess, // Hent den nye prop
+  onDeleteSuccess,
 }: Props) => {
   const [isOpen, setIsOpen] = useState(true);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -112,12 +113,12 @@ export const SidebarItem = ({
 
     if (confirm(message)) {
       setIsSyncing(true);
+      // Bemærk: NexusService skal også opdateres til at bruge users/{uid}/items internt
       await NexusService.deleteItem(item, allItems);
       await new Promise((r) => setTimeout(r, 500));
       setIsSyncing(false);
       onRefresh();
 
-      // FIX: Fortæl Dashboard at dette ID er væk
       if (onDeleteSuccess) onDeleteSuccess(item.id);
     }
   };
@@ -283,17 +284,40 @@ export const SidebarItem = ({
           if (isFolder) setIsOpen(!isOpen);
           else if (onSelect) onSelect(item);
           else {
-            const winSnap = await getDocs(
-              collection(db, "workspaces_data", item.id, "windows")
-            );
-            const windows = winSnap.docs.map((d) => ({
-              id: d.id,
-              ...d.data(),
-            }));
-            chrome.runtime.sendMessage({
-              type: "OPEN_WORKSPACE",
-              payload: { workspaceId: item.id, windows, name: item.name },
-            });
+            // Håndter åbning af workspace med ny users/{uid} struktur
+            const auth = getAuth();
+            const currentUser = auth.currentUser;
+
+            if (!currentUser) {
+              console.error("Ingen bruger logget ind");
+              return;
+            }
+
+            try {
+              // OPDATERET PATH: Nu henter vi fra users/{uid}/workspaces_data/{workspaceId}/windows
+              const winSnap = await getDocs(
+                collection(
+                  db,
+                  "users",
+                  currentUser.uid,
+                  "workspaces_data",
+                  item.id,
+                  "windows"
+                )
+              );
+
+              const windows = winSnap.docs.map((d) => ({
+                id: d.id,
+                ...d.data(),
+              }));
+
+              chrome.runtime.sendMessage({
+                type: "OPEN_WORKSPACE",
+                payload: { workspaceId: item.id, windows, name: item.name },
+              });
+            } catch (err) {
+              console.error("Fejl ved åbning af workspace:", err);
+            }
           }
         }}
         draggable={!isSyncing}
