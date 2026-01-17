@@ -75,6 +75,7 @@ import {
 // --- GLOBAL CACHE FOR WINDOW NUMBERS ---
 // Dette map lever uden for React Lifecycle, så det overlever navigation.
 // Key: WorkspaceID, Value: { signature: string, indices: { windowId: number } }
+
 const windowOrderCache = new Map<
   string,
   { signature: string; indices: Record<string, number> }
@@ -88,8 +89,6 @@ const getContrastYIQ = (hexcolor: string) => {
   const yiq = (r * 299 + g * 587 + b * 114) / 1000;
   return yiq >= 128 ? "#1e293b" : "#ffffff";
 };
-
-// --- HELPER COMPONENTS ---
 
 const CategoryMenu = ({
   tab,
@@ -983,9 +982,20 @@ export const Dashboard = () => {
     [items, activeProfile]
   );
 
+  // --- NY CALLBACK: SLETNING I UI ---
+  const handleDeleteSuccess = useCallback(
+    (deletedId: string) => {
+      // Hvis vi sletter det space, vi står i, skal vi gå tilbage til oversigten
+      if (selectedWorkspace?.id === deletedId) {
+        setSelectedWorkspace(null);
+        setWindows([]); // Tøm vindues-listen for en sikkerheds skyld
+        setViewMode("workspace"); // Sørg for at vi er i standard view
+      }
+    },
+    [selectedWorkspace]
+  );
+
   // --- MERGE AI CATEGORIES ---
-  // Samler unikke kategorier fra alle indlæste tabs (Inbox + Active Workspace),
-  // som ikke allerede findes i userCategories, så brugeren kan vælge dem.
   const aiGeneratedCategories = useMemo(() => {
     const uniqueAiCats = new Set<string>();
 
@@ -1235,10 +1245,9 @@ export const Dashboard = () => {
         return;
       }
 
-      // Hvis det er et NYT space, så nulstil
       setViewMode("workspace");
       setSelectedWindowId(null);
-      setWindows([]); // Fint at tømme her, da vi skifter kontekst
+      setWindows([]);
       setSelectedWorkspace(item);
     },
     [selectedWorkspace, viewMode]
@@ -1862,6 +1871,7 @@ export const Dashboard = () => {
                     }}
                     activeDragId={activeDragId}
                     onTabDrop={handleSidebarTabDrop}
+                    onDeleteSuccess={handleDeleteSuccess} // --- Sendes ned til SidebarItem
                   />
                 ))}
               </div>

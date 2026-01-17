@@ -25,6 +25,7 @@ interface Props {
   onDragEndCleanup: () => void;
   activeDragId: string | null;
   onTabDrop?: (targetItem: NexusItem) => Promise<void>;
+  onDeleteSuccess?: (deletedId: string) => void; // NY PROP
 }
 
 export const SidebarItem = ({
@@ -37,6 +38,7 @@ export const SidebarItem = ({
   onDragEndCleanup,
   activeDragId,
   onTabDrop,
+  onDeleteSuccess, // Hent den nye prop
 }: Props) => {
   const [isOpen, setIsOpen] = useState(true);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -92,7 +94,6 @@ export const SidebarItem = ({
           ([_, map]: any) => map.workspaceId === item.id
         );
       } else {
-        // Hvis det er en mappe, tjek om nogen af dens spaces er aktive
         const childIds = allItems
           .filter((i) => i.parentId === item.id)
           .map((i) => i.id);
@@ -104,19 +105,20 @@ export const SidebarItem = ({
       console.warn("Kunne ikke tjekke aktive vinduer:", err);
     }
 
-    // 2. Bestem besked baseret på status
     let message = `Slet "${item.name}"?`;
     if (hasActiveWindows) {
       message = `⚠️ ADVARSEL: "${item.name}" har åbne vinduer!\n\nHvis du sletter dette space, vil de tilhørende vinduer blive lukket øjeblikkeligt.\n\nEr du sikker på, du vil fortsætte?`;
     }
 
-    // 3. Bekræft og slet
     if (confirm(message)) {
       setIsSyncing(true);
       await NexusService.deleteItem(item, allItems);
       await new Promise((r) => setTimeout(r, 500));
       setIsSyncing(false);
       onRefresh();
+
+      // FIX: Fortæl Dashboard at dette ID er væk
+      if (onDeleteSuccess) onDeleteSuccess(item.id);
     }
   };
 
@@ -245,7 +247,6 @@ export const SidebarItem = ({
     }
   };
 
-  // Tilføjet 'group' klasse for at håndtere hover på parent
   let containerClasses =
     "relative z-10 flex items-center gap-2 p-2 rounded-xl mb-1 cursor-grab active:cursor-grabbing transition-all border group ";
 
@@ -412,6 +413,7 @@ export const SidebarItem = ({
                     onDragEndCleanup={onDragEndCleanup}
                     activeDragId={activeDragId}
                     onTabDrop={onTabDrop}
+                    onDeleteSuccess={onDeleteSuccess}
                   />
                 </div>
               );
