@@ -1228,12 +1228,21 @@ export const Dashboard = () => {
     }
   }, [sortedWindows, selectedWorkspace, viewMode, selectedWindowId]);
 
-  const handleWorkspaceClick = useCallback((item: NexusItem) => {
-    setViewMode("workspace");
-    setSelectedWindowId(null);
-    setWindows([]);
-    setSelectedWorkspace(item);
-  }, []);
+  const handleWorkspaceClick = useCallback(
+    (item: NexusItem) => {
+      // Hvis vi allerede kigger på dette space, skal stoppe
+      if (selectedWorkspace?.id === item.id) {
+        return;
+      }
+
+      // Hvis det er et NYT space, så nulstil
+      setViewMode("workspace");
+      setSelectedWindowId(null);
+      setWindows([]); // Fint at tømme her, da vi skifter kontekst
+      setSelectedWorkspace(item);
+    },
+    [selectedWorkspace, viewMode]
+  );
 
   const handleCopySpace = async () => {
     if (!selectedWorkspace) return;
