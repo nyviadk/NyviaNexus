@@ -14,6 +14,7 @@ export const NexusService = {
   async deleteItem(item: NexusItem, allItems: NexusItem[]) {
     const batch = writeBatch(db);
     const itemsToDelete: string[] = [];
+    const workspacesToClose: string[] = []; // Vi gemmer ID'erne til sidst
 
     // Rekursiv funktion til at finde alle børn (hvis man sletter en mappe)
     const findChildren = (parentId: string) => {
@@ -24,24 +25,12 @@ export const NexusService = {
 
     findChildren(item.id);
 
-    // FIX: Luk fysiske vinduer for alle workspaces der slettes
+    // 1. FORBERED SLETNING I FIRESTORE
     for (const id of itemsToDelete) {
       const currentItem = allItems.find((i) => i.id === id);
 
-      // Hvis vi sletter et workspace, skal vi bede baggrunds-scriptet om at lukke vinduerne
       if (currentItem?.type === "workspace") {
-        try {
-          chrome.runtime.sendMessage({
-            type: "DELETE_WORKSPACE_WINDOWS",
-            payload: { workspaceId: id },
-          });
-        } catch (e) {
-          // Ignorer fejl hvis extension context er ugyldig (sker sjældent)
-          console.warn(
-            "Kunne ikke sende lukke-besked til background script",
-            e
-          );
-        }
+        workspacesToClose.push(id); // Gem ID til senere lukning
 
         // Slet windows-subcollection i Firestore
         const winSnap = await getDocs(
@@ -56,7 +45,28 @@ export const NexusService = {
       batch.delete(doc(db, "items", id));
     }
 
-    return await batch.commit();
+    // 2. COMMIT TIL DATABASEN (VIGTIGT: FØR VI LUKKER VINDUET)
+    // Vi venter på, at databasen bekræfter sletningen.
+    // Hvis vi er i det vindue, der skal slettes, SKAL dette ske, før vinduet dør.
+    await batch.commit();
+    console.log("✅ Data slettet succesfuldt fra Firestore");
+
+    // 3. LUK FYSISKE VINDUER (NU MÅ VI GODT DØ)
+    // Nu sender vi beskeden til "Hjernen" (background.ts) om at lukke vinduerne.
+    // Hvis dette vindue lukkes her, er det fint, for dataen ER væk.
+    for (const wsId of workspacesToClose) {
+      try {
+        chrome.runtime.sendMessage({
+          type: "DELETE_WORKSPACE_WINDOWS",
+          payload: { workspaceId: wsId },
+        });
+      } catch (e) {
+        console.warn(
+          "Kunne ikke sende lukke-besked til background script (måske allerede lukket)",
+          e
+        );
+      }
+    }
   },
 
   async createItem(data: {
