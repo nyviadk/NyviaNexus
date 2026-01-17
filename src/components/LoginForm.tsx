@@ -16,7 +16,7 @@ export const LoginForm = () => {
   };
 
   return (
-    <div className="p-6 w-80 flex flex-col gap-4 bg-slate-900 text-white h-[500px] justify-center shadow-2xl rounded-2xl border border-slate-800">
+    <div className="p-6 w-80 flex flex-col gap-4 bg-slate-900 text-white h-125 justify-center shadow-2xl rounded-2xl border border-slate-800">
       <h1 className="text-2xl font-black text-blue-400 tracking-tighter">
         NyviaNexus
       </h1>
