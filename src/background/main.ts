@@ -110,7 +110,11 @@ type BackgroundMessage =
   | { type: "FORCE_SYNC_ACTIVE_WINDOW"; payload: { windowId: number } }
   | {
       type: "CREATE_NEW_WINDOW_IN_WORKSPACE";
-      payload: { workspaceId: string; name: string };
+      payload: {
+        workspaceId: string;
+        name: string;
+        initialTab?: TabData & { id?: number; sourceWorkspaceId?: string };
+      };
     }
   | {
       type: "CLOSE_PHYSICAL_TABS";
@@ -1305,7 +1309,8 @@ chrome.runtime.onMessage.addListener(
         ensureStateHydrated().then(() => {
           handleCreateNewWindowInWorkspace(
             message.payload.workspaceId,
-            message.payload.name
+            message.payload.name,
+            message.payload.initialTab
           ).then(() => sendResponse({ success: true }));
         });
         return true;
@@ -1473,30 +1478,120 @@ async function handleOpenSpecificWindow(
   }
 }
 
+/**
+ * Hjælper til at fjerne en fane fra enten Inbox eller et specifikt vindue i et workspace
+ */
+async function removeTabFromFirestoreSource(
+  uid: string,
+  tabUid: string,
+  sourceWorkspaceId?: string
+) {
+  try {
+    if (!sourceWorkspaceId || sourceWorkspaceId === "global") {
+      const inboxRef = doc(db, "users", uid, "inbox_data", "global");
+      const snap = await getDoc(inboxRef);
+      if (snap.exists()) {
+        const tabs = (snap.data().tabs || []) as TabData[];
+        const filtered = tabs.filter((t) => t.uid !== tabUid);
+        if (filtered.length !== tabs.length) {
+          await updateDoc(inboxRef, {
+            tabs: filtered,
+            lastUpdate: serverTimestamp(),
+          });
+        }
+      }
+    } else {
+      // Søg i alle vinduer i det pågældende workspace
+      const windowsSnap = await getDocs(
+        collection(
+          db,
+          "users",
+          uid,
+          "workspaces_data",
+          sourceWorkspaceId,
+          "windows"
+        )
+      );
+      for (const winDoc of windowsSnap.docs) {
+        const tabs = (winDoc.data().tabs || []) as TabData[];
+        const filtered = tabs.filter((t) => t.uid !== tabUid);
+        if (filtered.length !== tabs.length) {
+          await updateDoc(winDoc.ref, { tabs: filtered });
+          break; // Vi har fundet og fjernet den
+        }
+      }
+    }
+  } catch (e) {
+    console.error("Fejl ved fjernelse af tab fra source:", e);
+  }
+}
+
 async function handleCreateNewWindowInWorkspace(
   workspaceId: string,
-  name: string
+  name: string,
+  initialTab?: TabData & { id?: number; sourceWorkspaceId?: string }
 ) {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
 
   activeRestorations++;
-  updateRestorationStatus("Opretter nyt tomt workspace...");
-  try {
-    const internalId = `win_${Date.now()}`;
-    const dashUrl = `dashboard.html?workspaceId=${workspaceId}&windowId=${internalId}&newWindow=true`;
+  updateRestorationStatus("Opretter nyt vindue...");
 
-    const newWin = await chrome.windows.create({ url: dashUrl });
+  const internalId = `win_${Date.now()}`;
+  const dashUrl = `dashboard.html?workspaceId=${workspaceId}&windowId=${internalId}&newWindow=true`;
+
+  try {
+    // Forbered URLs - Dashboard er altid første fane
+    const urls = [dashUrl];
+    if (initialTab?.url) urls.push(initialTab.url);
+
+    // 1. Opret det fysiske vindue
+    const newWin = await chrome.windows.create({ url: urls });
+
     if (newWin?.id) {
       const winId = newWin.id;
+
+      // 2. Lås vinduet og registrer mapping øjeblikkeligt (vigtigt for race conditions)
+      lockedWindowIds.add(winId);
+      activeWindows.set(winId, {
+        workspaceId,
+        internalWindowId: internalId,
+        workspaceName: name,
+        index: 99, // Midlertidig
+      });
+
       const tabs = await chrome.tabs.query({ windowId: winId });
+
+      // Pin Dashboard
       if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
 
+      // 3. Håndter den flyttede fane (Atomic Move)
+      if (initialTab && tabs[1]?.id) {
+        // Map UID til den nye fysiske fane
+        tabTracker.set(tabs[1].id, {
+          uid: initialTab.uid,
+          url: initialTab.url,
+        });
+
+        // Luk den gamle fysiske fane (hvis den er åben i et andet vindue)
+        if (initialTab.id) {
+          chrome.tabs.remove(initialTab.id).catch(() => {});
+          tabTracker.delete(initialTab.id);
+        }
+
+        // Rens Firestore source
+        await removeTabFromFirestoreSource(
+          uid,
+          initialTab.uid,
+          initialTab.sourceWorkspaceId
+        );
+      }
+
+      // 4. Gem endelig tilstand
       const snap = await getDocs(
         collection(db, "users", uid, "workspaces_data", workspaceId, "windows")
       );
-
-      const mapping = {
+      const mapping: WinMapping = {
         workspaceId,
         internalWindowId: internalId,
         workspaceName: name,
@@ -1518,12 +1613,16 @@ async function handleCreateNewWindowInWorkspace(
         ),
         {
           id: internalId,
-          tabs: [],
+          tabs: initialTab ? [initialTab] : [],
           isActive: true,
           lastActive: serverTimestamp(),
         }
       );
+
+      lockedWindowIds.delete(winId);
     }
+  } catch (err) {
+    console.error("Create window failed:", err);
   } finally {
     activeRestorations--;
     if (activeRestorations === 0) updateRestorationStatus("");

@@ -1,6 +1,7 @@
-import React from "react";
-import { ExternalLink, PlusCircle, Trash2 } from "lucide-react";
+import React, { useState } from "react";
+import { ExternalLink, PlusCircle, Trash2, Loader2 } from "lucide-react";
 import { NexusItem, WorkspaceWindow } from "../../types";
+import { DraggedTabPayload } from "../../dashboard/types";
 
 interface WindowControlStripProps {
   sortedWindows: WorkspaceWindow[];
@@ -21,6 +22,28 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
   handleTabDrop,
   selectedWorkspace,
 }) => {
+  const [isPlusOver, setIsPlusOver] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+
+  const handleCreateNewWindow = (initialTab?: DraggedTabPayload) => {
+    if (!selectedWorkspace) return;
+
+    setIsCreating(true);
+    chrome.runtime.sendMessage(
+      {
+        type: "CREATE_NEW_WINDOW_IN_WORKSPACE",
+        payload: {
+          workspaceId: selectedWorkspace.id,
+          name: selectedWorkspace.name,
+          initialTab: initialTab || null,
+        },
+      },
+      () => {
+        setIsCreating(false);
+      }
+    );
+  };
+
   return (
     <div className="flex gap-4 items-center flex-wrap">
       {sortedWindows.map((win, idx) => {
@@ -31,24 +54,20 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
         let bgClass = "bg-slate-800";
         let shadowClass = "";
 
-        // Logik for styling prioritet:
-        // 1. Drop Target (Højest prioritet)
-        // 2. Active Window
-        // 3. Default
-
+        // Din logik for styling prioritet genindført:
         if (isDropTarget) {
           if (isSourceWindow) {
             // RØD: Forsøger at droppe i samme vindue (Invalid)
             bgClass = "bg-red-900/20";
             borderClass = "border-red-500/50";
           } else {
-            // GRØN: Validt drop target (Nyt: lettere at se forskel fra active)
+            // GRØN: Validt drop target
             bgClass = "bg-emerald-900/20";
             borderClass = "border-emerald-500/50 border-dashed scale-[1.02]";
             shadowClass = "shadow-lg shadow-emerald-900/20";
           }
         } else if (isSourceWindow) {
-          // BLÅ: Det aktive vindue vi kigger på nu
+          // BLÅ: Det aktive vindue
           bgClass = "bg-blue-600/10";
           borderClass = "border-blue-500/50";
           shadowClass = "shadow-lg";
@@ -59,26 +78,23 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
             key={win.id}
             className="flex flex-col gap-1 items-center transition-all duration-200"
             onDragOver={(e) => {
-              e.preventDefault(); // VIGTIGT: Tillader drop
-              // Kun sæt state hvis det ikke allerede er sat (forhindrer re-renders)
+              e.preventDefault();
               if (dropTargetWinId !== win.id) {
                 setDropTargetWinId(win.id);
               }
             }}
             onDragLeave={(e) => {
-              // FIX: Tjek om vi faktisk forlader containeren, eller bare rammer et child element (tekst/knap)
+              // Flicker-fix genindført
               const currentTarget = e.currentTarget;
               const relatedTarget = e.relatedTarget as Node;
-
               if (currentTarget.contains(relatedTarget)) {
-                return; // Vi er stadig inde i boksen, gør intet.
+                return;
               }
-
               setDropTargetWinId(null);
             }}
             onDrop={(e) => {
               e.preventDefault();
-              setDropTargetWinId(null); // FIX: Reset state med det samme ved drop
+              setDropTargetWinId(null);
               handleTabDrop(win.id);
             }}
           >
@@ -89,8 +105,6 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
               className={`relative group px-4 py-3 rounded-xl border transition-all flex items-center gap-3 cursor-pointer ${bgClass} ${borderClass} ${shadowClass}`}
             >
               <div className="flex flex-col pointer-events-none">
-                {" "}
-                {/* pointer-events-none hjælper også på drag-flicker */}
                 <span
                   className={`text-xs font-bold ${
                     isDropTarget && !isSourceWindow
@@ -105,7 +119,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                 </span>
               </div>
 
-              {/* Handlingsknapper */}
+              {/* Handlingsknapper genindført */}
               <div className="flex items-center gap-1">
                 <button
                   onClick={(e) => {
@@ -149,20 +163,46 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
         );
       })}
 
+      {/* Forbedret Plus-knap med drop-to-create og loading state */}
       <button
-        onClick={() =>
-          chrome.runtime.sendMessage({
-            type: "CREATE_NEW_WINDOW_IN_WORKSPACE",
-            payload: {
-              workspaceId: selectedWorkspace?.id,
-              name: selectedWorkspace?.name,
-            },
-          })
-        }
-        className="h-14 w-14 flex items-center justify-center rounded-xl border border-dashed border-slate-700 hover:border-blue-500 text-slate-500 hover:text-blue-400 transition cursor-pointer active:scale-95"
-        title="Tilføj nyt vindue"
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsPlusOver(true);
+        }}
+        onDragLeave={() => setIsPlusOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setIsPlusOver(false);
+          const tJ = window.sessionStorage.getItem("draggedTab");
+          if (tJ) {
+            try {
+              handleCreateNewWindow(JSON.parse(tJ));
+            } catch (err) {
+              console.error("JSON Parse error in drop:", err);
+              handleCreateNewWindow();
+            }
+          } else {
+            handleCreateNewWindow();
+          }
+        }}
+        onClick={() => handleCreateNewWindow()}
+        disabled={isCreating}
+        className={`h-14 w-14 flex items-center justify-center rounded-xl border border-dashed transition-all duration-200 ${
+          isPlusOver
+            ? "border-emerald-500 bg-emerald-500/10 text-emerald-400 scale-110 shadow-xl shadow-emerald-900/20"
+            : "border-slate-700 text-slate-500 hover:border-blue-500 hover:text-blue-400"
+        } ${
+          isCreating
+            ? "opacity-50 cursor-wait"
+            : "cursor-pointer active:scale-95"
+        }`}
+        title="Tilføj nyt vindue (eller træk en fane herhen)"
       >
-        <PlusCircle size={28} />
+        {isCreating ? (
+          <Loader2 size={28} className="animate-spin text-blue-400" />
+        ) : (
+          <PlusCircle size={28} className={isPlusOver ? "animate-pulse" : ""} />
+        )}
       </button>
     </div>
   );
