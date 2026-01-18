@@ -1,4 +1,10 @@
-import React, { useRef, useState, useMemo, useCallback } from "react";
+import React, {
+  useRef,
+  useState,
+  useMemo,
+  useCallback,
+  useEffect,
+} from "react";
 import {
   Activity,
   ArrowUpCircle,
@@ -12,6 +18,7 @@ import {
   Settings,
   VenetianMask,
   XCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { auth, db } from "../../lib/firebase";
 import { doc, writeBatch } from "firebase/firestore";
@@ -20,6 +27,7 @@ import { NexusService } from "../../services/nexusService";
 import { NexusItem, Profile, TabData, WorkspaceWindow } from "../../types";
 import { DraggedTabPayload, InboxData, WindowMapping } from "@/dashboard/types";
 import { windowOrderCache } from "@/dashboard/utils";
+import { AiHealthStatus } from "../../services/aiService"; // Husk at eksportere denne type i aiService
 
 interface SidebarProps {
   profiles: Profile[];
@@ -75,9 +83,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
     "valid" | "invalid" | null
   >(null);
   const [isInboxSyncing, setIsInboxSyncing] = useState(false);
+  const [aiHealth, setAiHealth] = useState<AiHealthStatus>("up");
 
   const rootDragCounter = useRef<number>(0);
   const inboxDragCounter = useRef<number>(0);
+
+  // Lyt på AI Status ændringer fra storage
+  useEffect(() => {
+    // Initial load
+    chrome.storage.local.get("nexus_ai_health").then((res) => {
+      if (res.nexus_ai_health) {
+        setAiHealth(res.nexus_ai_health as AiHealthStatus);
+      }
+    });
+
+    // Listener
+    const handleStorageChange = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      areaName: string
+    ) => {
+      if (areaName === "local" && changes.nexus_ai_health) {
+        setAiHealth(changes.nexus_ai_health.newValue as AiHealthStatus);
+      }
+    };
+
+    chrome.storage.onChanged.addListener(handleStorageChange);
+    return () => {
+      chrome.storage.onChanged.removeListener(handleStorageChange);
+    };
+  }, []);
 
   const filteredRootItems = useMemo(
     () =>
@@ -243,6 +277,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <div className="p-4 flex-1 overflow-y-auto space-y-6">
+        {/* AI Status Banner - Vises kun ved nedbrud */}
+        {aiHealth === "down" && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-start gap-3">
+            <AlertTriangle
+              size={18}
+              className="text-amber-500 shrink-0 mt-0.5"
+            />
+            <div>
+              <h4 className="text-amber-500 text-xs font-bold uppercase tracking-wide">
+                AI Service Offline
+              </h4>
+              <p className="text-amber-200/70 text-[10px] mt-1 leading-relaxed">
+                Automatisk sortering er sat på pause. Dine faner vil blive
+                kategoriseret, så snart servicen er oppe igen.
+              </p>
+              <a
+                className="text-amber-200/70 text-[10px] mt-1 leading-relaxed"
+                href="https://statusgator.com/services/cerebras"
+                target="_blank"
+              >
+                https://statusgator.com/services/cerebras
+              </a>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center gap-2">
           <select
             value={activeProfile}

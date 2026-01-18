@@ -272,6 +272,9 @@ async function validateAndCleanupState() {
   } finally {
     // 5. VIGTIGT: Rebuild altid tab tracker, selv hvis cleanup fejler delvist
     if (uid) await rebuildTabTracker();
+
+    // 6. KICKSTART AI QUEUE: Hvis der ligger opgaver fra et tidligere crash/offline periode
+    processAiQueue();
   }
 }
 

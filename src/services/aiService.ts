@@ -15,6 +15,9 @@ export interface AiAnalysisResult {
   reasoning: string;
 }
 
+// Definition af helbredsstatus for AI servicen
+export type AiHealthStatus = "up" | "down" | "unknown";
+
 export const AiService = {
   // Hent API nøgle
   async getApiKey(): Promise<string | null> {
@@ -42,6 +45,19 @@ export const AiService = {
   // Gem Indstillinger
   async saveSettings(settings: AiSettings): Promise<void> {
     await chrome.storage.local.set({ nexus_ai_settings: settings });
+  },
+
+  // Helper til at sætte service status
+  async setServiceStatus(status: AiHealthStatus): Promise<void> {
+    // Vi henter først nuværende status for ikke at spamme storage unødigt
+    const current = (await chrome.storage.local.get("nexus_ai_health")) as {
+      nexus_ai_health?: AiHealthStatus;
+    };
+
+    if (current.nexus_ai_health !== status) {
+      console.log(`🤖 AI Service Status ændret: ${status}`);
+      await chrome.storage.local.set({ nexus_ai_health: status });
+    }
   },
 
   async analyzeTab(
@@ -169,7 +185,17 @@ ${contextInstruction}
       });
       console.timeEnd("🤖 AI Latency");
 
-      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      if (!response.ok) {
+        // Håndter 503 eller andre server fejl
+        if (response.status === 503 || response.status >= 500) {
+          console.warn(`🤖 AI Service NEDE: ${response.status}`);
+          await this.setServiceStatus("down");
+        }
+        throw new Error(`API Error: ${response.status}`);
+      }
+
+      // Hvis vi når hertil, er servicen oppe
+      await this.setServiceStatus("up");
 
       const data = await response.json();
       const rawContent = data.choices[0]?.message?.content || "";
@@ -180,8 +206,19 @@ ${contextInstruction}
         console.log("🏷️ AI Valg:", parsed.category);
       }
       return parsed;
-    } catch (e) {
+    } catch (e: unknown) {
       console.error("🤖 AI Service Fejl:", e);
+
+      // Tjek for netværksfejl (som fetch failure) der ikke er response.ok
+      if (e instanceof Error) {
+        if (
+          e.message.includes("Failed to fetch") ||
+          e.message.includes("503")
+        ) {
+          await this.setServiceStatus("down");
+        }
+      }
+
       return null;
     }
   },
