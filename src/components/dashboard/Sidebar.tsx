@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useMemo, useCallback } from "react";
 import {
   Activity,
   ArrowUpCircle,
@@ -16,7 +16,7 @@ import { auth, db } from "../../lib/firebase";
 import { doc, writeBatch } from "firebase/firestore";
 import { SidebarItem } from "../SidebarItem";
 import { NexusService } from "../../services/nexusService";
-import { NexusItem, Profile, TabData } from "../../types";
+import { NexusItem, Profile, TabData, WorkspaceWindow } from "../../types";
 import { DraggedTabPayload, InboxData, WindowMapping } from "@/dashboard/types";
 import { windowOrderCache } from "@/dashboard/utils";
 
@@ -28,18 +28,14 @@ interface SidebarProps {
   chromeWindows: chrome.windows.Window[];
   currentWindowId: number | null;
   activeMappings: [number, WindowMapping][];
-  sortedWindows: any[]; // WorkspaceWindow[]
+  sortedWindows: WorkspaceWindow[];
   selectedWorkspace: NexusItem | null;
   viewMode: "workspace" | "inbox" | "incognito";
   setViewMode: (mode: "workspace" | "inbox" | "incognito") => void;
   setSelectedWorkspace: (ws: NexusItem | null) => void;
   setModalType: (type: "folder" | "workspace" | "settings" | null) => void;
   setModalParentId: (id: string) => void;
-
-  // Loading state
   isLoading: boolean;
-
-  // Drag & Drop props
   activeDragId: string | null;
   setActiveDragId: (id: string | null) => void;
   handleSidebarTabDrop: (target: NexusItem | "global") => Promise<void>;
@@ -71,21 +67,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   handleDeleteSuccess,
   inboxData,
 }) => {
-  // Lokal state til drag-over effekter
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
   const [isSyncingRoot, setIsSyncingRoot] = useState(false);
   const [isInboxDragOver, setIsInboxDragOver] = useState(false);
   const [inboxDropStatus, setInboxDropStatus] = useState<
     "valid" | "invalid" | null
   >(null);
-
-  // Lokal loading state for inbox sync
   const [isInboxSyncing, setIsInboxSyncing] = useState(false);
 
-  const rootDragCounter = useRef(0);
-  const inboxDragCounter = useRef(0);
+  const rootDragCounter = useRef<number>(0);
+  const inboxDragCounter = useRef<number>(0);
 
-  const filteredRootItems = React.useMemo(
+  const filteredRootItems = useMemo(
     () =>
       items.filter(
         (i) => i.profileId === activeProfile && i.parentId === "root"
@@ -93,7 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     [items, activeProfile]
   );
 
-  const getFilteredInboxTabs = React.useCallback(
+  const getFilteredInboxTabs = useCallback(
     (incognitoMode: boolean) => {
       if (!inboxData?.tabs) return [];
       return inboxData.tabs.filter((t: TabData) =>
@@ -102,6 +95,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     [inboxData]
   );
+
+  // Find det element der trækkes for at validere "Move to root"
+  const draggedItem = useMemo(
+    () => (activeDragId ? items.find((i) => i.id === activeDragId) : null),
+    [activeDragId, items]
+  );
+
+  // Check om elementet allerede er i rod-niveau
+  const isAlreadyAtRoot = draggedItem?.parentId === "root";
 
   return (
     <aside className="w-96 border-r border-slate-700 bg-slate-800 flex flex-col shrink-0 shadow-2xl z-20">
@@ -147,7 +149,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   label = "Slettet Space";
                 }
 
-                // SUB-LABEL LOGIK (Forbedret til at undgå "Sletter...")
                 const cachedOrder = windowOrderCache.get(mapping.workspaceId);
 
                 if (
@@ -161,7 +162,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   selectedWorkspace &&
                   mapping.workspaceId === selectedWorkspace.id
                 ) {
-                  // Vi kigger i det aktive vindues-array
                   const idx = sortedWindows.findIndex(
                     (w) => w.id === mapping.internalWindowId
                   );
@@ -169,10 +169,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   if (idx !== -1) {
                     subLabel = `Vindue ${idx + 1}`;
                   } else if (sortedWindows.length === 0) {
-                    // Hvis listen er helt tom, er vi ved at indlæse vinduerne for dette space
                     subLabel = "Indlæser...";
                   } else {
-                    // Kun hvis der ER andre vinduer, men dette ID ikke findes, er det ved at blive slettet
                     subLabel = "Sletter...";
                   }
                 }
@@ -270,7 +268,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <nav className="space-y-4">
-          {activeDragId && (
+          {/* Kun vis "Flyt til rod" hvis vi trækker noget, der ikke allerede er i rod */}
+          {activeDragId && !isAlreadyAtRoot && (
             <div
               onDragOver={(e) => e.preventDefault()}
               onDragEnter={() => {
@@ -285,12 +284,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 e.preventDefault();
                 setIsDragOverRoot(false);
                 rootDragCounter.current = 0;
+
                 const dId = e.dataTransfer.getData("itemId");
                 if (dId) {
                   setIsSyncingRoot(true);
-                  await NexusService.moveItem(dId, "root");
-                  setIsSyncingRoot(false);
-                  setActiveDragId(null);
+                  try {
+                    await NexusService.moveItem(dId, "root");
+                  } finally {
+                    setIsSyncingRoot(false);
+                    setActiveDragId(null);
+                  }
                 }
               }}
               className={`p-4 border-2 border-dashed rounded-2xl flex items-center justify-center gap-3 transition-all ${
@@ -399,7 +402,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             e.preventDefault();
             const tJ = window.sessionStorage.getItem("draggedTab");
             if (tJ) {
-              const tab = JSON.parse(tJ);
+              const tab = JSON.parse(tJ) as DraggedTabPayload;
               setInboxDropStatus(
                 tab.sourceWorkspaceId !== "global" || tab.isIncognito
                   ? "valid"
@@ -421,13 +424,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onDrop={async (e) => {
             e.preventDefault();
             const tJ = window.sessionStorage.getItem("draggedTab");
-
             setIsInboxDragOver(false);
             setInboxDropStatus(null);
             inboxDragCounter.current = 0;
-
             setIsInboxSyncing(true);
-
             try {
               if (tJ) {
                 const tab = JSON.parse(tJ) as DraggedTabPayload;
