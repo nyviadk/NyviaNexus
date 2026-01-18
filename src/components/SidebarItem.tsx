@@ -20,7 +20,6 @@ import { NexusItem } from "../types";
 
 interface DraggedTabData {
   sourceWorkspaceId: string;
-  // Andre felter findes, men vi bruger kun denne her
 }
 
 interface WindowMappingLite {
@@ -66,10 +65,10 @@ export const SidebarItem = ({
   const draggedItem = activeDragId
     ? allItems.find((i) => i.id === activeDragId)
     : null;
-
   const isInvalidItemDrop =
     activeDragId === item.id || draggedItem?.parentId === item.id;
 
+  // Reset drag state når drag stopper globalt
   useEffect(() => {
     if (!activeDragId) {
       if (!tabDropStatus) setIsDragOver(false);
@@ -94,12 +93,9 @@ export const SidebarItem = ({
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
-
-    // 1. Tjek om space'et (eller mappen) har aktive vinduer
     let hasActiveWindows = false;
     try {
       const storage = await chrome.storage.local.get("nexus_active_windows");
-      // Tuple: [chromeWindowId, MappingObject]
       const mappings = (storage.nexus_active_windows || []) as [
         number,
         WindowMappingLite
@@ -132,7 +128,6 @@ export const SidebarItem = ({
       await new Promise((r) => setTimeout(r, 500));
       setIsSyncing(false);
       onRefresh();
-
       if (onDeleteSuccess) onDeleteSuccess(item.id);
     }
   };
@@ -230,7 +225,6 @@ export const SidebarItem = ({
     }
 
     onDragEndCleanup();
-
     const draggedId =
       e.dataTransfer.getData("nexus/item-id") ||
       e.dataTransfer.getData("itemId");
@@ -262,22 +256,27 @@ export const SidebarItem = ({
     }
   };
 
+  // --- STYLING LOGIK (OPDATERET TIL GRØN/EMERALD) ---
   let containerClasses =
-    "relative z-10 flex items-center gap-2 p-2 rounded-xl mb-1 cursor-grab active:cursor-grabbing transition-all border group ";
+    "relative z-10 flex items-center gap-2 p-2 rounded-xl mb-1 cursor-pointer transition-all border group ";
 
   if (tabDropStatus === "valid") {
+    // GRØN: Validt sted at droppe en fane
     containerClasses +=
-      "bg-blue-800/60 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.4)] scale-[1.02]";
+      "bg-emerald-900/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)] scale-[1.02]";
   } else if (tabDropStatus === "invalid") {
+    // RØD: Invalidt sted (mappe eller kilde-space)
     containerClasses +=
-      "bg-red-900/40 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.4)] opacity-80";
+      "bg-red-900/40 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)] opacity-80 cursor-not-allowed";
   } else if (isDragOver) {
+    // GRØN (Eller Rød): Dragging af en mappe/item
     containerClasses += isInvalidItemDrop
-      ? "bg-red-900/40 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.4)]"
-      : "bg-blue-800/60 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.4)] scale-[1.02]";
+      ? "bg-red-900/40 border-red-400"
+      : "bg-emerald-900/40 border-emerald-500/50 scale-[1.02]";
   } else {
+    // STANDARD: Normal tilstand
     containerClasses +=
-      "border-transparent hover:bg-slate-700/80 hover:border-slate-600";
+      "border-transparent hover:bg-slate-700/80 hover:border-slate-600 active:scale-[0.98]";
   }
 
   return (
@@ -298,17 +297,11 @@ export const SidebarItem = ({
           if (isFolder) setIsOpen(!isOpen);
           else if (onSelect) onSelect(item);
           else {
-            // Håndter åbning af workspace med ny users/{uid} struktur
             const auth = getAuth();
             const currentUser = auth.currentUser;
-
-            if (!currentUser) {
-              console.error("Ingen bruger logget ind");
-              return;
-            }
+            if (!currentUser) return;
 
             try {
-              // OPDATERET PATH: Nu henter vi fra users/{uid}/workspaces_data/{workspaceId}/windows
               const winSnap = await getDocs(
                 collection(
                   db,
@@ -319,12 +312,10 @@ export const SidebarItem = ({
                   "windows"
                 )
               );
-
               const windows = winSnap.docs.map((d) => ({
                 id: d.id,
                 ...d.data(),
               }));
-
               chrome.runtime.sendMessage({
                 type: "OPEN_WORKSPACE",
                 payload: { workspaceId: item.id, windows, name: item.name },
@@ -353,7 +344,12 @@ export const SidebarItem = ({
             />
           )
         ) : (
-          <Layout size={20} className="text-blue-300 shrink-0 shadow-sm" />
+          <Layout
+            size={20}
+            className={`${
+              tabDropStatus === "valid" ? "text-emerald-400" : "text-blue-300"
+            } shrink-0 shadow-sm transition-colors`}
+          />
         )}
 
         {isFolder && !isSyncing && (
@@ -361,7 +357,7 @@ export const SidebarItem = ({
             size={20}
             className={`${
               tabDropStatus === "valid" || (isDragOver && !isInvalidItemDrop)
-                ? "text-blue-300"
+                ? "text-emerald-400"
                 : tabDropStatus === "invalid" ||
                   (isDragOver && isInvalidItemDrop)
                 ? "text-red-400"
@@ -381,7 +377,7 @@ export const SidebarItem = ({
         </span>
 
         {!isSyncing && (
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800/50 rounded-lg px-1">
+          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800/80 backdrop-blur-sm rounded-lg px-1 shadow-sm border border-slate-700/50">
             {isFolder && (
               <>
                 <button
@@ -435,12 +431,9 @@ export const SidebarItem = ({
                 <div key={child.id} className="relative pl-4">
                   <div
                     className="absolute left-0 top-0 w-px bg-slate-600"
-                    style={{
-                      height: isLastChild ? "20px" : "100%",
-                    }}
+                    style={{ height: isLastChild ? "20px" : "100%" }}
                   />
                   <div className="absolute left-0 top-5 w-4 h-px bg-slate-600" />
-
                   <SidebarItem
                     item={child}
                     allItems={allItems}
