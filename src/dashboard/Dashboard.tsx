@@ -121,6 +121,14 @@ export const Dashboard = () => {
   );
 
   const sortedWindows = useMemo(() => {
+    // Helper function til sikkert at hente tid, uanset om det er Timestamp objekt eller JSON
+    const getTime = (t: any) => {
+      if (!t) return 0;
+      if (typeof t.toMillis === "function") return t.toMillis();
+      if (typeof t.seconds === "number") return t.seconds * 1000;
+      return 0;
+    };
+
     return [...windows].sort((a, b) => {
       if (selectedWorkspace) {
         const cached = windowOrderCache.get(selectedWorkspace.id);
@@ -131,8 +139,8 @@ export const Dashboard = () => {
             return indexA - indexB;
         }
       }
-      const timeA = a.lastActive ? a.lastActive.toMillis() : 0;
-      const timeB = b.lastActive ? b.lastActive.toMillis() : 0;
+      const timeA = getTime(a.lastActive);
+      const timeB = getTime(b.lastActive);
       return timeA - timeB;
     });
   }, [windows, selectedWorkspace]);
@@ -366,6 +374,7 @@ export const Dashboard = () => {
         handleWorkspaceClick={handleWorkspaceClick}
         handleDeleteSuccess={handleDeleteSuccess}
         inboxData={inboxData}
+        isLoading={items.length === 0}
       />
 
       <main className="flex-1 flex flex-col bg-slate-900 relative">

@@ -36,6 +36,9 @@ interface SidebarProps {
   setModalType: (type: "folder" | "workspace" | "settings" | null) => void;
   setModalParentId: (id: string) => void;
 
+  // Loading state
+  isLoading: boolean;
+
   // Drag & Drop props
   activeDragId: string | null;
   setActiveDragId: (id: string | null) => void;
@@ -60,6 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setSelectedWorkspace,
   setModalType,
   setModalParentId,
+  isLoading,
   activeDragId,
   setActiveDragId,
   handleSidebarTabDrop,
@@ -67,7 +71,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   handleDeleteSuccess,
   inboxData,
 }) => {
-  // Lokal state til drag-over effekter (forbedrer performance ved at undgå re-renders i parent)
+  // Lokal state til drag-over effekter
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
   const [isSyncingRoot, setIsSyncingRoot] = useState(false);
   const [isInboxDragOver, setIsInboxDragOver] = useState(false);
@@ -75,7 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     "valid" | "invalid" | null
   >(null);
 
-  // Lokal loading state for inbox sync - isolerer re-renders til denne komponent
+  // Lokal loading state for inbox sync
   const [isInboxSyncing, setIsInboxSyncing] = useState(false);
 
   const rootDragCounter = useRef(0);
@@ -134,8 +138,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 subLabel = "Global";
               } else if (mapping) {
                 const ws = items.find((i) => i.id === mapping.workspaceId);
-                label = ws ? ws.name : "Slettet Space";
 
+                if (ws) {
+                  label = ws.name;
+                } else if (isLoading) {
+                  label = "Indlæser...";
+                } else {
+                  label = "Slettet Space";
+                }
+
+                // SUB-LABEL LOGIK (Forbedret til at undgå "Sletter...")
                 const cachedOrder = windowOrderCache.get(mapping.workspaceId);
 
                 if (
@@ -149,12 +161,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   selectedWorkspace &&
                   mapping.workspaceId === selectedWorkspace.id
                 ) {
+                  // Vi kigger i det aktive vindues-array
                   const idx = sortedWindows.findIndex(
                     (w) => w.id === mapping.internalWindowId
                   );
+
                   if (idx !== -1) {
                     subLabel = `Vindue ${idx + 1}`;
+                  } else if (sortedWindows.length === 0) {
+                    // Hvis listen er helt tom, er vi ved at indlæse vinduerne for dette space
+                    subLabel = "Indlæser...";
                   } else {
+                    // Kun hvis der ER andre vinduer, men dette ID ikke findes, er det ved at blive slettet
                     subLabel = "Sletter...";
                   }
                 }
@@ -164,7 +182,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div
                   key={cWin.id}
                   onClick={() => {
-                    // Hvis det ikke er det nuværende vindue, og ID findes, fokuser det
                     if (!isCurrent && cWin.id) {
                       chrome.windows.update(cWin.id, { focused: true });
                     }
@@ -409,21 +426,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
             setInboxDropStatus(null);
             inboxDragCounter.current = 0;
 
-            setIsInboxSyncing(true); // Start lokal loading
+            setIsInboxSyncing(true);
 
             try {
               if (tJ) {
                 const tab = JSON.parse(tJ) as DraggedTabPayload;
-                // Kun kør hvis det giver mening (ikke allerede i global, eller er incognito)
                 if (tab.sourceWorkspaceId !== "global" || tab.isIncognito) {
                   await handleSidebarTabDrop("global");
                 }
               } else {
-                // Håndter eksterne drops (f.eks. links) - går altid til global inbox
                 await handleSidebarTabDrop("global");
               }
             } finally {
-              setIsInboxSyncing(false); // Stop lokal loading
+              setIsInboxSyncing(false);
             }
           }}
         >
