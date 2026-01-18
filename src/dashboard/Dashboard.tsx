@@ -24,7 +24,13 @@ import { LinkManager } from "../services/linkManager";
 
 // Types
 import { AiData } from "@/background/main";
-import { AiSettings, NexusItem, TabData, WorkspaceWindow } from "../types";
+import {
+  AiSettings,
+  NexusItem,
+  TabData,
+  UserCategory,
+  WorkspaceWindow,
+} from "../types";
 import { DashboardMessage, WindowMapping } from "./types";
 
 // Utils
@@ -121,11 +127,13 @@ export const Dashboard = () => {
   );
 
   const sortedWindows = useMemo(() => {
-    // Helper function til sikkert at hente tid, uanset om det er Timestamp objekt eller JSON
-    const getTime = (t: any) => {
-      if (!t) return 0;
-      if (typeof t.toMillis === "function") return t.toMillis();
-      if (typeof t.seconds === "number") return t.seconds * 1000;
+    // Helper function til sikkert at hente tid uden 'any'
+    const getTime = (lastActive: WorkspaceWindow["lastActive"]) => {
+      if (!lastActive) return 0;
+      if (typeof (lastActive as any).toMillis === "function")
+        return (lastActive as any).toMillis();
+      if (typeof (lastActive as any).seconds === "number")
+        return (lastActive as any).seconds * 1000;
       return 0;
     };
 
@@ -145,12 +153,50 @@ export const Dashboard = () => {
     });
   }, [windows, selectedWorkspace]);
 
+  // --- AI CATEGORY AGGREGATION ---
+  // Denne logic sikrer at AI-kategorier fundet i faner automatisk dukker op i dropdown-menuer
+  const aiGeneratedCategories = useMemo(() => {
+    const uniqueAiCats = new Set<string>();
+
+    const scanTabs = (tabs: TabData[] | undefined) => {
+      tabs?.forEach((t) => {
+        if (
+          t.aiData?.status === "completed" &&
+          t.aiData?.category &&
+          typeof t.aiData.category === "string"
+        ) {
+          uniqueAiCats.add(t.aiData.category);
+        }
+      });
+    };
+
+    if (inboxData?.tabs) scanTabs(inboxData.tabs);
+    windows.forEach((w) => scanTabs(w.tabs));
+
+    const existingNames = new Set(
+      aiSettings.userCategories.map((c) => c.name.toLowerCase())
+    );
+
+    return Array.from(uniqueAiCats)
+      .filter((catName) => !existingNames.has(catName.toLowerCase()))
+      .map((catName) => ({
+        id: `ai-${catName}`,
+        name: catName,
+        color: "#64748b", // Standard Slate-color for AI-forslag
+      })) as UserCategory[];
+  }, [inboxData, windows, aiSettings.userCategories]);
+
+  const allAvailableCategories = useMemo(
+    () => [...aiSettings.userCategories, ...aiGeneratedCategories],
+    [aiSettings.userCategories, aiGeneratedCategories]
+  );
+
   const totalTabsInSpace = useMemo(
     () => windows.reduce((acc, win) => acc + (win.tabs?.length || 0), 0),
     [windows]
   );
 
-  // Update Cache
+  // Update Cache logic for flickering prevention
   if (selectedWorkspace && sortedWindows.length > 0) {
     const wsId = selectedWorkspace.id;
     const signature = `${wsId}-${sortedWindows.length}-${sortedWindows
@@ -189,7 +235,7 @@ export const Dashboard = () => {
     );
   }, []);
 
-  // Window Sync
+  // Window Sync fra Firestore
   useEffect(() => {
     if (!user || !selectedWorkspace) {
       setWindows([]);
@@ -215,14 +261,13 @@ export const Dashboard = () => {
     });
   }, [user, selectedWorkspace]);
 
-  // Chrome Events
+  // Chrome Events & Storage Listeners
   useEffect(() => {
     if (user) {
       chrome.windows.getCurrent((win) => win.id && setCurrentWindowId(win.id));
 
       chrome.storage.local.get("nexus_active_windows", (data) => {
         if (data?.nexus_active_windows) {
-          // FIX 1: Explicit cast til den forventede type
           setActiveMappings(
             data.nexus_active_windows as [number, WindowMapping][]
           );
@@ -248,7 +293,6 @@ export const Dashboard = () => {
       area: string
     ) => {
       if (area === "local" && changes.nexus_active_windows) {
-        // FIX 2: Cast newValue (eller fallback arrayet) til typen
         const newMappings = (changes.nexus_active_windows.newValue || []) as [
           number,
           WindowMapping
@@ -266,7 +310,7 @@ export const Dashboard = () => {
     };
   }, [user, refreshChromeWindows]);
 
-  // URL Params & Selection
+  // URL Params Synchronization
   useEffect(() => {
     if (items.length > 0 && !hasLoadedUrlParams.current) {
       const params = new URLSearchParams(window.location.search);
@@ -283,6 +327,7 @@ export const Dashboard = () => {
     }
   }, [items]);
 
+  // Auto-select first window logic
   useEffect(() => {
     if (
       selectedWorkspace &&
@@ -465,7 +510,7 @@ export const Dashboard = () => {
           workspaceId={selectedWorkspace?.id || null}
           winId={selectedWindowId}
           position={menuData.position}
-          categories={[...aiSettings.userCategories]} // Simplified category passing
+          categories={allAvailableCategories}
           onClose={() => setMenuData(null)}
         />
       )}
