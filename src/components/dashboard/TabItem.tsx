@@ -29,7 +29,8 @@ export const TabItem = React.memo(
     userCategories = [],
     onShowReasoning,
     onOpenMenu,
-  }: TabItemProps) => {
+    selectionCount = 0, // Ny prop: Antal valgte faner
+  }: TabItemProps & { selectionCount?: number }) => {
     const aiData = tab.aiData || { status: "pending" };
     const isProcessing = aiData.status === "processing";
     const isPending = aiData.status === "pending";
@@ -92,6 +93,16 @@ export const TabItem = React.memo(
         <div
           draggable={true}
           onDragStart={(e) => {
+            // STOP MULTI-DRAG (Midlertidig beskyttelse inden fyraften)
+            if (isSelected && selectionCount > 1) {
+              e.preventDefault();
+              e.stopPropagation();
+              alert(
+                "🚧 Multidrag er ikke implementeret endnu.\n\nVi arbejder på sagen! Flyt venligst én fane ad gangen for nu."
+              );
+              return;
+            }
+
             e.dataTransfer.setData("nexus/tab", "true");
 
             // Safe cast to RuntimeTabData to check for runtime 'id'
@@ -259,6 +270,7 @@ export const TabItem = React.memo(
       prev.tab.url === next.tab.url &&
       prev.tab.title === next.tab.title &&
       prev.tab.uid === next.tab.uid &&
+      prev.selectionCount === next.selectionCount && // Check for selection count change
       JSON.stringify(prev.tab.aiData) === JSON.stringify(next.tab.aiData) &&
       JSON.stringify(prev.userCategories) ===
         JSON.stringify(next.userCategories)

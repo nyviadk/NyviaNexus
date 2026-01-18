@@ -50,6 +50,7 @@ export const TabGrid: React.FC<TabGridProps> = ({
         key={tab.uid || i}
         tab={tab}
         isSelected={selectedUrls.includes(tab.uid)}
+        selectionCount={selectedUrls.length} // Pass count to handle multi-drag block
         onSelect={handleTabSelect}
         onDelete={handleTabDelete}
         sourceWorkspaceId={sourceWSId}
