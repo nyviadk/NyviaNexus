@@ -1,3 +1,6 @@
+import { Timestamp } from "firebase/firestore";
+import { AiData } from "@/background/main";
+
 export type ItemType = "folder" | "workspace";
 
 export interface NexusItem {
@@ -14,14 +17,6 @@ export interface Profile {
   name: string;
 }
 
-export interface AiData {
-  status: "pending" | "completed" | "failed" | "processing";
-  category?: string;
-  confidence?: number;
-  reasoning?: string;
-  lastChecked?: number;
-}
-
 export interface TabData {
   uid: string;
   title: string;
@@ -35,7 +30,8 @@ export interface WorkspaceWindow {
   id: string;
   tabs: TabData[];
   isActive?: boolean;
-  lastActive?: any;
+  lastActive?: Timestamp;
+  name?: string; // Kan være nyttig til debugging eller UI
 }
 
 // NYE TYPES TIL INDSTILLINGER

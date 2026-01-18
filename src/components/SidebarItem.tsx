@@ -1,20 +1,31 @@
-import { useState, useRef, useEffect } from "react";
-import {
-  Folder,
-  ChevronRight,
-  ChevronDown,
-  Layout,
-  Trash2,
-  Edit3,
-  Plus,
-  FolderPlus,
-  Loader2,
-} from "lucide-react";
-import { NexusItem } from "../types";
-import { db } from "../lib/firebase";
-import { collection, getDocs } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
+import { collection, getDocs } from "firebase/firestore";
+import {
+  ChevronDown,
+  ChevronRight,
+  Edit3,
+  Folder,
+  FolderPlus,
+  Layout,
+  Loader2,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { db } from "../lib/firebase";
 import { NexusService } from "../services/nexusService";
+import { NexusItem } from "../types";
+
+// --- TYPES ---
+
+interface DraggedTabData {
+  sourceWorkspaceId: string;
+  // Andre felter findes, men vi bruger kun denne her
+}
+
+interface WindowMappingLite {
+  workspaceId: string;
+}
 
 interface Props {
   item: NexusItem;
@@ -88,17 +99,21 @@ export const SidebarItem = ({
     let hasActiveWindows = false;
     try {
       const storage = await chrome.storage.local.get("nexus_active_windows");
-      const mappings = (storage.nexus_active_windows || []) as any[];
+      // Tuple: [chromeWindowId, MappingObject]
+      const mappings = (storage.nexus_active_windows || []) as [
+        number,
+        WindowMappingLite
+      ][];
 
       if (item.type === "workspace") {
         hasActiveWindows = mappings.some(
-          ([_, map]: any) => map.workspaceId === item.id
+          ([_, map]) => map.workspaceId === item.id
         );
       } else {
         const childIds = allItems
           .filter((i) => i.parentId === item.id)
           .map((i) => i.id);
-        hasActiveWindows = mappings.some(([_, map]: any) =>
+        hasActiveWindows = mappings.some(([_, map]) =>
           childIds.includes(map.workspaceId)
         );
       }
@@ -113,7 +128,6 @@ export const SidebarItem = ({
 
     if (confirm(message)) {
       setIsSyncing(true);
-      // Bemærk: NexusService skal også opdateres til at bruge users/{uid}/items internt
       await NexusService.deleteItem(item, allItems);
       await new Promise((r) => setTimeout(r, 500));
       setIsSyncing(false);
@@ -156,7 +170,7 @@ export const SidebarItem = ({
 
     const tabJson = window.sessionStorage.getItem("draggedTab");
     if (tabJson) {
-      const tabData = JSON.parse(tabJson);
+      const tabData = JSON.parse(tabJson) as DraggedTabData;
       const isSourceSpace = tabData.sourceWorkspaceId === item.id;
 
       if (isFolder || isSourceSpace) {
@@ -192,7 +206,7 @@ export const SidebarItem = ({
     // --- TAB DROP HANDLER ---
     const tabJson = window.sessionStorage.getItem("draggedTab");
     if (tabJson) {
-      const tabData = JSON.parse(tabJson);
+      const tabData = JSON.parse(tabJson) as DraggedTabData;
       if (isFolder || tabData.sourceWorkspaceId === item.id) {
         return;
       }

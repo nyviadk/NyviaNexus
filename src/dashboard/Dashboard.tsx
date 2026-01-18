@@ -1,4 +1,4 @@
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, User } from "firebase/auth";
 import {
   addDoc,
   collection,
@@ -12,6 +12,7 @@ import {
   serverTimestamp,
   updateDoc,
   writeBatch,
+  Timestamp,
 } from "firebase/firestore";
 import {
   Activity,
@@ -68,9 +69,75 @@ import {
   AiSettings,
   NexusItem,
   Profile,
+  TabData,
   UserCategory,
   WorkspaceWindow,
 } from "../types";
+import { AiData } from "@/background/main";
+
+// --- TYPES & INTERFACES ---
+
+// Intersection type for Tabs that exist in runtime (have physical ID/WindowID)
+type RuntimeTabData = TabData & {
+  id?: number;
+  windowId?: number;
+  sourceWorkspaceId?: string;
+};
+
+// Type definition for Drag & Drop payload in SessionStorage
+interface DraggedTabPayload extends RuntimeTabData {
+  sourceWorkspaceId: string;
+}
+
+interface WindowMapping {
+  workspaceId: string;
+  internalWindowId: string;
+}
+
+interface InboxData {
+  id: string;
+  tabs: TabData[];
+  lastUpdate?: Timestamp; // Type-safe Timestamp
+}
+
+interface CategoryMenuProps {
+  tab: TabData;
+  workspaceId: string | null;
+  winId: string | null;
+  position: { x: number; y: number };
+  onClose: () => void;
+  categories: UserCategory[];
+}
+
+interface ReasoningModalProps {
+  data: AiData;
+  onClose: () => void;
+}
+
+interface SettingsModalProps {
+  profiles: Profile[];
+  onClose: () => void;
+  activeProfile: string;
+  setActiveProfile: (id: string) => void;
+}
+
+interface TabItemProps {
+  tab: TabData;
+  isSelected: boolean;
+  onSelect: (tab: TabData) => void;
+  onDelete: (tab: TabData) => void;
+  sourceWorkspaceId?: string;
+  onDragStart?: () => void;
+  userCategories: UserCategory[];
+  onShowReasoning: (data: AiData) => void;
+  onOpenMenu: (e: React.MouseEvent, tab: TabData) => void;
+}
+
+// Discriminated Union for Messaging
+type DashboardMessage =
+  | { type: "RESTORATION_STATUS_CHANGE"; payload: string | null }
+  | { type: "PHYSICAL_WINDOWS_CHANGED"; payload?: never }
+  | { type: "UNKNOWN"; payload?: unknown };
 
 // --- GLOBAL CACHE FOR WINDOW NUMBERS ---
 const windowOrderCache = new Map<
@@ -94,7 +161,7 @@ const CategoryMenu = ({
   position,
   onClose,
   categories,
-}: any) => {
+}: CategoryMenuProps) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const isNearBottom = position.y > window.innerHeight - 300;
@@ -126,8 +193,8 @@ const CategoryMenu = ({
       const ref = doc(db, "users", uid, "inbox_data", "global");
       const snap = await getDoc(ref);
       if (snap.exists()) {
-        const tabs = snap.data().tabs || [];
-        const idx = tabs.findIndex((t: any) => t.uid === tab.uid);
+        const tabs = (snap.data().tabs as TabData[]) || [];
+        const idx = tabs.findIndex((t: TabData) => t.uid === tab.uid);
         if (idx !== -1) {
           if (newCategory) {
             tabs[idx].aiData = {
@@ -157,8 +224,8 @@ const CategoryMenu = ({
       );
       const snap = await getDoc(ref);
       if (snap.exists()) {
-        const tabs = snap.data().tabs || [];
-        const idx = tabs.findIndex((t: any) => t.uid === tab.uid);
+        const tabs = (snap.data().tabs as TabData[]) || [];
+        const idx = tabs.findIndex((t: TabData) => t.uid === tab.uid);
         if (idx !== -1) {
           if (newCategory) {
             tabs[idx].aiData = {
@@ -230,13 +297,7 @@ const CategoryMenu = ({
   );
 };
 
-const ReasoningModal = ({
-  data,
-  onClose,
-}: {
-  data: any;
-  onClose: () => void;
-}) => {
+const ReasoningModal = ({ data, onClose }: ReasoningModalProps) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -290,7 +351,9 @@ const ReasoningModal = ({
             Sikkerhed:{" "}
             <span
               className={
-                data.confidence > 80 ? "text-green-400" : "text-yellow-400"
+                (data.confidence || 0) > 80
+                  ? "text-green-400"
+                  : "text-yellow-400"
               }
             >
               {data.confidence}%
@@ -311,7 +374,7 @@ const SettingsModal = ({
   onClose,
   activeProfile,
   setActiveProfile,
-}: any) => {
+}: SettingsModalProps) => {
   const [newProfileName, setNewProfileName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -749,8 +812,8 @@ const TabItem = React.memo(
     userCategories = [],
     onShowReasoning,
     onOpenMenu,
-  }: any) => {
-    const aiData = tab.aiData || {};
+  }: TabItemProps) => {
+    const aiData = tab.aiData || { status: "pending" };
     const isProcessing = aiData.status === "processing";
     const isPending = aiData.status === "pending";
     const categoryName = aiData.status === "completed" ? aiData.category : null;
@@ -813,11 +876,16 @@ const TabItem = React.memo(
           draggable={true}
           onDragStart={(e) => {
             e.dataTransfer.setData("nexus/tab", "true");
-            const tabData = {
+
+            // Safe cast to RuntimeTabData to check for runtime 'id'
+            const runtimeTab = tab as RuntimeTabData;
+            const runtimeId = runtimeTab.id;
+
+            const tabData: DraggedTabPayload = {
               ...tab,
-              id: tab.id,
+              id: runtimeId,
               uid: tab.uid || crypto.randomUUID(),
-              sourceWorkspaceId: sourceWorkspaceId,
+              sourceWorkspaceId: sourceWorkspaceId || "global",
             };
             console.log("🔥 [Drag Start]", tabData.title);
             window.sessionStorage.setItem(
@@ -849,10 +917,12 @@ const TabItem = React.memo(
                 };
 
                 try {
-                  // 1. GULD STANDARD: Forsøg specifikt ID først (Den helt rigtige fane)
-                  if (tab.id) {
+                  // 1. GULD STANDARD: Forsøg specifikt ID først
+                  const runtimeTab = tab as RuntimeTabData;
+                  const runtimeId = runtimeTab.id;
+                  if (runtimeId) {
                     const existing = await chrome.tabs
-                      .get(tab.id)
+                      .get(runtimeId)
                       .catch(() => null);
                     if (existing) {
                       await focusTab(existing);
@@ -982,7 +1052,7 @@ const TabItem = React.memo(
 // --- MAIN DASHBOARD COMPONENT ---
 
 export const Dashboard = () => {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfile, setActiveProfile] = useState<string>("");
   const [items, setItems] = useState<NexusItem[]>([]);
@@ -998,15 +1068,22 @@ export const Dashboard = () => {
     "folder" | "workspace" | "settings" | null
   >(null);
   const [modalParentId, setModalParentId] = useState<string>("root");
-  const [inboxData, setInboxData] = useState<any>(null);
+  const [inboxData, setInboxData] = useState<InboxData | null>(null);
   const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
-  const [activeMappings, setActiveMappings] = useState<any[]>([]);
+
+  // Tuple: [chromeWindowId, metadata]
+  const [activeMappings, setActiveMappings] = useState<
+    [number, WindowMapping][]
+  >([]);
+
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
   const [restorationStatus, setRestorationStatus] = useState<string | null>(
     null
   );
-  const [chromeWindows, setChromeWindows] = useState<any[]>([]);
+  const [chromeWindows, setChromeWindows] = useState<chrome.windows.Window[]>(
+    []
+  );
 
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
@@ -1035,9 +1112,9 @@ export const Dashboard = () => {
     userCategories: [],
   });
 
-  const [reasoningData, setReasoningData] = useState<any>(null);
+  const [reasoningData, setReasoningData] = useState<AiData | null>(null);
   const [menuData, setMenuData] = useState<{
-    tab: any;
+    tab: TabData;
     position: { x: number; y: number };
   } | null>(null);
 
@@ -1069,7 +1146,7 @@ export const Dashboard = () => {
   const aiGeneratedCategories = useMemo(() => {
     const uniqueAiCats = new Set<string>();
 
-    const scanTabs = (tabs: any[]) => {
+    const scanTabs = (tabs: TabData[]) => {
       tabs?.forEach((t) => {
         if (
           t.aiData?.status === "completed" &&
@@ -1105,18 +1182,36 @@ export const Dashboard = () => {
   const getFilteredInboxTabs = useCallback(
     (incognitoMode: boolean) => {
       if (!inboxData?.tabs) return [];
-      return inboxData.tabs.filter((t: any) =>
+      return inboxData.tabs.filter((t: TabData) =>
         incognitoMode ? t.isIncognito : !t.isIncognito
       );
     },
     [inboxData]
   );
 
-  const sortedWindows = useMemo(
-    () =>
-      [...windows].sort((a: any, b: any) => (a.index || 0) - (b.index || 0)),
-    [windows]
-  );
+  // Type-safe sorting of windows based on cache OR lastActive timestamp
+  const sortedWindows = useMemo(() => {
+    return [...windows].sort((a, b) => {
+      // 1. Check WindowOrderCache via selectedWorkspace ID
+      if (selectedWorkspace) {
+        const cached = windowOrderCache.get(selectedWorkspace.id);
+        if (cached) {
+          const indexA = cached.indices[a.id];
+          const indexB = cached.indices[b.id];
+          // If both have indices, sort by index
+          if (indexA !== undefined && indexB !== undefined) {
+            return indexA - indexB;
+          }
+        }
+      }
+
+      // 2. Fallback to lastActive (Timestamp compare)
+      // Safely access .toMillis() via optional chaining if Timestamp object exists
+      const timeA = a.lastActive ? a.lastActive.toMillis() : 0;
+      const timeB = b.lastActive ? b.lastActive.toMillis() : 0;
+      return timeA - timeB;
+    });
+  }, [windows, selectedWorkspace]);
 
   const totalTabsInSpace = useMemo(
     () => windows.reduce((acc, win) => acc + (win.tabs?.length || 0), 0),
@@ -1197,9 +1292,14 @@ export const Dashboard = () => {
     const unsubInbox = onSnapshot(
       doc(db, "users", user.uid, "inbox_data", "global"),
       (snap) => {
-        setInboxData(
-          snap.exists() ? { id: snap.id, ...snap.data() } : { tabs: [] }
-        );
+        if (snap.exists()) {
+          setInboxData({
+            id: snap.id,
+            ...(snap.data() as Omit<InboxData, "id">),
+          });
+        } else {
+          setInboxData({ id: "global", tabs: [] });
+        }
       }
     );
 
@@ -1251,8 +1351,11 @@ export const Dashboard = () => {
         );
         chrome.storage.local.get("nexus_active_windows", (data) => {
           if (data?.nexus_active_windows)
-            setActiveMappings(data.nexus_active_windows as any[]);
+            setActiveMappings(
+              data.nexus_active_windows as [number, WindowMapping][]
+            );
         });
+        // We cast the response because we don't control the sender here completely
         chrome.runtime.sendMessage({ type: "GET_RESTORING_STATUS" }, (res) =>
           setRestorationStatus(res || null)
         );
@@ -1260,18 +1363,28 @@ export const Dashboard = () => {
       }
     });
 
-    const messageListener = (msg: any) => {
+    // Typed message listener
+    const messageListener = (msg: DashboardMessage) => {
       if (msg.type === "RESTORATION_STATUS_CHANGE") {
-        setRestorationStatus(msg.payload || null);
+        setRestorationStatus(
+          typeof msg.payload === "string" ? msg.payload : null
+        );
       }
       if (msg.type === "PHYSICAL_WINDOWS_CHANGED") {
         refreshChromeWindows();
       }
     };
 
-    const storageListener = (changes: any, area: string) => {
+    const storageListener = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      area: string
+    ) => {
       if (area === "local" && changes.nexus_active_windows) {
-        setActiveMappings(changes.nexus_active_windows.newValue || []);
+        // Vi caster newValue eksplicit til den type, setActiveMappings forventer
+        const newMappings = changes.nexus_active_windows.newValue as
+          | [number, WindowMapping][]
+          | undefined;
+        setActiveMappings(newMappings || []);
       }
     };
 
@@ -1356,7 +1469,7 @@ export const Dashboard = () => {
 
       const tabJson = window.sessionStorage.getItem("draggedTab");
       if (!tabJson) return;
-      const tab = JSON.parse(tabJson);
+      const tab = JSON.parse(tabJson) as DraggedTabPayload;
 
       const targetWorkspaceId =
         targetItem === "global" ? "global" : targetItem.id;
@@ -1377,7 +1490,7 @@ export const Dashboard = () => {
       if (targetItem === "global") setIsInboxSyncing(true);
 
       try {
-        let targetMapping = null;
+        let targetMapping: [number, WindowMapping] | null | undefined = null;
         let targetWinId = "global";
 
         if (targetWorkspaceId !== "global") {
@@ -1489,7 +1602,7 @@ export const Dashboard = () => {
             if (snap.exists()) {
               batch.update(ref, {
                 tabs: (snap.data()?.tabs || []).filter(
-                  (t: any) => t.uid !== tab.uid
+                  (t: TabData) => t.uid !== tab.uid
                 ),
               });
             }
@@ -1507,7 +1620,7 @@ export const Dashboard = () => {
             if (snap.exists()) {
               batch.update(sourceRef, {
                 tabs: (snap.data()?.tabs || []).filter(
-                  (t: any) => t.uid !== tab.uid
+                  (t: TabData) => t.uid !== tab.uid
                 ),
               });
             }
@@ -1540,7 +1653,8 @@ export const Dashboard = () => {
       setDropTargetWinId(null);
       const tabJson = window.sessionStorage.getItem("draggedTab");
       if (!tabJson) return;
-      const tab = JSON.parse(tabJson);
+      const tab = JSON.parse(tabJson) as DraggedTabPayload;
+
       const sourceWorkspaceId =
         viewMode === "inbox" || viewMode === "incognito"
           ? "global"
@@ -1615,7 +1729,7 @@ export const Dashboard = () => {
           const sSnap = await getDoc(sourceRef);
           batch.update(sourceRef, {
             tabs: (sSnap.data()?.tabs || []).filter(
-              (t: any) => t.uid !== tab.uid
+              (t: TabData) => t.uid !== tab.uid
             ),
           });
 
@@ -1639,18 +1753,23 @@ export const Dashboard = () => {
   );
 
   const handleTabDelete = useCallback(
-    async (tab: any) => {
+    async (tab: TabData) => {
       if (confirm("Slet tab?")) {
         const sId =
           viewMode === "inbox" || viewMode === "incognito"
             ? "global"
             : selectedWindowId!;
+
+        // Safe check using RuntimeTabData intersection
+        const runtimeTab = tab as RuntimeTabData;
+        const tabIds = runtimeTab.id ? [runtimeTab.id] : [];
+
         chrome.runtime.sendMessage({
           type: "CLOSE_PHYSICAL_TABS",
           payload: {
             uids: [tab.uid],
             internalWindowId: sId,
-            tabIds: tab.id ? [tab.id] : [],
+            tabIds: tabIds,
           },
         });
         await NexusService.deleteTab(
@@ -1663,7 +1782,7 @@ export const Dashboard = () => {
     [viewMode, selectedWindowId, selectedWorkspace]
   );
 
-  const handleTabSelect = useCallback((tab: any) => {
+  const handleTabSelect = useCallback((tab: TabData) => {
     const idToSelect = tab.uid;
     setSelectedUrls((prev) =>
       prev.includes(idToSelect)
@@ -1673,12 +1792,12 @@ export const Dashboard = () => {
   }, []);
 
   const isViewingCurrent = activeMappings.some(
-    ([id, m]: any) =>
+    ([id, m]) =>
       id === currentWindowId && m.internalWindowId === selectedWindowId
   );
 
   const renderedTabs = useMemo(() => {
-    let list: any[] = [];
+    let list: TabData[] = [];
     if (viewMode === "incognito") list = getFilteredInboxTabs(true);
     else if (viewMode === "inbox") list = getFilteredInboxTabs(false);
     else list = windows.find((w) => w.id === selectedWindowId)?.tabs || [];
@@ -1688,7 +1807,7 @@ export const Dashboard = () => {
         ? "global"
         : selectedWorkspace?.id;
 
-    return list.map((tab: any, i: number) => (
+    return list.map((tab: TabData, i: number) => (
       <TabItem
         key={tab.uid || i}
         tab={tab}
@@ -1698,8 +1817,11 @@ export const Dashboard = () => {
         sourceWorkspaceId={sourceWSId}
         userCategories={aiSettings.userCategories}
         onShowReasoning={setReasoningData}
-        onOpenMenu={(e: MouseEvent, t: any) => {
-          setMenuData({ tab: t, position: { x: e.clientX, y: e.clientY } });
+        onOpenMenu={(e: React.MouseEvent, t: TabData) => {
+          setMenuData({
+            tab: t,
+            position: { x: e.clientX, y: e.clientY },
+          });
         }}
       />
     ));
@@ -1747,10 +1869,10 @@ export const Dashboard = () => {
               Åbne Vinduer
             </div>
             <div className="space-y-1.5">
-              {chromeWindows.map((cWin: any) => {
+              {chromeWindows.map((cWin) => {
                 const isCurrent = cWin.id === currentWindowId;
                 const mappingEntry = activeMappings.find(
-                  ([wId]) => parseInt(wId) === cWin.id
+                  ([wId]) => wId === cWin.id
                 );
                 const mapping = mappingEntry ? mappingEntry[1] : null;
 
@@ -2038,7 +2160,7 @@ export const Dashboard = () => {
                 setIsInboxDragOver(false);
                 setInboxDropStatus(null);
                 inboxDragCounter.current = 0;
-                const tab = JSON.parse(tJ);
+                const tab = JSON.parse(tJ) as DraggedTabPayload;
                 if (tab.sourceWorkspaceId !== "global" || tab.isIncognito)
                   handleSidebarTabDrop("global");
               } else handleTabDrop("global");
@@ -2292,7 +2414,7 @@ export const Dashboard = () => {
                       list =
                         windows.find((w) => w.id === selectedWindowId)?.tabs ||
                         [];
-                    const allU = list.map((t: any) => t.uid);
+                    const allU = list.map((t: TabData) => t.uid);
                     setSelectedUrls(
                       selectedUrls.length === allU.length ? [] : allU
                     );
@@ -2324,8 +2446,8 @@ export const Dashboard = () => {
                           },
                         });
                         if (viewMode === "inbox" || viewMode === "incognito") {
-                          const f = inboxData.tabs.filter(
-                            (t: any) => !selectedUrls.includes(t.uid)
+                          const f = (inboxData?.tabs || []).filter(
+                            (t: TabData) => !selectedUrls.includes(t.uid)
                           );
                           await updateDoc(
                             doc(db, "users", uid, "inbox_data", "global"),
@@ -2339,7 +2461,7 @@ export const Dashboard = () => {
                           );
                           if (w) {
                             const f = w.tabs.filter(
-                              (t: any) => !selectedUrls.includes(t.uid)
+                              (t: TabData) => !selectedUrls.includes(t.uid)
                             );
                             await updateDoc(
                               doc(
@@ -2380,16 +2502,16 @@ export const Dashboard = () => {
                           const snap = await getDoc(ref);
                           const allTabs = snap.data()?.tabs || [];
                           const tabsToDelete = allTabs.filter(
-                            (t: any) => !t.isIncognito
+                            (t: TabData) => !t.isIncognito
                           );
                           const tabsToKeep = allTabs.filter(
-                            (t: any) => t.isIncognito
+                            (t: TabData) => t.isIncognito
                           );
 
                           chrome.runtime.sendMessage({
                             type: "CLOSE_PHYSICAL_TABS",
                             payload: {
-                              uids: tabsToDelete.map((t: any) => t.uid),
+                              uids: tabsToDelete.map((t: TabData) => t.uid),
                               internalWindowId: "global",
                             },
                           });
@@ -2421,16 +2543,16 @@ export const Dashboard = () => {
                           const snap = await getDoc(ref);
                           const allTabs = snap.data()?.tabs || [];
                           const tabsToDelete = allTabs.filter(
-                            (t: any) => t.isIncognito
+                            (t: TabData) => t.isIncognito
                           );
                           const tabsToKeep = allTabs.filter(
-                            (t: any) => !t.isIncognito
+                            (t: TabData) => !t.isIncognito
                           );
 
                           chrome.runtime.sendMessage({
                             type: "CLOSE_PHYSICAL_TABS",
                             payload: {
-                              uids: tabsToDelete.map((t: any) => t.uid),
+                              uids: tabsToDelete.map((t: TabData) => t.uid),
                               internalWindowId: "global",
                             },
                           });

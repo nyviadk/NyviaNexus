@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback } from "react";
 import { Inbox as InboxIcon } from "lucide-react";
-import { ClaimModal } from "./ClaimModal";
+import { useCallback, useEffect, useState } from "react";
 import { NexusItem } from "../types";
+import { ClaimModal } from "./ClaimModal";
 
 interface Props {
   activeProfile: string;
@@ -9,22 +9,43 @@ interface Props {
   onRefresh: () => void;
 }
 
+// Discriminated Union for messages i denne komponent
+type InboxMessage =
+  | { type: "ACTIVE_MAPPINGS_UPDATED"; payload?: unknown }
+  | { type: "PHYSICAL_WINDOWS_CHANGED"; payload?: unknown }
+  | { type: "UNKNOWN"; payload?: unknown };
+
+// Typen for svaret fra GET_ACTIVE_MAPPINGS
+// Vi har kun brug for ID'et (index 0), metadata (index 1) er ligegyldigt her
+type MappingResponse = [number, unknown][];
+
 export const Inbox = ({ activeProfile, items, onRefresh }: Props) => {
-  const [unassignedWindows, setUnassignedWindows] = useState<any[]>([]);
+  const [unassignedWindows, setUnassignedWindows] = useState<
+    chrome.windows.Window[]
+  >([]);
   const [selectedWindowId, setSelectedWindowId] = useState<number | null>(null);
 
   // Denne funktion kører nu kun når den bliver bedt om det (Event driven)
   const checkUnsaved = useCallback(() => {
-    chrome.runtime.sendMessage({ type: "GET_ACTIVE_MAPPINGS" }, (response) => {
-      chrome.windows.getAll({ populate: true }, (windows) => {
-        const activeIds = new Set(response?.map((r: any) => r[0]));
-        // Filtrer vinduer der ikke er i mappings og som ikke er inkognito (gemmes manuelt)
-        const unsaved = windows.filter(
-          (w) => !activeIds.has(w.id) && w.type === "normal" && !w.incognito
-        );
-        setUnassignedWindows(unsaved);
-      });
-    });
+    chrome.runtime.sendMessage(
+      { type: "GET_ACTIVE_MAPPINGS" },
+      (response: MappingResponse) => {
+        chrome.windows.getAll({ populate: true }, (windows) => {
+          // response kan være undefined ved fejl/timeout, så vi defaulter til []
+          const activeIds = new Set((response || []).map((r) => r[0]));
+
+          // Filtrer vinduer der ikke er i mappings og som ikke er inkognito (gemmes manuelt)
+          const unsaved = windows.filter(
+            (w) =>
+              w.id !== undefined && // Vigtigt: Chrome vinduer kan teoretisk mangle ID
+              !activeIds.has(w.id) &&
+              w.type === "normal" &&
+              !w.incognito
+          );
+          setUnassignedWindows(unsaved);
+        });
+      }
+    );
   }, []);
 
   useEffect(() => {
@@ -32,7 +53,7 @@ export const Inbox = ({ activeProfile, items, onRefresh }: Props) => {
     checkUnsaved();
 
     // 2. Lyt på beskeder fra background scriptet
-    const messageListener = (msg: any) => {
+    const messageListener = (msg: InboxMessage) => {
       // Hvis mappings ændrer sig (f.eks. et vindue bliver claimed), tjek igen
       if (msg.type === "ACTIVE_MAPPINGS_UPDATED") {
         checkUnsaved();
@@ -65,11 +86,11 @@ export const Inbox = ({ activeProfile, items, onRefresh }: Props) => {
             className="text-xs bg-slate-800 p-2 rounded flex justify-between items-center group"
           >
             <span className="truncate">
-              Vindue {win.id} ({win.tabs?.length} tabs)
+              Vindue {win.id} ({win.tabs?.length || 0} tabs)
             </span>
             <button
-              onClick={() => setSelectedWindowId(win.id)}
-              className="bg-orange-600/20 text-orange-400 px-2 py-1 rounded hover:bg-orange-600 hover:text-white transition"
+              onClick={() => win.id && setSelectedWindowId(win.id)}
+              className="bg-orange-600/20 text-orange-400 px-2 py-1 rounded hover:bg-orange-600 hover:text-white transition cursor-pointer"
             >
               Claim
             </button>

@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import { Copy, ClipboardPaste, Check, MonitorX } from "lucide-react";
 import { LinkManager } from "../services/linkManager";
+import { TabData } from "@/types";
 
 interface WindowActionsProps {
-  tabs: any[];
+  tabs: TabData[]; // Bruger TabData fra types/interfaces
   isWindowOpen: boolean; // Den værdi har du allerede i dashboardet (activeMappings checket)
   onOpenPasteModal: () => void;
 }

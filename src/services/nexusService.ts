@@ -9,7 +9,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { NexusItem } from "../types";
+import { NexusItem, TabData } from "../types";
 
 // Hjælpefunktion til at hente nuværende bruger ID sikkert
 const getUid = () => {
@@ -131,7 +131,7 @@ export const NexusService = {
     });
   },
 
-  async deleteTab(tab: any, workspaceId: string, windowId: string) {
+  async deleteTab(tab: TabData, workspaceId: string, windowId: string) {
     const uid = getUid();
     console.log(
       `🗑️ [NexusService] deleteTab: ${tab.title} (UID: ${tab.uid}) fra ${workspaceId}/${windowId}`
@@ -155,7 +155,7 @@ export const NexusService = {
     const snap = await getDoc(ref);
     if (snap.exists()) {
       const tabs = (snap.data().tabs || []).filter(
-        (t: any) => t.uid !== tab.uid
+        (t: TabData) => t.uid !== tab.uid
       );
       await updateDoc(ref, { tabs });
       console.log("✅ [NexusService] Tab fjernet fra Firestore.");
@@ -163,7 +163,7 @@ export const NexusService = {
   },
 
   async moveTabBetweenWindows(
-    tab: any,
+    tab: TabData,
     sourceWorkspaceId: string,
     sourceWindowId: string,
     targetWorkspaceId: string,
@@ -196,7 +196,7 @@ export const NexusService = {
     if (sourceSnap.exists()) {
       const currentTabs = sourceSnap.data().tabs || [];
       const newSourceTabs = currentTabs.filter(
-        (t: any) => t.uid !== tabToMove.uid
+        (t: TabData) => t.uid !== tabToMove.uid
       );
       batch.update(sourceRef, { tabs: newSourceTabs });
     }
@@ -216,7 +216,7 @@ export const NexusService = {
     parentId: string;
     profileId: string;
     internalWindowId: string;
-    tabs: any[];
+    tabs: TabData[];
   }) {
     const uid = getUid();
     const batch = writeBatch(db);
@@ -246,7 +246,11 @@ export const NexusService = {
         "windows",
         data.internalWindowId
       ),
-      { tabs: tabsWithUid, lastActive: Date.now(), isActive: true }
+      {
+        tabs: tabsWithUid,
+        lastActive: Date.now(),
+        isActive: true,
+      }
     );
     return await batch.commit();
   },

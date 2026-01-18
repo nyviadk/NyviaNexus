@@ -1,8 +1,10 @@
+import { TabData } from "../types";
+
 export const LinkManager = {
   /**
    * Kopierer en liste af tabs til udklipsholderen som ren tekst (URL liste).
    */
-  async copyTabsToClipboard(tabs: any[]): Promise<number> {
+  async copyTabsToClipboard(tabs: TabData[]): Promise<number> {
     if (!tabs || tabs.length === 0) return 0;
 
     const textList = tabs
@@ -25,7 +27,7 @@ export const LinkManager = {
    * @param rawText Teksten der skal parses
    * @param uniqueOnly Hvis true, fjernes dubletter. Hvis false (default), tillades dubletter.
    */
-  parseAndCreateTabs(rawText: string, uniqueOnly: boolean = false): any[] {
+  parseAndCreateTabs(rawText: string, uniqueOnly: boolean = false): TabData[] {
     // Regex der fanger http/https URL'er.
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const foundUrls = rawText.match(urlRegex) || [];

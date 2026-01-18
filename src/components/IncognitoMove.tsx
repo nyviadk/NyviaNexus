@@ -1,8 +1,15 @@
-import { useEffect, useState } from "react";
 import { Send, ShieldAlert } from "lucide-react";
+import { useEffect, useState } from "react";
+
+// Definerer strukturen for et aktivt vindue/item som kommer fra parent
+export interface ActiveWindowItem {
+  workspaceId: string;
+  internalWindowId: string;
+  name: string;
+}
 
 interface Props {
-  activeItems: any[];
+  activeItems: ActiveWindowItem[];
 }
 
 export const IncognitoMove = ({ activeItems }: Props) => {
@@ -10,7 +17,8 @@ export const IncognitoMove = ({ activeItems }: Props) => {
 
   useEffect(() => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]?.incognito) {
+      // Vi tjekker specifikt index 0 og om incognito er true
+      if (tabs[0] && tabs[0].incognito) {
         setCurrentTab(tabs[0]);
       }
     });
@@ -28,10 +36,14 @@ export const IncognitoMove = ({ activeItems }: Props) => {
           targetInternalWindowId: internalWindowId,
         },
       },
-      () => window.close()
+      () => {
+        // Luk popup vinduet efter afsendelse
+        window.close();
+      }
     );
   };
 
+  // Vis intet hvis vi ikke er i incognito eller tabben ikke er fundet
   if (!currentTab) return null;
 
   return (
@@ -44,11 +56,16 @@ export const IncognitoMove = ({ activeItems }: Props) => {
           <button
             key={item.internalWindowId}
             onClick={() => moveTab(item.workspaceId, item.internalWindowId)}
-            className="bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white px-2 py-1 rounded text-[10px] transition"
+            className="bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white px-2 py-1 rounded text-[10px] transition flex items-center cursor-pointer"
           >
-            <Send size={10} className="inline mr-1" /> {item.name}
+            <Send size={10} className="mr-1" /> {item.name}
           </button>
         ))}
+        {activeItems.length === 0 && (
+          <span className="text-[10px] text-purple-500/50 italic">
+            Ingen aktive workspaces fundet.
+          </span>
+        )}
       </div>
     </div>
   );

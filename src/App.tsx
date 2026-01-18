@@ -1,4 +1,4 @@
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, User } from "firebase/auth";
 import { collection, onSnapshot } from "firebase/firestore";
 import {
   FolderPlus,
@@ -8,7 +8,7 @@ import {
   RefreshCw,
   RotateCw,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { CreateItemModal } from "./components/CreateItemModal";
 import { Inbox } from "./components/Inbox";
 import { LoginForm } from "./components/LoginForm";
@@ -16,16 +16,34 @@ import { SidebarItem } from "./components/SidebarItem";
 import { auth, db } from "./lib/firebase";
 import { NexusItem, Profile } from "./types";
 
+// --- TYPES ---
+
+// Strukturen af data fra Background Script (Value i Map)
+interface BackgroundMappingData {
+  workspaceId: string;
+  internalWindowId: string;
+  workspaceName: string;
+  index: number;
+}
+
+// Strukturen vi bruger i UI (fladet ud med windowId)
+interface ActiveMapping extends BackgroundMappingData {
+  windowId: number;
+}
+
 export default function App() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfile, setActiveProfile] = useState<string>("");
   const [items, setItems] = useState<NexusItem[]>([]);
-  const [activeMappings, setActiveMappings] = useState<any[]>([]);
+
+  const [activeMappings, setActiveMappings] = useState<ActiveMapping[]>([]);
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
+
   const [modalType, setModalType] = useState<"folder" | "workspace" | null>(
     null
   );
+
   // Vi bruger disse dummies til SidebarItem da DnD er begrænset i popup
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
@@ -87,13 +105,19 @@ export default function App() {
 
     // 2. Mapping Polling (Henter data fra Background Script/Storage)
     const fetchMappings = () => {
-      chrome.runtime.sendMessage({ type: "GET_ACTIVE_MAPPINGS" }, (m) => {
-        if (m && Array.isArray(m)) {
-          setActiveMappings(
-            m.map(([id, map]: any) => ({ windowId: id, ...map }))
-          );
+      chrome.runtime.sendMessage(
+        { type: "GET_ACTIVE_MAPPINGS" },
+        (response: [number, BackgroundMappingData][]) => {
+          if (response && Array.isArray(response)) {
+            // Transform tuple [id, data] -> { windowId: id, ...data }
+            const mapped: ActiveMapping[] = response.map(([id, data]) => ({
+              windowId: id,
+              ...data,
+            }));
+            setActiveMappings(mapped);
+          }
         }
-      });
+      );
     };
 
     fetchMappings();
@@ -131,8 +155,10 @@ export default function App() {
           </button>
           <select
             value={activeProfile}
-            onChange={(e) => setActiveProfile(e.target.value)}
-            className="bg-slate-800 text-sm p-1.5 rounded-lg border border-slate-700 outline-none text-white focus:border-blue-500 transition-colors max-w-30"
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+              setActiveProfile(e.target.value)
+            }
+            className="bg-slate-800 text-sm p-1.5 rounded-lg border border-slate-700 outline-none text-white focus:border-blue-500 transition-colors max-w-30 cursor-pointer"
           >
             {profiles.map((p: Profile) => (
               <option key={p.id} value={p.id}>
@@ -150,7 +176,7 @@ export default function App() {
                   payload: { windowId: currentWindowId },
                 })
               }
-              className="p-1 text-orange-400 hover:text-orange-300 hover:bg-orange-900/20 rounded transition"
+              className="p-1 text-orange-400 hover:text-orange-300 hover:bg-orange-900/20 rounded transition cursor-pointer"
               title="Tving Synkronisering"
             >
               <RotateCw size={18} />
@@ -158,14 +184,14 @@ export default function App() {
           )}
           <button
             onClick={() => window.location.reload()}
-            className="p-1 text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded transition"
+            className="p-1 text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded transition cursor-pointer"
             title="Genindlæs Popup"
           >
             <RefreshCw size={18} />
           </button>
           <button
             onClick={() => auth.signOut()}
-            className="p-1 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded transition"
+            className="p-1 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded transition cursor-pointer"
             title="Log ud"
           >
             <LogOut size={18} />
@@ -199,14 +225,14 @@ export default function App() {
             <div className="flex gap-1">
               <button
                 onClick={() => setModalType("folder")}
-                className="p-1 text-slate-500 hover:text-white hover:bg-slate-800 rounded transition"
+                className="p-1 text-slate-500 hover:text-white hover:bg-slate-800 rounded transition cursor-pointer"
                 title="Ny Mappe"
               >
                 <FolderPlus size={16} />
               </button>
               <button
                 onClick={() => setModalType("workspace")}
-                className="p-1 text-slate-500 hover:text-white hover:bg-slate-800 rounded transition"
+                className="p-1 text-slate-500 hover:text-white hover:bg-slate-800 rounded transition cursor-pointer"
                 title="Nyt Space"
               >
                 <PlusCircle size={16} />
