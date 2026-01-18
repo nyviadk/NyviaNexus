@@ -163,10 +163,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               return (
                 <div
                   key={cWin.id}
-                  className={`flex items-center justify-between p-2 rounded-lg text-xs ${
+                  onClick={() => {
+                    // Hvis det ikke er det nuværende vindue, og ID findes, fokuser det
+                    if (!isCurrent && cWin.id) {
+                      chrome.windows.update(cWin.id, { focused: true });
+                    }
+                  }}
+                  className={`flex items-center justify-between p-2 rounded-lg text-xs transition-colors ${
                     isCurrent
-                      ? "bg-green-500/10 border border-green-500/30"
-                      : "bg-slate-700/30 border border-transparent"
+                      ? "bg-green-500/10 border border-green-500/30 cursor-default"
+                      : "bg-slate-700/30 border border-transparent cursor-pointer hover:bg-slate-700"
                   }`}
                 >
                   <div className="flex flex-col truncate min-w-0">
