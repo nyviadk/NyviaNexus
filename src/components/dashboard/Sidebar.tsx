@@ -11,6 +11,7 @@ import {
   PlusCircle,
   Settings,
   VenetianMask,
+  XCircle,
 } from "lucide-react";
 import { auth, db } from "../../lib/firebase";
 import { doc, writeBatch } from "firebase/firestore";
@@ -96,13 +97,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     [inboxData]
   );
 
-  // Find det element der trækkes for at validere "Move to root"
+  // Find det element der trækkes for at validere "Move to root" og fejlbeskeder
   const draggedItem = useMemo(
     () => (activeDragId ? items.find((i) => i.id === activeDragId) : null),
     [activeDragId, items]
   );
 
-  // Check om elementet allerede er i rod-niveau
   const isAlreadyAtRoot = draggedItem?.parentId === "root";
 
   return (
@@ -268,7 +268,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <nav className="space-y-4">
-          {/* Kun vis "Flyt til rod" hvis vi trækker noget, der ikke allerede er i rod */}
           {activeDragId && !isAlreadyAtRoot && (
             <div
               onDragOver={(e) => e.preventDefault()}
@@ -400,9 +399,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <nav
           onDragOver={(e) => {
             e.preventDefault();
+
+            // Logik: Hvis vi har et activeDragId, blokerer vi for drop i Inbox.
+            if (activeDragId) {
+              setInboxDropStatus("invalid");
+              return;
+            }
+
             const tJ = window.sessionStorage.getItem("draggedTab");
             if (tJ) {
               const tab = JSON.parse(tJ) as DraggedTabPayload;
+              // Tabs kan flyttes til inbox hvis de kommer fra et andet space
               setInboxDropStatus(
                 tab.sourceWorkspaceId !== "global" || tab.isIncognito
                   ? "valid"
@@ -423,6 +430,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }}
           onDrop={async (e) => {
             e.preventDefault();
+
+            // Stop hvis det er et Space/Mappe der prøves droppet
+            if (activeDragId) {
+              setIsInboxDragOver(false);
+              setInboxDropStatus(null);
+              inboxDragCounter.current = 0;
+              return;
+            }
+
             const tJ = window.sessionStorage.getItem("draggedTab");
             setIsInboxDragOver(false);
             setInboxDropStatus(null);
@@ -441,10 +457,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               setIsInboxSyncing(false);
             }
           }}
+          className="group"
         >
-          <label className="text-[10px] font-bold text-slate-400 uppercase px-2 mb-2 block tracking-widest">
+          <label className="text-[10px] font-bold text-slate-400 uppercase px-2 mb-2 block tracking-widest transition-colors group-hover:text-slate-300">
             Opsamling
           </label>
+
           <div
             onClick={() => {
               setSelectedWorkspace(null);
@@ -453,8 +471,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all border mb-2 ${
               viewMode === "inbox"
                 ? "bg-orange-600/20 text-orange-400 border-orange-500/50 shadow-lg"
-                : inboxDropStatus === "valid"
-                ? "bg-emerald-900/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)] scale-[1.02]"
+                : inboxDropStatus === "invalid" && isInboxDragOver
+                ? "bg-red-900/20 border-red-500/50 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)] scale-[0.98]"
+                : inboxDropStatus === "valid" && isInboxDragOver
+                ? "bg-emerald-900/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)] scale-[1.02] text-emerald-400"
                 : isInboxDragOver
                 ? "bg-slate-700 border-slate-500 text-slate-200"
                 : "hover:bg-slate-700 text-slate-400 border-transparent"
@@ -462,11 +482,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             {isInboxSyncing ? (
               <Loader2 size={20} className="animate-spin text-blue-400" />
+            ) : inboxDropStatus === "invalid" && isInboxDragOver ? (
+              <XCircle size={20} className="text-red-500" />
             ) : (
               <InboxIcon size={20} />
             )}
-            <span>Inbox ({getFilteredInboxTabs(false).length})</span>
+            <span className="font-medium">
+              {inboxDropStatus === "invalid" && isInboxDragOver
+                ? `Kan ikke flytte ${
+                    draggedItem?.type === "folder" ? "mappe" : "Space"
+                  } hertil`
+                : `Inbox (${getFilteredInboxTabs(false).length})`}
+            </span>
           </div>
+
           <div
             onClick={() => {
               setSelectedWorkspace(null);
@@ -475,6 +504,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all border ${
               viewMode === "incognito"
                 ? "bg-purple-900/40 text-purple-400 border-purple-500/50 shadow-lg"
+                : inboxDropStatus === "invalid" && isInboxDragOver
+                ? "opacity-30 grayscale cursor-not-allowed"
                 : "hover:bg-slate-700 text-slate-400 border-transparent"
             }`}
           >
@@ -490,7 +521,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         <button
           onClick={() => auth.signOut()}
-          className="flex items-center gap-2 text-slate-500 hover:text-red-500 cursor-pointer"
+          className="flex items-center gap-2 text-slate-500 hover:text-red-500 cursor-pointer transition-colors"
         >
           <LogOut size={20} /> Log ud
         </button>
