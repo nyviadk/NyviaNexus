@@ -40,6 +40,7 @@ export const useTabActions = (
       return {
         ...tab,
         aiData: { status: "pending" } as AiData,
+        isIncognito: false,
       };
     }
     return tab;
