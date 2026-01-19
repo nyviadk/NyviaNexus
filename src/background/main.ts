@@ -181,6 +181,27 @@ function updateRestorationStatus(status: string) {
   broadcast("RESTORATION_STATUS_CHANGE", status);
 }
 
+/**
+ * Konverterer sikkert Firestore Timestamp (eller lignende objekter fra cache) til millisekunder.
+ */
+function getTimestampMillis(
+  ts: Timestamp | { seconds: number; nanoseconds: number } | undefined | null
+): number {
+  if (!ts) return 0;
+
+  // Hvis det er et ægte Timestamp objekt med toMillis metoden
+  if ("toMillis" in ts && typeof ts.toMillis === "function") {
+    return ts.toMillis();
+  }
+
+  // Hvis det er et fladt objekt (fra storage eller JSON)
+  if ("seconds" in ts && typeof ts.seconds === "number") {
+    return ts.seconds * 1000;
+  }
+
+  return 0;
+}
+
 // --- PERSISTENCE HELPERS ---
 
 async function saveTrackerToStorage() {
@@ -1516,9 +1537,10 @@ async function handleOpenWorkspace(
   name: string
 ) {
   // 1. SORTERING: Her sikrer vi os, at vi arbejder med den rigtige rækkefølge fra start
+  // 1. SORTERING: Her bruger vi getTimestampMillis for at undgå prototype-fejlen
   const sorted = [...windowsToOpen].sort((a, b) => {
-    const tA = a.createdAt?.toMillis() || 0;
-    const tB = b.createdAt?.toMillis() || 0;
+    const tA = getTimestampMillis(a.createdAt);
+    const tB = getTimestampMillis(b.createdAt);
     return tA - tB;
   });
 
