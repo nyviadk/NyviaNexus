@@ -74,6 +74,7 @@ interface StorageResponse {
   nexus_ai_lock?: LockData;
   nexus_ai_last_call?: number;
   nexus_active_windows?: [number, WinMapping][];
+  nexus_tab_tracker?: [number, TrackerData][]; // NY: Gemmer trackeren
   [key: string]: unknown; // Fallback for andre nøgler, men typesafe som unknown
 }
 
@@ -164,6 +165,7 @@ let tabTracker = new Map<number, TrackerData>();
 const AI_STORAGE_KEY = "nexus_ai_queue";
 const AI_LOCK_KEY = "nexus_ai_lock";
 const AI_LAST_CALL_KEY = "nexus_ai_last_call";
+const TRACKER_STORAGE_KEY = "nexus_tab_tracker";
 
 const isDash = (url?: string) => url?.includes("dashboard.html");
 
@@ -178,23 +180,47 @@ function updateRestorationStatus(status: string) {
   broadcast("RESTORATION_STATUS_CHANGE", status);
 }
 
+// --- PERSISTENCE HELPERS ---
+
+async function saveTrackerToStorage() {
+  try {
+    const serialized = Array.from(tabTracker.entries());
+    await chrome.storage.local.set({ [TRACKER_STORAGE_KEY]: serialized });
+  } catch (e) {
+    console.warn("Failed to save tab tracker", e);
+  }
+}
+
 // --- CRITICAL: STATE HYDRATION & CLEANUP ---
 
 // Denne funktion køres ved opstart af Chrome eller Service Worker.
-// Den fjerner "Spøgelses-vinduer" fra vores records.
+// Den fjerner "Spøgelses-vinduer" og sikrer at tabTracker er up-to-date.
 async function validateAndCleanupState() {
-  console.log("🧹 Running Startup Cleanup...");
+  console.log("🧹 Running Startup Cleanup, Hydration & Discovery...");
 
   // Auth check nødvendigt for database oprydning
   const uid = auth.currentUser?.uid;
 
   try {
-    // 1. Hent gemte mappings
-    const data = (await chrome.storage.local.get(
-      "nexus_active_windows"
-    )) as StorageResponse;
-    let storedMappings: [number, WinMapping][] = [];
+    // 1. Hent gemte mappings OG tab tracker
+    const data = (await chrome.storage.local.get([
+      "nexus_active_windows",
+      TRACKER_STORAGE_KEY,
+    ])) as StorageResponse;
 
+    // --- 1.1 HYDRATE TAB TRACKER ---
+    if (data[TRACKER_STORAGE_KEY] && Array.isArray(data[TRACKER_STORAGE_KEY])) {
+      tabTracker.clear();
+      data[TRACKER_STORAGE_KEY].forEach(([tabId, trackerData]) => {
+        tabTracker.set(tabId, trackerData);
+      });
+      console.log(
+        `📥 Hydrated Tab Tracker from Storage: ${tabTracker.size} tabs`
+      );
+    }
+
+    // --- 1.2 HYDRATE WINDOWS ---
+    let storedMappings: [number, WinMapping][] = [];
     if (
       data?.nexus_active_windows &&
       Array.isArray(data.nexus_active_windows)
@@ -202,19 +228,70 @@ async function validateAndCleanupState() {
       storedMappings = data.nexus_active_windows;
     }
 
+    // --- 1.3 CLEANUP STALE TABS (Slet spøgelses-tabs) ---
+    // Vi tjekker om fanerne i trackeren rent faktisk eksisterer i browseren.
+    if (tabTracker.size > 0) {
+      const allTabs = await chrome.tabs.query({});
+      // Opret et map for hurtigt opslag af fysiske tabs: tabId -> url
+      const physicalTabsMap = new Map<number, string>();
+      allTabs.forEach((t) => {
+        if (t.id) physicalTabsMap.set(t.id, t.url || "");
+      });
+
+      const deadTabIds: number[] = [];
+      let trackerDirty = false;
+
+      for (const [trackedTabId, trackedData] of tabTracker.entries()) {
+        // A) Tjek om fanen er død (lukket mens extension sov)
+        if (!physicalTabsMap.has(trackedTabId)) {
+          console.log(
+            `👻 Found Ghost Tab (Closed while sleeping): ID ${trackedTabId}`
+          );
+          deadTabIds.push(trackedTabId);
+        }
+        // B) Tjek om URL har ændret sig mens vi sov
+        else {
+          const actualUrl = physicalTabsMap.get(trackedTabId);
+          if (
+            actualUrl &&
+            actualUrl !== trackedData.url &&
+            !isDash(actualUrl)
+          ) {
+            console.log(
+              `🔀 URL mismatch for tab ${trackedTabId}. Updating tracker.`
+            );
+            tabTracker.set(trackedTabId, { ...trackedData, url: actualUrl });
+            trackerDirty = true;
+          }
+        }
+      }
+
+      // Slet døde faner fra Firestore (via vores helper)
+      if (deadTabIds.length > 0) {
+        await handleClosePhysicalTabs([], deadTabIds);
+      } else if (trackerDirty) {
+        // Hvis vi kun opdaterede URLs, skal vi huske at gemme trackeren
+        await saveTrackerToStorage();
+      }
+    }
+
     if (storedMappings.length === 0) {
       activeWindows.clear();
-      if (uid) await rebuildTabTracker(); // Ensure tracker runs even if empty (requires UID)
+      // Hvis vi ikke har nogen gemte vinduer, men auth findes, så kør en fuld rebuild for en sikkerheds skyld
+      if (uid && tabTracker.size === 0) await rebuildTabTracker();
       return;
     }
 
+    // --- 1.4 CLEANUP STALE WINDOWS ---
     // 2. Hent alle FYSISKE vinduer lige nu
     const physicalWindows = await chrome.windows.getAll();
     const physicalIds = new Set(physicalWindows.map((w) => w.id));
 
     const validMappings: [number, WinMapping][] = [];
-
     let dirty = false;
+
+    // Opdater activeWindows map
+    activeWindows.clear();
 
     for (const [winId, mapping] of storedMappings) {
       // Hvis vinduet fysisk findes, beholder vi det
@@ -267,12 +344,31 @@ async function validateAndCleanupState() {
       activeWindows.clear();
       storedMappings.forEach(([id, map]) => activeWindows.set(id, map));
     }
+
+    // --- 1.5 REBUILD & DISCOVER (Self-Healing) ---
+    // Dette sikrer at hvis nye tabs er opstået mens vi sov, bliver de opdaget.
+    if (uid) {
+      // Først prøver vi at matche fysiske tabs med eksisterende Firestore data (via URL)
+      // Dette forhindrer dubletter
+      await rebuildTabTracker();
+
+      // Nu scanner vi alle vinduer for at fange faner, der STADIG ikke er tracket (dvs. helt nye)
+      console.log("🔍 Scanning for untracked/new tabs...");
+      for (const win of physicalWindows) {
+        if (!win.id) continue;
+
+        if (activeWindows.has(win.id)) {
+          // Dette er et Workspace-vindue -> Force Sync (Opdaterer Firestore med nye tabs)
+          await saveToFirestore(win.id, false, true);
+        } else {
+          // Dette er et Inbox-vindue -> Scan for nye tabs til Inbox
+          await registerNewInboxWindow(win.id);
+        }
+      }
+    }
   } catch (err) {
     console.error("🔥 CRITICAL ERROR during cleanup:", err);
   } finally {
-    // 5. VIGTIGT: Rebuild altid tab tracker, selv hvis cleanup fejler delvist
-    if (uid) await rebuildTabTracker();
-
     // 6. KICKSTART AI QUEUE: Hvis der ligger opgaver fra et tidligere crash/offline periode
     processAiQueue();
   }
@@ -297,28 +393,24 @@ async function ensureStateHydrated() {
           await chrome.windows.get(winId);
           activeWindows.set(winId, mapping);
         } catch (e) {
-          // Vinduet findes ikke fysisk. Forsøg at markere inaktivt, men fail silent.
-          const uid = auth.currentUser?.uid;
-          if (uid) {
-            const docRef = doc(
-              db,
-              "users",
-              uid,
-              "workspaces_data",
-              mapping.workspaceId,
-              "windows",
-              mapping.internalWindowId
-            );
-            // Brug catch til at ignorere "No document to update"
-            updateDoc(docRef, { isActive: false }).catch((error: unknown) => {
-              const fwErr = error as { code?: string };
-              console.log(
-                "Hydration cleanup skipped (doc likely deleted):",
-                fwErr?.code
-              );
-            });
-          }
+          // BEMÆRK: Vi gør bevidst INTET her (fail silent).
+          // Vi lader 'validateAndCleanupState' om at håndtere døde vinduer og Firestore cleanup.
+          // Det forhindrer race-conditions og gør UI hurtigere.
         }
+      }
+    }
+    // Sørg også for at trackeren er indlæst hvis den mangler
+    if (tabTracker.size === 0) {
+      const tData = (await chrome.storage.local.get(
+        TRACKER_STORAGE_KEY
+      )) as StorageResponse;
+      if (
+        tData[TRACKER_STORAGE_KEY] &&
+        Array.isArray(tData[TRACKER_STORAGE_KEY])
+      ) {
+        tData[TRACKER_STORAGE_KEY].forEach(([tabId, trackerData]) => {
+          tabTracker.set(tabId, trackerData);
+        });
       }
     }
   } catch (e) {
@@ -356,9 +448,11 @@ async function rebuildTabTracker() {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
 
+  // Vi rydder IKKE tabTracker her, da vi nu bruger persistence.
+  // Vi supplerer kun trackeren med URL-matching, hvis der mangler data.
+
   try {
-    console.log("🔄 Rebuilding Tab Tracker...");
-    tabTracker.clear(); // Start fresh to avoid ghost UIDs
+    console.log("🔄 Rebuilding Tab Tracker via URL matching (Fallback)...");
 
     const allWindows = await chrome.windows.getAll();
     const unmappedWindows = allWindows.filter(
@@ -378,6 +472,9 @@ async function rebuildTabTracker() {
         const tabs = await chrome.tabs.query({ windowId: w.id });
         for (const t of tabs) {
           if (t.id && t.url && !isDash(t.url) && !t.url.startsWith("chrome")) {
+            // Spring over hvis vi allerede kender denne tabId
+            if (tabTracker.has(t.id)) continue;
+
             const matchIndex = availableDbTabs.findIndex(
               (dt) => dt.url === t.url && dt.isIncognito === t.incognito
             );
@@ -418,6 +515,9 @@ async function rebuildTabTracker() {
             const tabs = await chrome.tabs.query({ windowId: winId });
             for (const t of tabs) {
               if (t.id && t.url && !isDash(t.url)) {
+                // Spring over hvis vi allerede kender denne tabId
+                if (tabTracker.has(t.id)) continue;
+
                 const matchIndex = availableDbTabs.findIndex(
                   (dt) => dt.url === t.url
                 );
@@ -440,7 +540,11 @@ async function rebuildTabTracker() {
         console.warn(`Could not read workspace data for window ${winId}`, err);
       }
     }
-    console.log(`✅ Tab Tracker Rebuilt. Tracking ${tabTracker.size} tabs.`);
+    // Husk at gemme det vi har fundet (merged)
+    await saveTrackerToStorage();
+    console.log(
+      `✅ Tab Tracker Rebuilt/Merged. Tracking ${tabTracker.size} tabs.`
+    );
   } catch (e) {
     console.error("Error rebuilding tab tracker:", e);
   }
@@ -699,12 +803,14 @@ function getOrAssignUid(tabId: number, url: string): string {
   if (tracked) {
     if (tracked.url !== url) {
       tabTracker.set(tabId, { uid: tracked.uid, url });
+      saveTrackerToStorage(); // GEM ÆNDRING
     }
     return tracked.uid;
   }
 
   const newUid = crypto.randomUUID();
   tabTracker.set(tabId, { uid: newUid, url });
+  saveTrackerToStorage(); // GEM ÆNDRING
   console.log(`🔥 Assigned NEW UID for tab ${tabId}: ${newUid}`);
   return newUid;
 }
@@ -1015,10 +1121,14 @@ chrome.tabs.onRemoved.addListener(async (tabId, info) => {
 
   const tracked = tabTracker.get(tabId);
   tabTracker.delete(tabId);
+  saveTrackerToStorage(); // GEM ÆNDRING
 
   if (activeWindows.has(info.windowId)) {
     if (!info.isWindowClosing) saveToFirestore(info.windowId, true);
   } else {
+    // Dette er den vigtige del for Inbox.
+    // Hvis 'tracked' var undefined pga. reload (før), fejlede dette.
+    // Nu er tracked hydreret fra storage.
     if (tracked && !info.isWindowClosing) {
       const inboxRef = doc(db, "users", uid, "inbox_data", "global");
       try {
@@ -1357,6 +1467,10 @@ chrome.runtime.onMessage.addListener(
         sendResponse({ success: false });
         return false;
       }
+      case "MOVE_INCOGNITO_TAB": {
+        // Håndter flytning af incognito tabs hvis nødvendigt
+        return true;
+      }
       default:
         return false;
     }
@@ -1368,11 +1482,17 @@ chrome.runtime.onMessage.addListener(
 async function handleClosePhysicalTabs(uids: string[], tabIds?: number[]) {
   if (tabIds && tabIds.length > 0) {
     await chrome.tabs.remove(tabIds).catch((e) => console.warn(e));
-    tabIds.forEach((tid) => tabTracker.delete(tid));
+    tabIds.forEach((tid) => {
+      tabTracker.delete(tid);
+    });
+    saveTrackerToStorage();
     return;
   }
+
   if (!uids || uids.length === 0) return;
+
   const tabsToRemove: number[] = [];
+
   for (const [chromeTabId, data] of tabTracker.entries()) {
     if (uids.includes(data.uid)) {
       try {
@@ -1383,6 +1503,7 @@ async function handleClosePhysicalTabs(uids: string[], tabIds?: number[]) {
       }
     }
   }
+
   if (tabsToRemove.length > 0) {
     await chrome.tabs.remove(tabsToRemove).catch(() => {});
   }
@@ -1460,6 +1581,7 @@ async function handleOpenSpecificWindow(
             tabIndex++;
           }
         }
+        saveTrackerToStorage();
       }
       const mapping = {
         workspaceId,
@@ -1481,9 +1603,6 @@ async function handleOpenSpecificWindow(
   }
 }
 
-/**
- * Hjælper til at fjerne en fane fra enten Inbox eller et specifikt vindue i et workspace
- */
 async function removeTabFromFirestoreSource(
   uid: string,
   tabUid: string,
@@ -1504,7 +1623,6 @@ async function removeTabFromFirestoreSource(
         }
       }
     } else {
-      // Søg i alle vinduer i det pågældende workspace
       const windowsSnap = await getDocs(
         collection(
           db,
@@ -1575,11 +1693,13 @@ async function handleCreateNewWindowInWorkspace(
           uid: initialTab.uid,
           url: initialTab.url,
         });
+        saveTrackerToStorage();
 
         // Luk den gamle fysiske fane (hvis den er åben i et andet vindue)
         if (initialTab.id) {
           chrome.tabs.remove(initialTab.id).catch(() => {});
           tabTracker.delete(initialTab.id);
+          saveTrackerToStorage();
         }
 
         // Rens Firestore source
