@@ -8,6 +8,7 @@ import {
   query,
   orderBy,
   limit,
+  updateDoc,
 } from "firebase/firestore";
 import { useCallback } from "react";
 import { auth, db } from "../lib/firebase";
@@ -129,6 +130,36 @@ export const useTabActions = (
               internalWindowId: "global",
             },
           });
+        }
+
+        // --- ⚡ QUICK-FLIP LOGIK (Incognito -> Inbox i Global) ---
+        // Vi bruger updateDoc direkte for at undgå manglende metode i NexusService
+        if (
+          sourceWorkspaceId === "global" &&
+          targetWorkspaceId === "global" &&
+          draggedTab.isIncognito
+        ) {
+          setIsProcessingMove(true);
+          try {
+            const globalRef = doc(db, "users", uid, "inbox_data", "global");
+            const snap = await getDoc(globalRef);
+
+            if (snap.exists()) {
+              const tabs = (snap.data().tabs || []) as TabData[];
+              const updatedTabs = tabs.map((t) =>
+                t.uid === draggedTab.uid ? { ...t, isIncognito: false } : t
+              );
+
+              await updateDoc(globalRef, { tabs: updatedTabs });
+            }
+            return;
+          } catch (e) {
+            console.error("❌ Quick-flip failed:", e);
+          } finally {
+            setIsProcessingMove(false);
+            window.sessionStorage.removeItem("draggedTab");
+          }
+          return;
         }
 
         // --- 2. EXECUTE MOVE LOGIC ---
