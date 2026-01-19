@@ -14,11 +14,6 @@ export interface DraggedTabPayload extends RuntimeTabData {
   sourceWorkspaceId: string;
 }
 
-export interface WindowMapping {
-  workspaceId: string;
-  internalWindowId: string;
-}
-
 export interface InboxData {
   id: string;
   tabs: TabData[];

@@ -23,7 +23,7 @@ import { AiService } from "../services/aiService";
 import { LinkManager } from "../services/linkManager";
 
 // Types
-import { AiData } from "@/background/main";
+import { AiData, WinMapping } from "@/background/main";
 import {
   AiSettings,
   NexusItem,
@@ -31,7 +31,7 @@ import {
   UserCategory,
   WorkspaceWindow,
 } from "../types";
-import { DashboardMessage, WindowMapping } from "./types";
+import { DashboardMessage } from "./types";
 
 // Utils
 import { windowOrderCache } from "./utils";
@@ -55,9 +55,9 @@ export const Dashboard = () => {
 
   const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
-  const [activeMappings, setActiveMappings] = useState<
-    [number, WindowMapping][]
-  >([]);
+  const [activeMappings, setActiveMappings] = useState<[number, WinMapping][]>(
+    []
+  );
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
   const [restorationStatus, setRestorationStatus] = useState<string | null>(
     null
@@ -127,31 +127,22 @@ export const Dashboard = () => {
   );
 
   const sortedWindows = useMemo(() => {
-    // Helper function til sikkert at hente tid uden 'any'
-    const getTime = (lastActive: WorkspaceWindow["lastActive"]) => {
-      if (!lastActive) return 0;
-      if (typeof (lastActive as any).toMillis === "function")
-        return (lastActive as any).toMillis();
-      if (typeof (lastActive as any).seconds === "number")
-        return (lastActive as any).seconds * 1000;
+    const getTime = (timestamp: any) => {
+      if (!timestamp) return 0;
+      if (typeof timestamp.toMillis === "function") return timestamp.toMillis();
+      if (typeof timestamp.seconds === "number")
+        return timestamp.seconds * 1000;
       return 0;
     };
 
     return [...windows].sort((a, b) => {
-      if (selectedWorkspace) {
-        const cached = windowOrderCache.get(selectedWorkspace.id);
-        if (cached) {
-          const indexA = cached.indices[a.id];
-          const indexB = cached.indices[b.id];
-          if (indexA !== undefined && indexB !== undefined)
-            return indexA - indexB;
-        }
-      }
-      const timeA = getTime(a.lastActive);
-      const timeB = getTime(b.lastActive);
-      return timeA - timeB;
+      // 1. Prioritet: Persistent rækkefølge (createdAt)
+      const createA = getTime(a.createdAt);
+      const createB = getTime(b.createdAt);
+
+      return createA - createB;
     });
-  }, [windows, selectedWorkspace]);
+  }, [windows]);
 
   // --- AI CATEGORY AGGREGATION ---
   // Denne logic sikrer at AI-kategorier fundet i faner automatisk dukker op i dropdown-menuer
@@ -250,7 +241,7 @@ export const Dashboard = () => {
         selectedWorkspace.id,
         "windows"
       ),
-      orderBy("lastActive", "asc")
+      orderBy("createdAt", "asc")
     );
     return onSnapshot(q, (snap) => {
       const w = snap.docs.map((d) => ({
@@ -269,7 +260,7 @@ export const Dashboard = () => {
       chrome.storage.local.get("nexus_active_windows", (data) => {
         if (data?.nexus_active_windows) {
           setActiveMappings(
-            data.nexus_active_windows as [number, WindowMapping][]
+            data.nexus_active_windows as [number, WinMapping][]
           );
         }
       });
@@ -295,7 +286,7 @@ export const Dashboard = () => {
       if (area === "local" && changes.nexus_active_windows) {
         const newMappings = (changes.nexus_active_windows.newValue || []) as [
           number,
-          WindowMapping
+          WinMapping
         ][];
         setActiveMappings(newMappings);
       }
@@ -406,8 +397,6 @@ export const Dashboard = () => {
         chromeWindows={chromeWindows}
         currentWindowId={currentWindowId}
         activeMappings={activeMappings}
-        sortedWindows={sortedWindows}
-        selectedWorkspace={selectedWorkspace}
         viewMode={viewMode}
         setViewMode={setViewMode}
         setSelectedWorkspace={setSelectedWorkspace}

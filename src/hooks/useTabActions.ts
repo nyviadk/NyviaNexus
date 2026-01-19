@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import {
   collection,
   doc,
@@ -7,18 +6,16 @@ import {
   serverTimestamp,
   writeBatch,
 } from "firebase/firestore";
+import { useCallback } from "react";
 import { auth, db } from "../lib/firebase";
 import { NexusService } from "../services/nexusService";
 
+import { WinMapping } from "@/background/main";
+import { DraggedTabPayload, RuntimeTabData } from "@/dashboard/types";
 import { NexusItem, TabData } from "../types";
-import {
-  DraggedTabPayload,
-  RuntimeTabData,
-  WindowMapping,
-} from "@/dashboard/types";
 
 export const useTabActions = (
-  activeMappings: [number, WindowMapping][],
+  activeMappings: [number, WinMapping][],
   viewMode: "workspace" | "inbox" | "incognito",
   selectedWorkspace: NexusItem | null,
   selectedWindowId: string | null,
@@ -54,7 +51,7 @@ export const useTabActions = (
       if (targetItem === "global" && setIsInboxSyncing) setIsInboxSyncing(true);
 
       try {
-        let targetMapping: [number, WindowMapping] | null | undefined = null;
+        let targetMapping: [number, WinMapping] | null | undefined = null;
         let targetWinId = "global";
 
         if (targetWorkspaceId !== "global") {

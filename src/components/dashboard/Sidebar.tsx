@@ -24,10 +24,10 @@ import { auth, db } from "../../lib/firebase";
 import { doc, writeBatch } from "firebase/firestore";
 import { SidebarItem } from "../SidebarItem";
 import { NexusService } from "../../services/nexusService";
-import { NexusItem, Profile, TabData, WorkspaceWindow } from "../../types";
-import { DraggedTabPayload, InboxData, WindowMapping } from "@/dashboard/types";
-import { windowOrderCache } from "@/dashboard/utils";
-import { AiHealthStatus } from "../../services/aiService"; // Husk at eksportere denne type i aiService
+import { NexusItem, Profile, TabData } from "../../types";
+import { DraggedTabPayload, InboxData } from "@/dashboard/types";
+import { AiHealthStatus } from "../../services/aiService";
+import { WinMapping } from "@/background/main";
 
 interface SidebarProps {
   profiles: Profile[];
@@ -36,9 +36,7 @@ interface SidebarProps {
   items: NexusItem[];
   chromeWindows: chrome.windows.Window[];
   currentWindowId: number | null;
-  activeMappings: [number, WindowMapping][];
-  sortedWindows: WorkspaceWindow[];
-  selectedWorkspace: NexusItem | null;
+  activeMappings: [number, WinMapping][];
   viewMode: "workspace" | "inbox" | "incognito";
   setViewMode: (mode: "workspace" | "inbox" | "incognito") => void;
   setSelectedWorkspace: (ws: NexusItem | null) => void;
@@ -61,8 +59,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   chromeWindows,
   currentWindowId,
   activeMappings,
-  sortedWindows,
-  selectedWorkspace,
   viewMode,
   setViewMode,
   setSelectedWorkspace,
@@ -183,30 +179,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   label = "Slettet Space";
                 }
 
-                const cachedOrder = windowOrderCache.get(mapping.workspaceId);
-
-                if (
-                  cachedOrder &&
-                  cachedOrder.indices[mapping.internalWindowId]
-                ) {
-                  subLabel = `Vindue ${
-                    cachedOrder.indices[mapping.internalWindowId]
-                  }`;
-                } else if (
-                  selectedWorkspace &&
-                  mapping.workspaceId === selectedWorkspace.id
-                ) {
-                  const idx = sortedWindows.findIndex(
-                    (w) => w.id === mapping.internalWindowId
-                  );
-
-                  if (idx !== -1) {
-                    subLabel = `Vindue ${idx + 1}`;
-                  } else if (sortedWindows.length === 0) {
-                    subLabel = "Indlæser...";
-                  } else {
-                    subLabel = "Sletter...";
-                  }
+                // Vi bruger mapping.index direkte fra Background Scriptet
+                if (mapping.index !== undefined && mapping.index !== 99) {
+                  subLabel = `Vindue ${mapping.index}`;
+                } else if (mapping.index === 99) {
+                  subLabel = "Opretter...";
+                } else {
+                  subLabel = "Indlæser...";
                 }
               }
 
@@ -277,7 +256,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <div className="p-4 flex-1 overflow-y-auto space-y-6">
-        {/* AI Status Banner - Vises kun ved nedbrud */}
         {aiHealth === "down" && (
           <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-start gap-3">
             <AlertTriangle
@@ -459,17 +437,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <nav
           onDragOver={(e) => {
             e.preventDefault();
-
-            // Logik: Hvis vi har et activeDragId, blokerer vi for drop i Inbox.
             if (activeDragId) {
               setInboxDropStatus("invalid");
               return;
             }
-
             const tJ = window.sessionStorage.getItem("draggedTab");
             if (tJ) {
               const tab = JSON.parse(tJ) as DraggedTabPayload;
-              // Tabs kan flyttes til inbox hvis de kommer fra et andet space
               setInboxDropStatus(
                 tab.sourceWorkspaceId !== "global" || tab.isIncognito
                   ? "valid"
@@ -490,15 +464,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }}
           onDrop={async (e) => {
             e.preventDefault();
-
-            // Stop hvis det er et Space/Mappe der prøves droppet
             if (activeDragId) {
               setIsInboxDragOver(false);
               setInboxDropStatus(null);
               inboxDragCounter.current = 0;
               return;
             }
-
             const tJ = window.sessionStorage.getItem("draggedTab");
             setIsInboxDragOver(false);
             setInboxDropStatus(null);

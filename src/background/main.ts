@@ -40,10 +40,11 @@ export interface FirestoreWindowData {
   tabs: TabData[];
   isActive: boolean;
   lastActive: Timestamp; // Firestore Timestamp
+  createdAt: Timestamp;
   name?: string; // Optional, often derived from workspace
 }
 
-interface WinMapping {
+export interface WinMapping {
   workspaceId: string;
   internalWindowId: string;
   workspaceName: string;
@@ -1514,15 +1515,23 @@ async function handleOpenWorkspace(
   windowsToOpen: FirestoreWindowData[],
   name: string
 ) {
-  if (!windowsToOpen || windowsToOpen.length === 0) {
+  // 1. SORTERING: Her sikrer vi os, at vi arbejder med den rigtige rækkefølge fra start
+  const sorted = [...windowsToOpen].sort((a, b) => {
+    const tA = a.createdAt?.toMillis() || 0;
+    const tB = b.createdAt?.toMillis() || 0;
+    return tA - tB;
+  });
+
+  if (sorted.length === 0) {
     await handleCreateNewWindowInWorkspace(workspaceId, name);
     return;
   }
-  for (let i = 0; i < windowsToOpen.length; i++) {
-    updateRestorationStatus(
-      `Klargør vindue ${i + 1} af ${windowsToOpen.length}...`
-    );
-    await handleOpenSpecificWindow(workspaceId, windowsToOpen[i], name, i + 1);
+
+  // 2. LOOP: Vi bruger det SORTEREDE array til at åbne vinduerne
+  for (let i = 0; i < sorted.length; i++) {
+    updateRestorationStatus(`Klargør vindue ${i + 1} af ${sorted.length}...`);
+    // Vi sender i + 1 med som det korrekte index
+    await handleOpenSpecificWindow(workspaceId, sorted[i], name, i + 1);
   }
 }
 
@@ -1535,6 +1544,7 @@ async function handleOpenSpecificWindow(
   const uid = auth.currentUser?.uid;
   if (!uid) return;
 
+  // Tjek om vinduet allerede er åbent
   updateRestorationStatus("Tjekker eksisterende vinduer...");
   for (const [chromeId, map] of activeWindows.entries()) {
     if (
@@ -1551,6 +1561,7 @@ async function handleOpenSpecificWindow(
       }
     }
   }
+
   activeRestorations++;
   try {
     const urls = (winData.tabs || [])
@@ -1587,7 +1598,7 @@ async function handleOpenSpecificWindow(
         workspaceId,
         internalWindowId: winData.id,
         workspaceName: name,
-        index,
+        index: index, // Dette index bruges nu kun som fallback
       };
       activeWindows.set(winId, mapping);
       await saveActiveWindowsToStorage();
@@ -1739,6 +1750,7 @@ async function handleCreateNewWindowInWorkspace(
           tabs: initialTab ? [initialTab] : [],
           isActive: true,
           lastActive: serverTimestamp(),
+          createdAt: serverTimestamp(),
         }
       );
 
@@ -1804,12 +1816,14 @@ async function getWorkspaceWindowIndex(
   if (!uid) return 1;
 
   try {
+    // Sorter konsekvent efter createdAt
     const q = query(
       collection(db, "users", uid, "workspaces_data", workspaceId, "windows"),
-      orderBy("lastActive", "asc")
+      orderBy("createdAt", "asc")
     );
     const snap = await getDocs(q);
-    return snap.docs.findIndex((d) => d.id === internalWindowId) + 1 || 1;
+    const idx = snap.docs.findIndex((d) => d.id === internalWindowId);
+    return idx !== -1 ? idx + 1 : 1;
   } catch (e) {
     return 1;
   }

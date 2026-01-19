@@ -102,7 +102,8 @@ export const PasteModal = ({
           id: newWinId,
           tabs: newTabs,
           isActive: false,
-          lastActive: serverTimestamp(), // Sorteres øverst/nederst afhængig af sortering
+          lastActive: serverTimestamp(),
+          createdAt: serverTimestamp(),
           title: windowName || "Importeret Vindue", // Fallback titel hvis windowName mangler
         });
       }

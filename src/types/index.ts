@@ -31,6 +31,7 @@ export interface WorkspaceWindow {
   tabs: TabData[];
   isActive?: boolean;
   lastActive?: Timestamp;
+  createdAt: Timestamp;
   name?: string; // Kan være nyttig til debugging eller UI
 }
 
