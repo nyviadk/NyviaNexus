@@ -521,7 +521,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span className="font-medium">
               {inboxDropStatus === "invalid" && isInboxDragOver
                 ? `Kan ikke flytte ${
-                    draggedItem?.type === "folder" ? "mappe" : "Space"
+                    draggedItem?.type === "folder"
+                      ? "mappe"
+                      : draggedItem?.type === "workspace"
+                      ? "Space"
+                      : "Inbox fane"
                   } hertil`
                 : `Inbox (${getFilteredInboxTabs(false).length})`}
             </span>
