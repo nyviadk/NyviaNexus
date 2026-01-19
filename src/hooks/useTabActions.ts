@@ -141,6 +141,7 @@ export const useTabActions = (
                   tabs: [tab],
                   isActive: false,
                   lastActive: serverTimestamp(),
+                  createdAt: serverTimestamp(),
                 });
               }
             }

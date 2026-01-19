@@ -5,6 +5,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  serverTimestamp,
   updateDoc,
   writeBatch,
 } from "firebase/firestore";
@@ -108,6 +109,7 @@ export const NexusService = {
         {
           tabs: [],
           lastActive: Date.now(),
+          createdAt: serverTimestamp(),
           isActive: false,
         }
       );
@@ -232,7 +234,6 @@ export const NexusService = {
       type: "workspace" as const,
       parentId: data.parentId,
       profileId: data.profileId,
-      createdAt: Date.now(),
     });
 
     // Opret initial window data
@@ -249,6 +250,7 @@ export const NexusService = {
       {
         tabs: tabsWithUid,
         lastActive: Date.now(),
+        createdAt: serverTimestamp(),
         isActive: true,
       }
     );
