@@ -113,6 +113,23 @@ export const useTabActions = (
         );
         const batch = writeBatch(db);
 
+        // --- 🧹 FORCE CLOSE PHYSICAL INBOX TABS ---
+        // Hvis vi flytter FRA Inbox, skal vi ALTID sende lukkebesked hvis tab.id findes.
+        // Dette gøres før scenarie-logikken for at undgå at Scenarie D (Storage->Storage) ignorerer fysiske faner.
+        if (sourceWorkspaceId === "global") {
+          console.log(
+            `🗑️ Inbox Clean-up: Requesting close for tab ${tab.id} (UID: ${tab.uid})`
+          );
+          chrome.runtime.sendMessage({
+            type: "CLOSE_PHYSICAL_TABS",
+            payload: {
+              uids: [tab.uid],
+              tabIds: [Number(tab.id)],
+              internalWindowId: "global",
+            },
+          });
+        }
+
         // --- 2. EXECUTE MOVE LOGIC ---
 
         // SCENARIE A: Storage -> Active
@@ -132,14 +149,17 @@ export const useTabActions = (
             "📦 Active -> Storage: Closing physical & saving to Firestore"
           );
 
-          chrome.runtime.sendMessage({
-            type: "CLOSE_PHYSICAL_TABS",
-            payload: {
-              uids: [tab.uid],
-              tabIds: tab.id ? [tab.id] : [],
-              internalWindowId: sourceId,
-            },
-          });
+          // Kun send hvis ikke allerede håndteret af Inbox-fixet ovenfor
+          if (sourceWorkspaceId !== "global") {
+            chrome.runtime.sendMessage({
+              type: "CLOSE_PHYSICAL_TABS",
+              payload: {
+                uids: [tab.uid],
+                tabIds: tab.id ? [tab.id] : [],
+                internalWindowId: sourceId,
+              },
+            });
+          }
 
           const targetRef =
             targetWorkspaceId === "global"
@@ -198,19 +218,20 @@ export const useTabActions = (
           console.log("🚀 Active -> Active: Move processing");
 
           if (sourceWorkspaceId !== targetWorkspaceId || !tab.id) {
-            // Hvis vi skifter space ELLER vi mangler det fysiske ID, så kør create/close
             await chrome.tabs.create({
               windowId: targetPhysicalWindowId,
               url: tab.url,
               active: false,
             });
-            chrome.runtime.sendMessage({
-              type: "CLOSE_PHYSICAL_TABS",
-              payload: { uids: [tab.uid], tabIds: tab.id ? [tab.id] : [] },
-            });
+
+            if (sourceWorkspaceId !== "global") {
+              chrome.runtime.sendMessage({
+                type: "CLOSE_PHYSICAL_TABS",
+                payload: { uids: [tab.uid], tabIds: tab.id ? [tab.id] : [] },
+              });
+            }
             await NexusService.deleteTab(tab, sourceWorkspaceId, sourceId);
           } else {
-            // Samme space og vi HAR et tab.id: Brug den hurtige flytning
             await chrome.tabs.move(tab.id, {
               windowId: targetPhysicalWindowId,
               index: -1,
@@ -338,6 +359,18 @@ export const useTabActions = (
           ([_, m]) => m.internalWindowId === sourceId
         );
 
+        // --- 🧹 FORCE CLOSE PHYSICAL INBOX TABS (GRID) ---
+        if (sourceWorkspaceId === "global") {
+          chrome.runtime.sendMessage({
+            type: "CLOSE_PHYSICAL_TABS",
+            payload: {
+              uids: [tab.uid],
+              tabIds: [Number(tab.id)],
+              internalWindowId: "global",
+            },
+          });
+        }
+
         // A: Storage -> Active
         if (!sourceMapping && targetMapping) {
           await chrome.tabs.create({
@@ -386,10 +419,12 @@ export const useTabActions = (
             ),
           });
 
-          chrome.runtime.sendMessage({
-            type: "CLOSE_PHYSICAL_TABS",
-            payload: { uids: [tab.uid], tabIds: tab.id ? [tab.id] : [] },
-          });
+          if (sourceWorkspaceId !== "global") {
+            chrome.runtime.sendMessage({
+              type: "CLOSE_PHYSICAL_TABS",
+              payload: { uids: [tab.uid], tabIds: tab.id ? [tab.id] : [] },
+            });
+          }
 
           await batch.commit();
         }
@@ -402,10 +437,13 @@ export const useTabActions = (
               url: tab.url,
               active: false,
             });
-            chrome.runtime.sendMessage({
-              type: "CLOSE_PHYSICAL_TABS",
-              payload: { uids: [tab.uid], tabIds: tab.id ? [tab.id] : [] },
-            });
+
+            if (sourceWorkspaceId !== "global") {
+              chrome.runtime.sendMessage({
+                type: "CLOSE_PHYSICAL_TABS",
+                payload: { uids: [tab.uid], tabIds: tab.id ? [tab.id] : [] },
+              });
+            }
             await NexusService.deleteTab(tab, sourceWorkspaceId, sourceId);
           } else {
             await chrome.tabs.move(tab.id, {
