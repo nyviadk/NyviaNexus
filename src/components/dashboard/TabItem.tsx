@@ -29,7 +29,7 @@ export const TabItem = React.memo(
     userCategories = [],
     onShowReasoning,
     onOpenMenu,
-    selectionCount = 0, // Ny prop: Antal valgte faner
+    selectionCount = 0,
   }: TabItemProps & { selectionCount?: number }) => {
     const aiData = tab.aiData || { status: "pending" };
     const isProcessing = aiData.status === "processing";
@@ -93,7 +93,6 @@ export const TabItem = React.memo(
         <div
           draggable={true}
           onDragStart={(e) => {
-            // STOP MULTI-DRAG (Midlertidig beskyttelse inden fyraften)
             if (isSelected && selectionCount > 1) {
               e.preventDefault();
               e.stopPropagation();
@@ -105,17 +104,18 @@ export const TabItem = React.memo(
 
             e.dataTransfer.setData("nexus/tab", "true");
 
-            // Safe cast to RuntimeTabData to check for runtime 'id'
+            // VIGTIGT: Vi mapper 'id' hvis det findes, men vi stoler primært på 'uid'
             const runtimeTab = tab as RuntimeTabData;
-            const runtimeId = runtimeTab.id;
 
             const tabData: DraggedTabPayload = {
               ...tab,
-              id: runtimeId,
-              uid: tab.uid || crypto.randomUUID(),
+              id: runtimeTab.id || undefined, // Kan være undefined hvis kilden er storage
+              uid: tab.uid,
               sourceWorkspaceId: sourceWorkspaceId || "global",
             };
-            console.log("🔥 [Drag Start]", tabData.title);
+
+            console.log("🔥 [Drag Start]", tabData.title, "UID:", tabData.uid);
+
             window.sessionStorage.setItem(
               "draggedTab",
               JSON.stringify(tabData)
@@ -134,18 +134,14 @@ export const TabItem = React.memo(
               onClick={async (e) => {
                 e.stopPropagation();
 
-                // Helper function til at fokusere en fundet fane
                 const focusTab = async (t: chrome.tabs.Tab) => {
                   if (t.id && t.windowId) {
-                    // Fokusér vinduet først (ellers ser man det ikke)
                     await chrome.windows.update(t.windowId, { focused: true });
-                    // Gør fanen aktiv
                     await chrome.tabs.update(t.id, { active: true });
                   }
                 };
 
                 try {
-                  // 1. GULD STANDARD: Forsøg specifikt ID først
                   const runtimeTab = tab as RuntimeTabData;
                   const runtimeId = runtimeTab.id;
                   if (runtimeId) {
@@ -158,17 +154,12 @@ export const TabItem = React.memo(
                     }
                   }
 
-                  // 2. SØLV STANDARD: Søg efter URL (Fall-back hvis ID er dødt/gammelt)
-                  // Dette forhindrer dubletter. Vi finder alle med samme URL.
                   const matches = await chrome.tabs.query({ url: tab.url });
-
-                  // Filtrer efter incognito-status, så vi ikke blander alm/incognito sammen
                   const exactMatches = matches.filter(
                     (t) => t.incognito === tab.isIncognito
                   );
 
                   if (exactMatches.length > 0) {
-                    // Sortering: Prøv at finde en i DETTE vindue først (currentWindowId), ellers tag den første
                     const currentWin = await chrome.windows
                       .getCurrent()
                       .catch(() => null);
@@ -180,13 +171,9 @@ export const TabItem = React.memo(
                     return;
                   }
                 } catch (err) {
-                  console.warn(
-                    "Smart-focus failed, falling back to create:",
-                    err
-                  );
+                  console.warn("Smart-focus failed:", err);
                 }
 
-                // 3. BRONZE: Intet fundet -> Åbn ny
                 if (tab.isIncognito) {
                   chrome.windows.create({
                     url: tab.url,
@@ -270,7 +257,7 @@ export const TabItem = React.memo(
       prev.tab.url === next.tab.url &&
       prev.tab.title === next.tab.title &&
       prev.tab.uid === next.tab.uid &&
-      prev.selectionCount === next.selectionCount && // Check for selection count change
+      prev.selectionCount === next.selectionCount &&
       JSON.stringify(prev.tab.aiData) === JSON.stringify(next.tab.aiData) &&
       JSON.stringify(prev.userCategories) ===
         JSON.stringify(next.userCategories)

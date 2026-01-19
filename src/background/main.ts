@@ -1502,33 +1502,51 @@ chrome.runtime.onMessage.addListener(
 // --- HELPERS ---
 
 async function handleClosePhysicalTabs(uids: string[], tabIds?: number[]) {
+  console.log("🗑️ Background: Attempting to close physical tabs", {
+    uids,
+    tabIds,
+  });
+
+  // 1. Hvis vi har fået direkte tabIds, lukker vi dem først
   if (tabIds && tabIds.length > 0) {
-    await chrome.tabs.remove(tabIds).catch((e) => console.warn(e));
-    tabIds.forEach((tid) => {
-      tabTracker.delete(tid);
-    });
-    saveTrackerToStorage();
-    return;
-  }
-
-  if (!uids || uids.length === 0) return;
-
-  const tabsToRemove: number[] = [];
-
-  for (const [chromeTabId, data] of tabTracker.entries()) {
-    if (uids.includes(data.uid)) {
+    for (const tid of tabIds) {
       try {
-        await chrome.tabs.get(chromeTabId);
-        tabsToRemove.push(chromeTabId);
+        await chrome.tabs.remove(tid);
+        tabTracker.delete(tid);
       } catch (e) {
-        tabTracker.delete(chromeTabId);
+        console.warn(`Could not close tabId ${tid}, might already be gone.`);
       }
     }
   }
 
-  if (tabsToRemove.length > 0) {
-    await chrome.tabs.remove(tabsToRemove).catch(() => {});
+  // 2. Hvis vi har uids (vores primære kilde til sandhed), tjekker vi trackeren
+  if (uids && uids.length > 0) {
+    const tabsToRemove: number[] = [];
+
+    // Vi gennemløber vores Map for at matche uids med chromeTabIds
+    for (const [chromeTabId, data] of tabTracker.entries()) {
+      if (uids.includes(data.uid)) {
+        tabsToRemove.push(chromeTabId);
+      }
+    }
+
+    if (tabsToRemove.length > 0) {
+      console.log(
+        `🧹 Found ${tabsToRemove.length} physical tabs to remove via UID matching.`
+      );
+      for (const tid of tabsToRemove) {
+        try {
+          await chrome.tabs.remove(tid);
+          tabTracker.delete(tid);
+        } catch (e) {
+          // Tabben findes måske ikke længere
+        }
+      }
+    }
   }
+
+  // Husk at gemme den opdaterede tracker
+  await saveTrackerToStorage();
 }
 
 async function handleOpenWorkspace(

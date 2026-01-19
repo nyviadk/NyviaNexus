@@ -5,12 +5,15 @@ import {
   getDocs,
   serverTimestamp,
   writeBatch,
+  query,
+  orderBy,
+  limit,
 } from "firebase/firestore";
 import { useCallback } from "react";
 import { auth, db } from "../lib/firebase";
 import { NexusService } from "../services/nexusService";
 
-import { WinMapping } from "@/background/main";
+import { AiData, WinMapping } from "@/background/main";
 import { DraggedTabPayload, RuntimeTabData } from "@/dashboard/types";
 import { NexusItem, TabData } from "../types";
 
@@ -22,6 +25,26 @@ export const useTabActions = (
   setIsProcessingMove: (val: boolean) => void,
   setIsInboxSyncing?: (val: boolean) => void
 ) => {
+  /**
+   * Helper til at nulstille AI data hvis vi flytter på tværs af spaces
+   */
+  const prepareTabData = (
+    tab: DraggedTabPayload,
+    sourceWorkspaceId: string,
+    targetWorkspaceId: string
+  ): DraggedTabPayload => {
+    if (sourceWorkspaceId !== targetWorkspaceId) {
+      console.log(
+        `🧠 [AI Reset] Moving from ${sourceWorkspaceId} to ${targetWorkspaceId}. Resetting AI status.`
+      );
+      return {
+        ...tab,
+        aiData: { status: "pending" } as AiData,
+      };
+    }
+    return tab;
+  };
+
   const handleSidebarTabDrop = useCallback(
     async (targetItem: NexusItem | "global") => {
       const currentUser = auth.currentUser;
@@ -30,7 +53,7 @@ export const useTabActions = (
 
       const tabJson = window.sessionStorage.getItem("draggedTab");
       if (!tabJson) return;
-      const tab = JSON.parse(tabJson) as DraggedTabPayload;
+      const draggedTab = JSON.parse(tabJson) as DraggedTabPayload;
 
       const targetWorkspaceId =
         targetItem === "global" ? "global" : targetItem.id;
@@ -43,19 +66,22 @@ export const useTabActions = (
           ? "global"
           : selectedWindowId || "global";
 
-      console.log(
-        `🎯 [Action] Sidebar Move: From ${sourceWorkspaceId} to ${targetWorkspaceId}`
+      const tab = prepareTabData(
+        draggedTab,
+        sourceWorkspaceId,
+        targetWorkspaceId
       );
 
       setIsProcessingMove(true);
       if (targetItem === "global" && setIsInboxSyncing) setIsInboxSyncing(true);
 
       try {
-        let targetMapping: [number, WinMapping] | null | undefined = null;
-        let targetWinId = "global";
+        let targetWinId: string | null = null;
+        let targetPhysicalWindowId: number | null = null;
 
+        // --- 1. FIND TARGET WINDOW ---
         if (targetWorkspaceId !== "global") {
-          const snap = await getDocs(
+          const winQuery = query(
             collection(
               db,
               "users",
@@ -63,135 +89,202 @@ export const useTabActions = (
               "workspaces_data",
               targetWorkspaceId,
               "windows"
-            )
+            ),
+            orderBy("createdAt", "asc"),
+            limit(1)
           );
-          targetWinId = snap.docs[0]?.id || "unknown";
-          targetMapping = activeMappings.find(
+          const winSnap = await getDocs(winQuery);
+          targetWinId = winSnap.empty
+            ? `win_${Date.now()}`
+            : winSnap.docs[0].id;
+
+          const mapping = activeMappings.find(
             ([_, m]) =>
               m.workspaceId === targetWorkspaceId &&
               m.internalWindowId === targetWinId
           );
+          if (mapping) targetPhysicalWindowId = mapping[0];
+        } else {
+          targetWinId = "global";
         }
 
         const sourceMapping = activeMappings.find(
           ([_, m]) => m.internalWindowId === sourceId
         );
+        const batch = writeBatch(db);
 
-        if (targetMapping && sourceMapping) {
-          if (sourceWorkspaceId === targetWorkspaceId) {
-            await NexusService.moveTabBetweenWindows(
-              tab,
-              sourceWorkspaceId,
-              sourceId,
-              targetWorkspaceId,
-              targetWinId
-            );
-          } else {
-            await NexusService.deleteTab(tab, sourceWorkspaceId, sourceId);
-          }
+        // --- 2. EXECUTE MOVE LOGIC ---
 
+        // SCENARIE A: Storage -> Active
+        if (!sourceMapping && targetPhysicalWindowId) {
+          console.log("🌟 Storage -> Active: Creating physical tab");
           await chrome.tabs.create({
-            windowId: targetMapping[0],
+            windowId: targetPhysicalWindowId,
             url: tab.url,
-            active: true,
+            active: false,
           });
+          await NexusService.deleteTab(tab, sourceWorkspaceId, sourceId);
+        }
+
+        // SCENARIE B: Active -> Storage
+        else if (sourceMapping && !targetPhysicalWindowId) {
+          console.log(
+            "📦 Active -> Storage: Closing physical & saving to Firestore"
+          );
+
           chrome.runtime.sendMessage({
             type: "CLOSE_PHYSICAL_TABS",
             payload: {
               uids: [tab.uid],
-              internalWindowId: sourceId,
               tabIds: tab.id ? [tab.id] : [],
+              internalWindowId: sourceId,
             },
           });
-        } else {
-          const batch = writeBatch(db);
-          if (!targetMapping) {
-            if (targetWorkspaceId === "global") {
-              const ref = doc(db, "users", uid, "inbox_data", "global");
-              const snap = await getDoc(ref);
-              const current = snap.exists() ? snap.data()?.tabs || [] : [];
-              batch.set(ref, { tabs: [...current, tab] }, { merge: true });
-            } else {
-              const snap = await getDocs(
-                collection(
-                  db,
-                  "users",
-                  uid,
-                  "workspaces_data",
-                  targetWorkspaceId,
-                  "windows"
-                )
-              );
-              if (!snap.empty) {
-                const current = snap.docs[0].data().tabs || [];
-                batch.update(snap.docs[0].ref, { tabs: [...current, tab] });
-              } else {
-                const newWinId = `win_${Date.now()}`;
-                const newWinRef = doc(
+
+          const targetRef =
+            targetWorkspaceId === "global"
+              ? doc(db, "users", uid, "inbox_data", "global")
+              : doc(
                   db,
                   "users",
                   uid,
                   "workspaces_data",
                   targetWorkspaceId,
                   "windows",
-                  newWinId
+                  targetWinId!
                 );
-                batch.set(newWinRef, {
-                  id: newWinId,
-                  tabs: [tab],
-                  isActive: false,
-                  lastActive: serverTimestamp(),
-                  createdAt: serverTimestamp(),
-                });
-              }
-            }
+
+          const tSnap = await getDoc(targetRef);
+          const cleanTab = { ...tab };
+          delete (cleanTab as any).id;
+
+          if (tSnap.exists()) {
+            batch.update(targetRef, {
+              tabs: [...(tSnap.data().tabs || []), cleanTab],
+            });
           } else {
-            await chrome.tabs.create({
-              windowId: targetMapping[0],
-              url: tab.url,
-              active: true,
+            batch.set(targetRef, {
+              id: targetWinId,
+              tabs: [cleanTab],
+              isActive: false,
+              createdAt: serverTimestamp(),
             });
           }
 
-          if (sourceId === "global") {
-            const ref = doc(db, "users", uid, "inbox_data", "global");
-            const snap = await getDoc(ref);
-            if (snap.exists()) {
-              batch.update(ref, {
-                tabs: (snap.data()?.tabs || []).filter(
-                  (t: TabData) => t.uid !== tab.uid
-                ),
-              });
-            }
-          } else {
-            const sourceRef = doc(
-              db,
-              "users",
-              uid,
-              "workspaces_data",
-              selectedWorkspace?.id || "",
-              "windows",
-              sourceId
-            );
-            const snap = await getDoc(sourceRef);
-            if (snap.exists()) {
-              batch.update(sourceRef, {
-                tabs: (snap.data()?.tabs || []).filter(
-                  (t: TabData) => t.uid !== tab.uid
-                ),
-              });
-            }
+          const sourceRef = doc(
+            db,
+            "users",
+            uid,
+            "workspaces_data",
+            sourceWorkspaceId,
+            "windows",
+            sourceId
+          );
+          const sSnap = await getDoc(sourceRef);
+          if (sSnap.exists()) {
+            batch.update(sourceRef, {
+              tabs: (sSnap.data().tabs || []).filter(
+                (t: TabData) => t.uid !== tab.uid
+              ),
+            });
           }
           await batch.commit();
-          chrome.runtime.sendMessage({
-            type: "CLOSE_PHYSICAL_TABS",
-            payload: {
-              uids: [tab.uid],
-              internalWindowId: sourceId,
-              tabIds: tab.id ? [tab.id] : [],
-            },
-          });
         }
+
+        // SCENARIE C: Active -> Active
+        else if (sourceMapping && targetPhysicalWindowId) {
+          if (sourceId === targetWinId) return;
+
+          console.log("🚀 Active -> Active: Move processing");
+
+          if (sourceWorkspaceId !== targetWorkspaceId || !tab.id) {
+            // Hvis vi skifter space ELLER vi mangler det fysiske ID, så kør create/close
+            await chrome.tabs.create({
+              windowId: targetPhysicalWindowId,
+              url: tab.url,
+              active: false,
+            });
+            chrome.runtime.sendMessage({
+              type: "CLOSE_PHYSICAL_TABS",
+              payload: { uids: [tab.uid], tabIds: tab.id ? [tab.id] : [] },
+            });
+            await NexusService.deleteTab(tab, sourceWorkspaceId, sourceId);
+          } else {
+            // Samme space og vi HAR et tab.id: Brug den hurtige flytning
+            await chrome.tabs.move(tab.id, {
+              windowId: targetPhysicalWindowId,
+              index: -1,
+            });
+            await NexusService.moveTabBetweenWindows(
+              tab,
+              sourceWorkspaceId,
+              sourceId,
+              targetWorkspaceId,
+              targetWinId!
+            );
+          }
+        }
+
+        // SCENARIE D: Storage -> Storage
+        else {
+          console.log("☁️ Storage -> Storage: Batch update");
+          const targetRef =
+            targetWorkspaceId === "global"
+              ? doc(db, "users", uid, "inbox_data", "global")
+              : doc(
+                  db,
+                  "users",
+                  uid,
+                  "workspaces_data",
+                  targetWorkspaceId,
+                  "windows",
+                  targetWinId!
+                );
+
+          const sourceRef =
+            sourceWorkspaceId === "global"
+              ? doc(db, "users", uid, "inbox_data", "global")
+              : doc(
+                  db,
+                  "users",
+                  uid,
+                  "workspaces_data",
+                  sourceWorkspaceId,
+                  "windows",
+                  sourceId
+                );
+
+          const [tSnap, sSnap] = await Promise.all([
+            getDoc(targetRef),
+            getDoc(sourceRef),
+          ]);
+
+          const cleanTab = { ...tab };
+          delete (cleanTab as any).id;
+
+          if (tSnap.exists()) {
+            batch.update(targetRef, {
+              tabs: [...(tSnap.data().tabs || []), cleanTab],
+            });
+          } else {
+            batch.set(targetRef, {
+              id: targetWinId,
+              tabs: [cleanTab],
+              createdAt: serverTimestamp(),
+            });
+          }
+
+          if (sSnap.exists()) {
+            batch.update(sourceRef, {
+              tabs: (sSnap.data().tabs || []).filter(
+                (t: TabData) => t.uid !== tab.uid
+              ),
+            });
+          }
+          await batch.commit();
+        }
+      } catch (error) {
+        console.error("❌ Sidebar drop failed:", error);
       } finally {
         setIsProcessingMove(false);
         if (setIsInboxSyncing) setIsInboxSyncing(false);
@@ -216,17 +309,25 @@ export const useTabActions = (
 
       const tabJson = window.sessionStorage.getItem("draggedTab");
       if (!tabJson) return;
-      const tab = JSON.parse(tabJson) as DraggedTabPayload;
+      const draggedTab = JSON.parse(tabJson) as DraggedTabPayload;
 
       const sourceWorkspaceId =
         viewMode === "inbox" || viewMode === "incognito"
           ? "global"
           : selectedWorkspace?.id || "global";
+      const targetWorkspaceId = selectedWorkspace?.id || "global";
       const sourceId =
         viewMode === "inbox" || viewMode === "incognito"
           ? "global"
           : selectedWindowId;
+
       if (!sourceId || sourceId === targetWinId) return;
+
+      const tab = prepareTabData(
+        draggedTab,
+        sourceWorkspaceId,
+        targetWorkspaceId
+      );
 
       setIsProcessingMove(true);
       try {
@@ -237,74 +338,131 @@ export const useTabActions = (
           ([_, m]) => m.internalWindowId === sourceId
         );
 
-        if (targetMapping && sourceMapping) {
-          await NexusService.moveTabBetweenWindows(
-            tab,
-            sourceWorkspaceId,
-            sourceId,
-            selectedWorkspace?.id || "global",
+        // A: Storage -> Active
+        if (!sourceMapping && targetMapping) {
+          await chrome.tabs.create({
+            windowId: targetMapping[0],
+            url: tab.url,
+            active: false,
+          });
+          await NexusService.deleteTab(tab, sourceWorkspaceId, sourceId);
+        }
+        // B: Active -> Storage
+        else if (sourceMapping && !targetMapping) {
+          const targetRef = doc(
+            db,
+            "users",
+            uid,
+            "workspaces_data",
+            targetWorkspaceId,
+            "windows",
             targetWinId
           );
-          const tabs = await chrome.tabs.query({ windowId: sourceMapping[0] });
-          const physicalTab = tabs.find(
-            (t) => t.id === tab.id || t.url === tab.url
-          );
-          if (physicalTab?.id)
-            await chrome.tabs.move(physicalTab.id, {
-              windowId: targetMapping[0],
-              index: -1,
-            });
-        } else {
-          const batch = writeBatch(db);
-          if (!targetMapping) {
-            const targetRef = doc(
-              db,
-              "users",
-              uid,
-              "workspaces_data",
-              selectedWorkspace?.id || "",
-              "windows",
-              targetWinId
-            );
-            const tSnap = await getDoc(targetRef);
-            batch.update(targetRef, {
-              tabs: [...(tSnap.data()?.tabs || []), tab],
-            });
-          } else {
-            await chrome.tabs.create({
-              windowId: targetMapping[0],
-              url: tab.url,
-              active: true,
-            });
-          }
-
           const sourceRef = doc(
             db,
             "users",
             uid,
             "workspaces_data",
-            selectedWorkspace?.id || "",
+            sourceWorkspaceId,
             "windows",
             sourceId
           );
-          const sSnap = await getDoc(sourceRef);
+
+          const [tSnap, sSnap] = await Promise.all([
+            getDoc(targetRef),
+            getDoc(sourceRef),
+          ]);
+          const batch = writeBatch(db);
+
+          const cleanTab = { ...tab };
+          delete (cleanTab as any).id;
+
+          batch.update(targetRef, {
+            tabs: [...(tSnap.data()?.tabs || []), cleanTab],
+          });
           batch.update(sourceRef, {
             tabs: (sSnap.data()?.tabs || []).filter(
               (t: TabData) => t.uid !== tab.uid
             ),
           });
 
+          chrome.runtime.sendMessage({
+            type: "CLOSE_PHYSICAL_TABS",
+            payload: { uids: [tab.uid], tabIds: tab.id ? [tab.id] : [] },
+          });
+
           await batch.commit();
-          if (!targetMapping)
+        }
+        // C: Active -> Active
+        else if (sourceMapping && targetMapping) {
+          console.log("🚀 Active -> Active (Window drop)");
+          if (sourceWorkspaceId !== targetWorkspaceId || !tab.id) {
+            await chrome.tabs.create({
+              windowId: targetMapping[0],
+              url: tab.url,
+              active: false,
+            });
             chrome.runtime.sendMessage({
               type: "CLOSE_PHYSICAL_TABS",
-              payload: {
-                uids: [tab.uid],
-                internalWindowId: sourceId,
-                tabIds: tab.id ? [tab.id] : [],
-              },
+              payload: { uids: [tab.uid], tabIds: tab.id ? [tab.id] : [] },
             });
+            await NexusService.deleteTab(tab, sourceWorkspaceId, sourceId);
+          } else {
+            await chrome.tabs.move(tab.id, {
+              windowId: targetMapping[0],
+              index: -1,
+            });
+            await NexusService.moveTabBetweenWindows(
+              tab,
+              sourceWorkspaceId,
+              sourceId,
+              targetWorkspaceId,
+              targetWinId
+            );
+          }
         }
+        // D: Storage -> Storage
+        else {
+          const batch = writeBatch(db);
+          const targetRef = doc(
+            db,
+            "users",
+            uid,
+            "workspaces_data",
+            targetWorkspaceId,
+            "windows",
+            targetWinId
+          );
+          const sourceRef = doc(
+            db,
+            "users",
+            uid,
+            "workspaces_data",
+            sourceWorkspaceId,
+            "windows",
+            sourceId
+          );
+
+          const [tSnap, sSnap] = await Promise.all([
+            getDoc(targetRef),
+            getDoc(sourceRef),
+          ]);
+
+          const cleanTab = { ...tab };
+          delete (cleanTab as any).id;
+
+          batch.update(targetRef, {
+            tabs: [...(tSnap.data()?.tabs || []), cleanTab],
+          });
+          batch.update(sourceRef, {
+            tabs: (sSnap.data()?.tabs || []).filter(
+              (t: TabData) => t.uid !== tab.uid
+            ),
+          });
+          await batch.commit();
+        }
+      } catch (error) {
+        console.error("❌ Tab drop failed:", error);
       } finally {
         setIsProcessingMove(false);
         window.sessionStorage.removeItem("draggedTab");
@@ -326,16 +484,14 @@ export const useTabActions = (
           viewMode === "inbox" || viewMode === "incognito"
             ? "global"
             : selectedWindowId!;
-
         const runtimeTab = tab as RuntimeTabData;
-        const tabIds = runtimeTab.id ? [runtimeTab.id] : [];
 
         chrome.runtime.sendMessage({
           type: "CLOSE_PHYSICAL_TABS",
           payload: {
             uids: [tab.uid],
             internalWindowId: sId,
-            tabIds: tabIds,
+            tabIds: runtimeTab.id ? [runtimeTab.id] : [],
           },
         });
         await NexusService.deleteTab(
