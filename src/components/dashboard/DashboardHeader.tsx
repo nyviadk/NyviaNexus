@@ -14,6 +14,7 @@ import { WindowControlStrip } from "./WindowControlStrip";
 import { auth, db } from "../../lib/firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { InboxData } from "@/dashboard/types";
+import { PasteModalState } from "@/dashboard/Dashboard";
 
 interface DashboardHeaderProps {
   viewMode: "workspace" | "inbox" | "incognito";
@@ -30,7 +31,7 @@ interface DashboardHeaderProps {
   handleCopySpace: () => void;
   totalTabsInSpace: number;
   headerCopyStatus: "idle" | "copied";
-  setPasteModalData: (data: any) => void;
+  setPasteModalData: (data: PasteModalState) => void;
 
   // Selection & Clean up
   getFilteredInboxTabs: (incognito: boolean) => TabData[];
@@ -127,11 +128,10 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 setPasteModalData({
                   workspaceId: selectedWorkspace!.id,
                   windowId: null,
-                  windowName: "Nyt Vindue",
                 })
               }
               className="flex items-center gap-2 bg-slate-800 border border-slate-700 hover:border-purple-500 text-purple-400 hover:text-purple-300 hover:bg-purple-900/20 px-4 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
-              title="Indsæt links i et nyt vindue"
+              title="Indsæt links i nyt vindue"
             >
               <ClipboardPaste size={18} />
               <span>Indsæt</span>

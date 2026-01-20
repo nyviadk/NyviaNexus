@@ -36,6 +36,12 @@ import { DashboardMessage } from "./types";
 // Utils
 import { windowOrderCache } from "./utils";
 
+export interface PasteModalState {
+  workspaceId: string;
+  windowId?: string | null;
+  windowName?: string;
+}
+
 export const Dashboard = () => {
   // Global Data Hook
   const { user, profiles, items, inboxData } = useNexusData();
@@ -71,11 +77,9 @@ export const Dashboard = () => {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [isProcessingMove, setIsProcessingMove] = useState(false);
 
-  const [pasteModalData, setPasteModalData] = useState<{
-    workspaceId: string;
-    windowId?: string | null;
-    windowName?: string;
-  } | null>(null);
+  const [pasteModalData, setPasteModalData] = useState<PasteModalState | null>(
+    null
+  );
   const [headerCopyStatus, setHeaderCopyStatus] = useState<"idle" | "copied">(
     "idle"
   );
@@ -145,7 +149,6 @@ export const Dashboard = () => {
   }, [windows]);
 
   // --- AI CATEGORY AGGREGATION ---
-  // Denne logic sikrer at AI-kategorier fundet i faner automatisk dukker op i dropdown-menuer
   const aiGeneratedCategories = useMemo(() => {
     const uniqueAiCats = new Set<string>();
 
@@ -399,7 +402,7 @@ export const Dashboard = () => {
         activeMappings={activeMappings}
         viewMode={viewMode}
         setViewMode={setViewMode}
-        selectedWorkspace={selectedWorkspace} // Send den valgte workspace med ned
+        selectedWorkspace={selectedWorkspace}
         setSelectedWorkspace={setSelectedWorkspace}
         setModalType={setModalType}
         setModalParentId={setModalParentId}
@@ -509,6 +512,7 @@ export const Dashboard = () => {
           workspaceId={pasteModalData.workspaceId}
           windowId={pasteModalData.windowId}
           windowName={pasteModalData.windowName}
+          activeMappings={activeMappings}
           onClose={() => setPasteModalData(null)}
         />
       )}

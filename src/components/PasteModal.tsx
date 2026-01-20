@@ -1,13 +1,16 @@
 import {
-  arrayUnion,
   doc,
   serverTimestamp,
   setDoc,
   updateDoc,
+  arrayUnion,
+  collection,
+  getDocs,
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import {
   ClipboardPaste,
+  Layers,
   Link as LinkIcon,
   Loader2,
   PlusCircle,
@@ -15,15 +18,18 @@ import {
   ToggleLeft,
   ToggleRight,
   X,
+  Maximize,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { db } from "../lib/firebase";
 import { LinkManager } from "../services/linkManager";
+import { WinMapping } from "@/background/main";
 
 interface PasteModalProps {
   workspaceId: string;
-  windowId?: string | null; // Nu valgfri. Hvis null = Nyt Vindue
+  windowId?: string | null; // Null = Nyt Vindue (Standard nu)
   windowName?: string;
+  activeMappings?: [number, WinMapping][];
   onClose: () => void;
 }
 
@@ -31,12 +37,18 @@ export const PasteModal = ({
   workspaceId,
   windowId,
   windowName,
+  activeMappings = [],
   onClose,
 }: PasteModalProps) => {
   const [text, setText] = useState("");
   const [uniqueOnly, setUniqueOnly] = useState(false); // Default: Tillad dubletter
   const [isSaving, setIsSaving] = useState(false);
-  const [previewCount, setPreviewCount] = useState(0);
+  const [useEmptyWindow, setUseEmptyWindow] = useState(true); // Toggle til at genbruge tomt vindue
+
+  // Stats til preview
+  const [totalLinks, setTotalLinks] = useState(0);
+  const [windowCount, setWindowCount] = useState(1);
+
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -45,14 +57,37 @@ export const PasteModal = ({
     }
   }, []);
 
-  // Opdater preview når tekst ELLER toggle ændres
+  // Vi betragter det som "Nyt Vindue" hvis ID mangler
+  const isCreatingNew = !windowId;
+
+  // Beregn preview stats når tekst eller settings ændres
   useEffect(() => {
-    const urls = LinkManager.parseAndCreateTabs(text, uniqueOnly);
-    setPreviewCount(urls.length);
-  }, [text, uniqueOnly]);
+    if (isCreatingNew && text.includes("###")) {
+      // Batch mode logik
+      const sections = text.split("###");
+      let linkSum = 0;
+      let validWindows = 0;
+
+      sections.forEach((section) => {
+        const links = LinkManager.parseAndCreateTabs(section, uniqueOnly);
+        if (links.length > 0) {
+          linkSum += links.length;
+          validWindows++;
+        }
+      });
+
+      setTotalLinks(linkSum);
+      setWindowCount(validWindows > 0 ? validWindows : 1);
+    } else {
+      // Standard mode
+      const urls = LinkManager.parseAndCreateTabs(text, uniqueOnly);
+      setTotalLinks(urls.length);
+      setWindowCount(1);
+    }
+  }, [text, uniqueOnly, isCreatingNew]);
 
   const handleSave = async () => {
-    if (previewCount === 0) return;
+    if (totalLinks === 0) return;
 
     const auth = getAuth();
     const currentUser = auth.currentUser;
@@ -66,12 +101,10 @@ export const PasteModal = ({
     const uid = currentUser.uid;
 
     try {
-      // VIGTIGT: Send uniqueOnly flaget med her
-      const newTabs = LinkManager.parseAndCreateTabs(text, uniqueOnly);
-
+      // SCENARIE A: Indsæt i eksisterende vindue (Hvis specifikt ID er sendt med)
       if (windowId) {
-        // SCENARIE A: Indsæt i eksisterende vindue
-        // Path: users/{uid}/workspaces_data/{workspaceId}/windows/{windowId}
+        const newTabs = LinkManager.parseAndCreateTabs(text, uniqueOnly);
+
         const windowRef = doc(
           db,
           "users",
@@ -81,31 +114,108 @@ export const PasteModal = ({
           "windows",
           windowId
         );
+
         await updateDoc(windowRef, {
           tabs: arrayUnion(...newTabs),
         });
-      } else {
-        // SCENARIE B: Opret nyt vindue i spacet (Empty space logic)
-        // Path: users/{uid}/workspaces_data/{workspaceId}/windows/{newWinId}
-        const newWinId = `win_${Date.now()}`;
-        const newWindowRef = doc(
-          db,
-          "users",
-          uid,
-          "workspaces_data",
-          workspaceId,
-          "windows",
-          newWinId
-        );
+      }
+      // SCENARIE B: Opret nye vinduer (Batch / Smart Logic)
+      else {
+        // 1. Find sektioner
+        const rawSections = text.split("###");
 
-        await setDoc(newWindowRef, {
-          id: newWinId,
-          tabs: newTabs,
-          isActive: false,
-          lastActive: serverTimestamp(),
-          createdAt: serverTimestamp(),
-          title: windowName || "Importeret Vindue", // Fallback titel hvis windowName mangler
+        // 2. Tjek om vi kan genbruge et tomt vindue (KUN for første sektion)
+        let reusedWindowId: string | null = null;
+
+        if (useEmptyWindow) {
+          // Hent frisk data fra Firestore (SKAL gøres for at undgå race conditions)
+          const windowsRef = collection(
+            db,
+            "users",
+            uid,
+            "workspaces_data",
+            workspaceId,
+            "windows"
+          );
+          const snap = await getDocs(windowsRef);
+
+          if (snap.size === 1) {
+            const docSnap = snap.docs[0];
+            const data = docSnap.data();
+            const wId = docSnap.id;
+
+            // Tjek: Er tabs tomme?
+            const isEmpty = !data.tabs || data.tabs.length === 0;
+
+            // Tjek: Er vinduet fysisk åbent?
+            // Vi mapper activeMappings for at se om Internal ID'et findes
+            const isPhysicallyOpen = activeMappings.some(
+              ([_, mapping]) => mapping.internalWindowId === wId
+            );
+
+            if (isEmpty && !isPhysicallyOpen) {
+              reusedWindowId = wId;
+            }
+          }
+        }
+
+        // 3. Eksekver oprettelse / opdatering
+        const createPromises = rawSections.map(async (section, index) => {
+          const newTabs = LinkManager.parseAndCreateTabs(section, uniqueOnly);
+
+          if (newTabs.length === 0) return;
+
+          // HVIS det er første sektion, OG vi har fundet et genbrugeligt vindue -> Opdater det
+          if (index === 0 && reusedWindowId) {
+            const existingWinRef = doc(
+              db,
+              "users",
+              uid,
+              "workspaces_data",
+              workspaceId,
+              "windows",
+              reusedWindowId
+            );
+
+            // Vi overskriver titel hvis brugeren har skrevet en (eller batch), ellers beholder vi den gamle
+            const baseTitle = windowName || "Importeret Vindue";
+            const title = rawSections.length > 1 ? `${baseTitle} 1` : baseTitle;
+
+            await updateDoc(existingWinRef, {
+              tabs: newTabs, // Overskriv (den var tom alligevel)
+              title: title,
+              lastActive: serverTimestamp(),
+            });
+          } else {
+            // Ellers opret nyt vindue
+            const newWinId = `win_${Date.now()}_${index}`;
+
+            const newWindowRef = doc(
+              db,
+              "users",
+              uid,
+              "workspaces_data",
+              workspaceId,
+              "windows",
+              newWinId
+            );
+
+            const baseTitle = windowName || "Importeret Vindue";
+            const title =
+              rawSections.length > 1 ? `${baseTitle} ${index + 1}` : baseTitle;
+
+            await setDoc(newWindowRef, {
+              id: newWinId,
+              tabs: newTabs,
+              isActive: false,
+              lastActive: serverTimestamp(),
+              createdAt: serverTimestamp(),
+              title: title,
+            });
+          }
         });
+
+        await Promise.all(createPromises);
       }
 
       onClose();
@@ -116,8 +226,6 @@ export const PasteModal = ({
       setIsSaving(false);
     }
   };
-
-  const isCreatingNew = !windowId;
 
   return (
     <dialog
@@ -132,18 +240,26 @@ export const PasteModal = ({
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-600/20 rounded-lg text-purple-400">
               {isCreatingNew ? (
-                <PlusCircle size={20} />
+                windowCount > 1 ? (
+                  <Layers size={20} />
+                ) : (
+                  <PlusCircle size={20} />
+                )
               ) : (
                 <ClipboardPaste size={20} />
               )}
             </div>
             <div>
               <h3 className="font-bold text-slate-200">
-                {isCreatingNew ? "Importer til Nyt Vindue" : "Importer Links"}
+                {isCreatingNew
+                  ? windowCount > 1
+                    ? "Batch Import (Flere Vinduer)"
+                    : "Importer til Nyt Vindue"
+                  : "Importer Links"}
               </h3>
               <p className="text-xs text-slate-500">
                 {isCreatingNew ? (
-                  "Opretter et nyt vindue med disse links"
+                  "Brug '###' til at opdele i flere vinduer"
                 ) : (
                   <>
                     Tilføj til{" "}
@@ -167,13 +283,17 @@ export const PasteModal = ({
             autoFocus
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Indsæt liste af links her..."
-            className="flex-1 min-h-50 bg-slate-900/50 border border-slate-700 rounded-xl p-4 text-sm font-mono text-slate-300 outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 resize-none placeholder:text-slate-600 custom-scrollbar"
+            placeholder={
+              isCreatingNew
+                ? "Indsæt links her...\n\n###\n\nIndsæt links til næste vindue her..."
+                : "Indsæt liste af links her..."
+            }
+            className="flex-1 min-h-64 bg-slate-900/50 border border-slate-700 rounded-xl p-4 text-sm font-mono text-slate-300 outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 resize-none placeholder:text-slate-600 custom-scrollbar leading-relaxed"
           />
 
-          {/* Controls Bar: Unique Toggle & Stats */}
-          <div className="flex items-center gap-2">
-            {/* Toggle Switch */}
+          {/* Controls Bar: Unique Toggle & Smart Fill */}
+          <div className="flex gap-2">
+            {/* Toggle Switch: Unique */}
             <div
               onClick={() => setUniqueOnly(!uniqueOnly)}
               className={`flex-1 flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all select-none ${
@@ -188,10 +308,10 @@ export const PasteModal = ({
                     uniqueOnly ? "text-blue-400" : "text-slate-400"
                   }`}
                 >
-                  Kun Unikke Links
+                  Kun Unikke (Pr. Vindue)
                 </span>
                 <span className="text-[10px] text-slate-500">
-                  Fjern dubletter automatisk
+                  Dubletter i samme vindue fjernes
                 </span>
               </div>
               <div
@@ -206,25 +326,76 @@ export const PasteModal = ({
                 )}
               </div>
             </div>
+
+            {/* Toggle Switch: Smart Empty Window */}
+            {isCreatingNew && (
+              <div
+                onClick={() => setUseEmptyWindow(!useEmptyWindow)}
+                className={`flex-1 flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all select-none ${
+                  useEmptyWindow
+                    ? "bg-emerald-900/20 border-emerald-500/50"
+                    : "bg-slate-900 border-slate-700/50 hover:border-slate-600"
+                }`}
+              >
+                <div className="flex flex-col">
+                  <span
+                    className={`text-xs font-bold ${
+                      useEmptyWindow ? "text-emerald-400" : "text-slate-400"
+                    }`}
+                  >
+                    Brug Tomt Vindue
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    Genbrug lukket/tomt vindue hvis muligt
+                  </span>
+                </div>
+                <div
+                  className={`transition-colors ${
+                    useEmptyWindow ? "text-emerald-400" : "text-slate-600"
+                  }`}
+                >
+                  {useEmptyWindow ? (
+                    <Maximize size={24} /> // Bruger Maximize som symbol på at "fylde" et vindue
+                  ) : (
+                    <div className="w-6 h-6 rounded-full border-2 border-slate-600"></div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Footer */}
         <div className="p-4 bg-slate-900/50 border-t border-slate-700 flex justify-between gap-2 ">
           {/* Stats */}
-          <div className="flex-1 flex items-center justify-center gap-2 bg-slate-900 rounded-lg p-3 border border-slate-700/50">
-            <LinkIcon
-              size={16}
-              className={previewCount > 0 ? "text-green-400" : "text-slate-500"}
-            />
-            <span
-              className={`text-sm font-bold ${
-                previewCount > 0 ? "text-green-400" : "text-slate-500"
-              }`}
-            >
-              {previewCount} links fundet
-            </span>
+          <div className="flex-1 flex items-center justify-center gap-3 bg-slate-900 rounded-lg p-3 border border-slate-700/50">
+            <div className="flex items-center gap-2">
+              <LinkIcon
+                size={16}
+                className={totalLinks > 0 ? "text-green-400" : "text-slate-500"}
+              />
+              <span
+                className={`text-sm font-bold ${
+                  totalLinks > 0 ? "text-green-400" : "text-slate-500"
+                }`}
+              >
+                {totalLinks} links
+              </span>
+            </div>
+
+            {windowCount > 1 && (
+              <>
+                <span className="text-slate-700">|</span>
+                <div className="flex items-center gap-2">
+                  <Layers size={16} className="text-purple-400" />
+                  <span className="text-sm font-bold text-purple-400">
+                    {windowCount} vinduer
+                  </span>
+                </div>
+              </>
+            )}
           </div>
+
           <div className="flex justify-end gap-3">
             <button
               onClick={onClose}
@@ -234,19 +405,26 @@ export const PasteModal = ({
             </button>
             <button
               onClick={handleSave}
-              disabled={previewCount === 0 || isSaving}
+              disabled={totalLinks === 0 || isSaving}
               className={`px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition shadow-lg cursor-pointer ${
-                previewCount > 0 && !isSaving
+                totalLinks > 0 && !isSaving
                   ? "bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/20 active:scale-95"
                   : "bg-slate-700 text-slate-500 cursor-not-allowed"
               }`}
             >
               {isSaving ? (
                 <Loader2 size={16} className="animate-spin" />
+              ) : isCreatingNew && windowCount > 1 ? (
+                <Layers size={16} />
               ) : (
                 <Save size={16} />
               )}
-              {isCreatingNew ? "Opret Vindue" : "Importer"}
+
+              {isCreatingNew
+                ? windowCount > 1
+                  ? "Opret Alle"
+                  : "Opret/Indsæt"
+                : "Importer"}
             </button>
           </div>
         </div>
