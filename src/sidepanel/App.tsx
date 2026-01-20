@@ -1,7 +1,6 @@
 import crxLogo from "@/assets/crx.svg";
 import reactLogo from "@/assets/react.svg";
 import viteLogo from "@/assets/vite.svg";
-import HelloWorld from "@/components/HelloWorld";
 import "./App.css";
 
 export default function App() {
@@ -16,7 +15,6 @@ export default function App() {
       <a href="https://crxjs.dev/vite-plugin" target="_blank" rel="noreferrer">
         <img src={crxLogo} className="logo crx" alt="crx logo" />
       </a>
-      <HelloWorld msg="Vite + React + CRXJS" />
     </div>
   );
 }
