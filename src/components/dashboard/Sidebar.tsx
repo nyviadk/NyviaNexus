@@ -97,7 +97,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     // Listener
     const handleStorageChange = (
       changes: { [key: string]: chrome.storage.StorageChange },
-      areaName: string
+      areaName: string,
     ) => {
       if (areaName === "local" && changes.nexus_ai_health) {
         setAiHealth(changes.nexus_ai_health.newValue as AiHealthStatus);
@@ -113,31 +113,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const filteredRootItems = useMemo(
     () =>
       items.filter(
-        (i) => i.profileId === activeProfile && i.parentId === "root"
+        (i) => i.profileId === activeProfile && i.parentId === "root",
       ),
-    [items, activeProfile]
+    [items, activeProfile],
   );
 
   const getFilteredInboxTabs = useCallback(
     (incognitoMode: boolean) => {
       if (!inboxData?.tabs) return [];
       return inboxData.tabs.filter((t: TabData) =>
-        incognitoMode ? t.isIncognito : !t.isIncognito
+        incognitoMode ? t.isIncognito : !t.isIncognito,
       );
     },
-    [inboxData]
+    [inboxData],
   );
 
   // Find det element der trækkes for at validere "Move to root" og fejlbeskeder
   const draggedItem = useMemo(
     () => (activeDragId ? items.find((i) => i.id === activeDragId) : null),
-    [activeDragId, items]
+    [activeDragId, items],
   );
 
   const isAlreadyAtRoot = draggedItem?.parentId === "root";
 
   return (
-    <aside className="w-96 flex flex-col shrink-0 z-20 bg-gradient-to-b from-slate-900 via-slate-800/60 to-slate-900 border-r border-slate-700/50 shadow-2xl relative overflow-hidden">
+    <aside className="w-96 flex flex-col shrink-0 z-20 bg-linear-to-b from-slate-900 via-slate-800/60 to-slate-900 border-r border-slate-700/50 shadow-2xl relative overflow-hidden">
       <div className="p-6 border-b border-slate-700/30 font-black text-white text-xl uppercase tracking-tighter flex items-center gap-3 bg-slate-900/10 backdrop-blur-sm">
         NyviaNexus
       </div>
@@ -151,7 +151,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {chromeWindows.map((cWin) => {
               const isCurrent = cWin.id === currentWindowId;
               const mappingEntry = activeMappings.find(
-                ([wId]) => wId === cWin.id
+                ([wId]) => wId === cWin.id,
               );
               const mapping = mappingEntry ? mappingEntry[1] : null;
 
@@ -181,7 +181,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   if (isCurrent) {
                     console.log(
                       `🪟 Sidebar (Current Win ${cWin.id}):`,
-                      mapping
+                      mapping,
                     );
                   }
                   if (mapping.index === 99) {
@@ -371,7 +371,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         .filter(
                           (i) =>
                             i.profileId === activeProfile &&
-                            i.parentId !== "root"
+                            i.parentId !== "root",
                         )
                         .forEach((it) =>
                           b.update(
@@ -380,10 +380,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               "users",
                               auth.currentUser!.uid,
                               "items",
-                              it.id
+                              it.id,
                             ),
-                            { parentId: "root" }
-                          )
+                            { parentId: "root" },
+                          ),
                         );
                       await b.commit();
                     }
@@ -452,7 +452,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               setInboxDropStatus(
                 tab.sourceWorkspaceId !== "global" || tab.isIncognito
                   ? "valid"
-                  : "invalid"
+                  : "invalid",
               );
             }
           }}

@@ -40,7 +40,8 @@ export const TabItem = React.memo(
     const getBadgeStyle = () => {
       if (!categoryName) return {};
       const userCat = userCategories.find(
-        (c: UserCategory) => c.name.toLowerCase() === categoryName.toLowerCase()
+        (c: UserCategory) =>
+          c.name.toLowerCase() === categoryName.toLowerCase(),
       );
       if (userCat) {
         return {
@@ -66,7 +67,7 @@ export const TabItem = React.memo(
             e.stopPropagation();
             onDelete(tab);
           }}
-          className="absolute -top-2 -right-2 z-30 bg-slate-700 border border-slate-600 text-slate-300 hover:text-red-400 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition shadow-xl cursor-pointer"
+          className="absolute -top-2 -right-2 z-30 bg-slate-800 border border-slate-600 text-slate-300 hover:text-red-400 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition shadow-xl cursor-pointer"
         >
           <X size={14} />
         </button>
@@ -80,12 +81,12 @@ export const TabItem = React.memo(
           {isSelected ? (
             <CheckSquare
               size={20}
-              className="text-blue-500 bg-slate-900 rounded cursor-pointer"
+              className="text-blue-500 bg-slate-900 rounded cursor-pointer shadow-md"
             />
           ) : (
             <Square
               size={20}
-              className="opacity-0 group-hover:opacity-100 bg-slate-900/50 rounded cursor-pointer"
+              className="opacity-0 group-hover:opacity-100 bg-slate-900 text-slate-500 rounded cursor-pointer shadow-md border border-slate-700"
             />
           )}
         </div>
@@ -97,7 +98,7 @@ export const TabItem = React.memo(
               e.preventDefault();
               e.stopPropagation();
               alert(
-                "🚧 Multidrag er ikke implementeret endnu.\n\nVi arbejder på sagen! Flyt venligst én fane ad gangen for nu."
+                "🚧 Multidrag er ikke implementeret endnu.\n\nVi arbejder på sagen! Flyt venligst én fane ad gangen for nu.",
               );
               return;
             }
@@ -118,15 +119,15 @@ export const TabItem = React.memo(
 
             window.sessionStorage.setItem(
               "draggedTab",
-              JSON.stringify(tabData)
+              JSON.stringify(tabData),
             );
             if (onDragStart) onDragStart();
           }}
-          className={`bg-slate-800 p-4 rounded-2xl border cursor-default active:cursor-grabbing transform-gpu ${
+          className={`p-4 rounded-2xl border cursor-default active:cursor-grabbing transform-gpu flex flex-col h-full transition-all group shadow-md pl-8 overflow-hidden ${
             isSelected
-              ? "border-blue-500 bg-slate-750 shadow-blue-900/20"
-              : "border-slate-700 hover:border-slate-500"
-          } flex flex-col h-full hover:bg-slate-800 transition group shadow-md pl-8 overflow-hidden`}
+              ? "bg-slate-900 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.25)]"
+              : "bg-[linear-gradient(90deg,var(--color-slate-900)_0%,rgb(30_41_59/50%)_20%,rgb(30_41_59/50%)_70%,var(--color-slate-900)_100%)] border-slate-700/50 hover:border-slate-500 hover:shadow-lg"
+          }`}
         >
           <div className="flex flex-col gap-2 min-w-0">
             <div
@@ -156,7 +157,7 @@ export const TabItem = React.memo(
 
                   const matches = await chrome.tabs.query({ url: tab.url });
                   const exactMatches = matches.filter(
-                    (t) => t.incognito === tab.isIncognito
+                    (t) => t.incognito === tab.isIncognito,
                   );
 
                   if (exactMatches.length > 0) {
@@ -262,5 +263,5 @@ export const TabItem = React.memo(
       JSON.stringify(prev.userCategories) ===
         JSON.stringify(next.userCategories)
     );
-  }
+  },
 );
