@@ -523,15 +523,15 @@ export const RemoteAccessSettings = () => {
                     toggleAccess(contact.uid, contact.isAllowed)
                   }
                   disabled={processingId === contact.uid}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all cursor-pointer xl:min-w-40 justify-between group ${
+                  className={`flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all cursor-pointer xl:min-w-44 justify-between group ${
                     contact.isAllowed
                       ? "bg-purple-950/20 border-purple-500/30 text-purple-400 hover:bg-purple-900/30 hover:border-purple-500/50"
                       : "bg-slate-900/40 border-slate-800 text-slate-500 hover:border-slate-600 hover:text-slate-300"
                   }`}
                   title={
                     contact.isAllowed
-                      ? "Klik for at stoppe deling"
-                      : "Klik for at dele"
+                      ? "Klik for at fjerne adgang"
+                      : "Klik for at give adgang"
                   }
                 >
                   <div className="flex items-center gap-2">
@@ -541,7 +541,8 @@ export const RemoteAccessSettings = () => {
                       <Lock size={16} />
                     )}
                     <span className="text-xs font-bold uppercase tracking-wide">
-                      Deling
+                      {/* Dynamisk tekst baseret på permission state */}
+                      {contact.isAllowed ? "Har adgang" : "Ingen adgang"}
                     </span>
                   </div>
 
