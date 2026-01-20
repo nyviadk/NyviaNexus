@@ -20,7 +20,7 @@ import {
   X,
   Maximize,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { db } from "../lib/firebase";
 import { LinkManager } from "../services/linkManager";
 import { WinMapping } from "@/background/main";
@@ -62,6 +62,24 @@ export const PasteModal = ({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const mouseDownTarget = useRef<EventTarget | null>(null);
 
+  const isCreatingNew = !windowId;
+
+  // Beregn om der findes et genbrugeligt vindue (Memoized for performance og UI toggle visning)
+  // Dette bruges KUN til at vise/skjule knappen og beregne preview titler.
+  // Selve save-logikken henter frisk data fra DB.
+  const availableReuseIndex = useMemo(() => {
+    if (!isCreatingNew) return -1;
+
+    // Vi leder efter det første vindue der er tomt og lukket i den tilsendte liste
+    return windows.findIndex((w) => {
+      const isEmpty = !w.tabs || w.tabs.length === 0;
+      const isPhysicallyOpen = activeMappings.some(
+        ([_, mapping]) => mapping.internalWindowId === w.id
+      );
+      return isEmpty && !isPhysicallyOpen;
+    });
+  }, [windows, activeMappings, isCreatingNew]);
+
   useEffect(() => {
     if (dialogRef.current && !dialogRef.current.open) {
       dialogRef.current.showModal();
@@ -69,7 +87,6 @@ export const PasteModal = ({
   }, []);
 
   // Håndter lukning: Kun hvis man KLIKKER på baggrunden (mousedown + mouseup på backdrop)
-  // Dette forhindrer lukning når man markerer tekst og slipper musen udenfor
   const handleBackdropMouseDown = (e: React.MouseEvent) => {
     mouseDownTarget.current = e.target;
   };
@@ -84,33 +101,14 @@ export const PasteModal = ({
     mouseDownTarget.current = null;
   };
 
-  const isCreatingNew = !windowId;
-
   // Beregn preview stats når tekst eller settings ændres
   useEffect(() => {
     const calculateStats = () => {
       let stats: WindowStat[] = [];
       let total = 0;
 
-      // Find ud af om vi har et genbrugeligt vindue (til visuel nummerering)
-      let reusableWindowIndex = -1; // -1 betyder "ingen"
-
-      if (isCreatingNew && useEmptyWindow) {
-        // Vi leder efter det første vindue der er tomt og lukket i den tilsendte liste
-        // windows arrayet kommer sorteret fra Dashboard
-        const idx = windows.findIndex((w) => {
-          const isEmpty = !w.tabs || w.tabs.length === 0;
-          const isPhysicallyOpen = activeMappings.some(
-            ([_, mapping]) => mapping.internalWindowId === w.id
-          );
-          return isEmpty && !isPhysicallyOpen;
-        });
-
-        if (idx !== -1) {
-          reusableWindowIndex = idx;
-        }
-      }
-
+      // Bestem om vi faktisk skal bruge det fundne vindue (hvis toggle er aktiv og vindue findes)
+      const reusableWindowIndex = useEmptyWindow ? availableReuseIndex : -1;
       const totalExistingWindows = windows.length;
 
       if (isCreatingNew && text.includes("###")) {
@@ -182,8 +180,8 @@ export const PasteModal = ({
     isCreatingNew,
     useEmptyWindow,
     windows,
-    activeMappings,
     windowName,
+    availableReuseIndex,
   ]);
 
   const handleSave = async () => {
@@ -288,11 +286,7 @@ export const PasteModal = ({
               reusedWindowId
             );
 
-            // Vi genbruger titlen fra preview logikken (hvis muligt), ellers fallback
             const baseTitle = windowName || "Importeret Vindue";
-            // Her gemmer vi bare en fornuftig titel i DB.
-            // UI'et i Sidebar vil selv nummerere det som "Vindue X" baseret på sortering alligevel,
-            // medmindre vi hardcoder en titel.
             const title = rawSections.length > 1 ? `${baseTitle} 1` : baseTitle;
 
             await updateDoc(existingWinRef, {
@@ -350,7 +344,7 @@ export const PasteModal = ({
     >
       <div
         className="bg-slate-800 border border-slate-600 w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
-        onMouseDown={(e) => e.stopPropagation()} // Stop propagation så vi ikke trigger backdrop logik indefra
+        onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="p-4 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
@@ -444,8 +438,8 @@ export const PasteModal = ({
               </div>
             </div>
 
-            {/* Toggle Switch: Smart Empty Window */}
-            {isCreatingNew && (
+            {/* Toggle Switch: Smart Empty Window - Vises kun hvis det er muligt */}
+            {isCreatingNew && availableReuseIndex !== -1 && (
               <div
                 onClick={() => setUseEmptyWindow(!useEmptyWindow)}
                 className={`flex-1 flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all select-none ${
@@ -485,15 +479,15 @@ export const PasteModal = ({
         {/* Footer */}
         <div className="p-4 bg-slate-900/50 border-t border-slate-700 flex justify-between gap-2 ">
           {/* Stats Display */}
-          <div className="flex-1 flex flex-col justify-center bg-slate-900 rounded-lg border border-slate-700/50 min-h-12.5 max-h-30 overflow-y-auto custom-scrollbar">
+          <div className="flex-1 flex flex-col bg-slate-900 rounded-lg border border-slate-700/50 min-h-12.5 max-h-48 overflow-y-auto custom-scrollbar">
             {previewStats.length === 0 ? (
-              // EMPTY STATE
+              // EMPTY STATE - Centreret indhold
               <div className="flex items-center justify-center gap-2 text-slate-500 h-full p-3">
                 <LinkIcon size={18} />
                 <span className="text-sm font-bold">0 links fundet</span>
               </div>
             ) : previewStats.length === 1 && !isCreatingNew ? (
-              // SINGLE / LEGACY VIEW (Til eksisterende vindue)
+              // SINGLE / LEGACY VIEW - Centreret indhold
               <div className="flex items-center justify-center gap-2 text-green-400 h-full p-3">
                 <LinkIcon size={18} />
                 <span className="text-sm font-bold">
@@ -502,7 +496,7 @@ export const PasteModal = ({
                 </span>
               </div>
             ) : (
-              // LIST VIEW (Aligned Grid)
+              // LIST VIEW (Aligned Grid) - Normalt flow med padding
               <div className="py-2 px-1 flex flex-col w-full">
                 {previewStats.map((stat) => (
                   <div
