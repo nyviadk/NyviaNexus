@@ -79,7 +79,7 @@ export const SidebarItem = ({
   const isDescendant = (
     sourceId: string,
     targetId: string,
-    items: NexusItem[]
+    items: NexusItem[],
   ) => {
     let current = items.find((i) => i.id === targetId);
     while (current && current.parentId !== "root") {
@@ -98,19 +98,19 @@ export const SidebarItem = ({
       const storage = await chrome.storage.local.get("nexus_active_windows");
       const mappings = (storage.nexus_active_windows || []) as [
         number,
-        WindowMappingLite
+        WindowMappingLite,
       ][];
 
       if (item.type === "workspace") {
         hasActiveWindows = mappings.some(
-          ([_, map]) => map.workspaceId === item.id
+          ([_, map]) => map.workspaceId === item.id,
         );
       } else {
         const childIds = allItems
           .filter((i) => i.parentId === item.id)
           .map((i) => i.id);
         hasActiveWindows = mappings.some(([_, map]) =>
-          childIds.includes(map.workspaceId)
+          childIds.includes(map.workspaceId),
         );
       }
     } catch (err) {
@@ -309,8 +309,8 @@ export const SidebarItem = ({
                   currentUser.uid,
                   "workspaces_data",
                   item.id,
-                  "windows"
-                )
+                  "windows",
+                ),
               );
               const windows = winSnap.docs.map((d) => ({
                 id: d.id,
@@ -359,9 +359,9 @@ export const SidebarItem = ({
               tabDropStatus === "valid" || (isDragOver && !isInvalidItemDrop)
                 ? "text-emerald-400"
                 : tabDropStatus === "invalid" ||
-                  (isDragOver && isInvalidItemDrop)
-                ? "text-red-400"
-                : "text-amber-400"
+                    (isDragOver && isInvalidItemDrop)
+                  ? "text-red-400"
+                  : "text-amber-400"
             } fill-current transition-colors shrink-0`}
           />
         )}
@@ -430,10 +430,10 @@ export const SidebarItem = ({
               return (
                 <div key={child.id} className="relative pl-4">
                   <div
-                    className="absolute left-0 top-0 w-px bg-slate-600"
+                    className="absolute left-0 top-0 w-px bg-slate-400"
                     style={{ height: isLastChild ? "20px" : "100%" }}
                   />
-                  <div className="absolute left-0 top-5 w-4 h-px bg-slate-600" />
+                  <div className="absolute left-0 top-5 w-4 h-px bg-slate-400" />
                   <SidebarItem
                     item={child}
                     allItems={allItems}
