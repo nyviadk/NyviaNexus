@@ -39,6 +39,7 @@ interface SidebarProps {
   activeMappings: [number, WinMapping][];
   viewMode: "workspace" | "inbox" | "incognito";
   setViewMode: (mode: "workspace" | "inbox" | "incognito") => void;
+  selectedWorkspace: NexusItem | null;
   setSelectedWorkspace: (ws: NexusItem | null) => void;
   setModalType: (type: "folder" | "workspace" | "settings" | null) => void;
   setModalParentId: (id: string) => void;
@@ -179,11 +180,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   label = "Slettet Space";
                 }
 
-                // Vi bruger mapping.index direkte fra Background Scriptet
-                if (mapping.index !== undefined && mapping.index !== 99) {
-                  subLabel = `Vindue ${mapping.index}`;
-                } else if (mapping.index === 99) {
-                  subLabel = "Opretter...";
+                // Vi bruger nu indekset direkte fra mappingen, da Background Scriptet
+                // garanterer at dette indeks er opdateret korrekt ift. databasen.
+                if (mapping.index !== undefined) {
+                  // Log for debugging i konsollen
+                  if (isCurrent) {
+                    console.log(
+                      `🪟 Sidebar (Current Win ${cWin.id}):`,
+                      mapping
+                    );
+                  }
+                  if (mapping.index === 99) {
+                    subLabel = "Opretter...";
+                  } else {
+                    subLabel = `Vindue ${mapping.index}`;
+                  }
                 } else {
                   subLabel = "Indlæser...";
                 }
@@ -503,12 +514,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               viewMode === "inbox"
                 ? "bg-orange-600/20 text-orange-400 border-orange-500/50 shadow-lg"
                 : inboxDropStatus === "invalid" && isInboxDragOver
-                ? "bg-red-900/20 border-red-500/50 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)] scale-[0.98]"
-                : inboxDropStatus === "valid" && isInboxDragOver
-                ? "bg-emerald-900/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)] scale-[1.02] text-emerald-400"
-                : isInboxDragOver
-                ? "bg-slate-700 border-slate-500 text-slate-200"
-                : "hover:bg-slate-700 text-slate-400 border-transparent"
+                  ? "bg-red-900/20 border-red-500/50 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)] scale-[0.98]"
+                  : inboxDropStatus === "valid" && isInboxDragOver
+                    ? "bg-emerald-900/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)] scale-[1.02] text-emerald-400"
+                    : isInboxDragOver
+                      ? "bg-slate-700 border-slate-500 text-slate-200"
+                      : "hover:bg-slate-700 text-slate-400 border-transparent"
             }`}
           >
             {isInboxSyncing ? (
@@ -524,8 +535,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     draggedItem?.type === "folder"
                       ? "mappe"
                       : draggedItem?.type === "workspace"
-                      ? "Space"
-                      : "Inbox fane"
+                        ? "Space"
+                        : "Inbox fane"
                   } hertil`
                 : `Inbox (${getFilteredInboxTabs(false).length})`}
             </span>
@@ -540,8 +551,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               viewMode === "incognito"
                 ? "bg-purple-900/40 text-purple-400 border-purple-500/50 shadow-lg"
                 : inboxDropStatus === "invalid" && isInboxDragOver
-                ? "opacity-30 grayscale cursor-not-allowed"
-                : "hover:bg-slate-700 text-slate-400 border-transparent"
+                  ? "opacity-30 grayscale cursor-not-allowed"
+                  : "hover:bg-slate-700 text-slate-400 border-transparent"
             }`}
           >
             <VenetianMask size={20} />

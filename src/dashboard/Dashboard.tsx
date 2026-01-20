@@ -286,7 +286,7 @@ export const Dashboard = () => {
       if (area === "local" && changes.nexus_active_windows) {
         const newMappings = (changes.nexus_active_windows.newValue || []) as [
           number,
-          WinMapping
+          WinMapping,
         ][];
         setActiveMappings(newMappings);
       }
@@ -399,6 +399,7 @@ export const Dashboard = () => {
         activeMappings={activeMappings}
         viewMode={viewMode}
         setViewMode={setViewMode}
+        selectedWorkspace={selectedWorkspace} // Send den valgte workspace med ned
         setSelectedWorkspace={setSelectedWorkspace}
         setModalType={setModalType}
         setModalParentId={setModalParentId}

@@ -213,6 +213,51 @@ async function saveTrackerToStorage() {
   }
 }
 
+// --- CRITICAL: RE-INDEXING HELPER ---
+// Denne funktion er hjertet i rettelsen. Den sikrer at uanset huller i rækken,
+// bliver de åbne vinduer tildelt 1, 2, 3... baseret på deres DB rækkefølge.
+async function reindexWorkspaceWindows(workspaceId: string, uid: string) {
+  console.log(`🔄 Re-indexing workspace: ${workspaceId}`);
+
+  // 1. Hent den sande liste fra DB
+  const q = query(
+    collection(db, "users", uid, "workspaces_data", workspaceId, "windows"),
+    orderBy("createdAt", "asc")
+  );
+  const snap = await getDocs(q);
+
+  // 2. Lav et map over korrekt indeks: internalId -> rækkefølge (1, 2, 3...)
+  const correctIndices = new Map<string, number>();
+  snap.docs.forEach((doc, idx) => {
+    correctIndices.set(doc.id, idx + 1);
+  });
+
+  // 3. Opdater activeWindows in-memory map
+  let updated = false;
+  for (const [winId, mapping] of activeWindows.entries()) {
+    if (mapping.workspaceId === workspaceId) {
+      const newIndex = correctIndices.get(mapping.internalWindowId);
+
+      // Hvis vinduet findes i DB, opdater indeks
+      if (newIndex !== undefined) {
+        if (mapping.index !== newIndex) {
+          console.log(
+            `Correction: Win ${mapping.internalWindowId} index ${mapping.index} -> ${newIndex}`
+          );
+          activeWindows.set(winId, { ...mapping, index: newIndex });
+          updated = true;
+        }
+      }
+    }
+  }
+
+  // 4. Gem hvis der skete ændringer
+  if (updated) {
+    await saveActiveWindowsToStorage();
+    console.log("💾 Indices updated and saved.");
+  }
+}
+
 // --- CRITICAL: STATE HYDRATION & CLEANUP ---
 
 // Denne funktion køres ved opstart af Chrome eller Service Worker.
@@ -266,9 +311,6 @@ async function validateAndCleanupState() {
       for (const [trackedTabId, trackedData] of tabTracker.entries()) {
         // A) Tjek om fanen er død (lukket mens extension sov)
         if (!physicalTabsMap.has(trackedTabId)) {
-          console.log(
-            `👻 Found Ghost Tab (Closed while sleeping): ID ${trackedTabId}`
-          );
           deadTabIds.push(trackedTabId);
         }
         // B) Tjek om URL har ændret sig mens vi sov
@@ -279,9 +321,6 @@ async function validateAndCleanupState() {
             actualUrl !== trackedData.url &&
             !isDash(actualUrl)
           ) {
-            console.log(
-              `🔀 URL mismatch for tab ${trackedTabId}. Updating tracker.`
-            );
             tabTracker.set(trackedTabId, { ...trackedData, url: actualUrl });
             trackerDirty = true;
           }
@@ -315,16 +354,17 @@ async function validateAndCleanupState() {
     // Opdater activeWindows map
     activeWindows.clear();
 
+    // Vi skal holde styr på hvilke workspaces der måske skal re-indekseres pga. oprydning
+    const workspacesToCheck = new Set<string>();
+
     for (const [winId, mapping] of storedMappings) {
       // Hvis vinduet fysisk findes, beholder vi det
       if (physicalIds.has(winId)) {
         validMappings.push([winId, mapping]);
         activeWindows.set(winId, mapping);
+        workspacesToCheck.add(mapping.workspaceId);
       } else {
         // 3. Vinduet er dødt -> Opdater Firestore til isActive = false
-        console.log(
-          `💀 Cleaning up dead window: ID ${winId} (${mapping.workspaceName})`
-        );
         dirty = true;
 
         if (uid) {
@@ -365,6 +405,14 @@ async function validateAndCleanupState() {
       // Ingen ændringer, men sørg for hukommelsen er synkroniseret
       activeWindows.clear();
       storedMappings.forEach(([id, map]) => activeWindows.set(id, map));
+    }
+
+    // --- FIX: RE-INDEXER ---
+    // Hvis vi har fjernet døde vinduer, eller bare genstartet, er det en god idé at sikre indeksene er korrekte.
+    if (uid) {
+      for (const wsId of workspacesToCheck) {
+        await reindexWorkspaceWindows(wsId, uid);
+      }
     }
 
     // --- 1.5 REBUILD & DISCOVER (Self-Healing) ---
@@ -985,6 +1033,10 @@ async function saveToFirestore(
         }
 
         activeWindows.delete(windowId);
+
+        // VIGTIGT: Re-indexer, hvis vi fjerner et vindue fra et workspace
+        await reindexWorkspaceWindows(mapping.workspaceId, uid);
+
         await saveActiveWindowsToStorage();
         chrome.windows.remove(windowId).catch(() => {});
         return;
@@ -1228,6 +1280,10 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
     updateDoc(docRef, { isActive: false }).catch(() => {});
 
     activeWindows.delete(windowId);
+
+    // VIGTIGT: RE-INDEXER NÅR VI LUKKER ET VINDUE!
+    await reindexWorkspaceWindows(mapping.workspaceId, uid);
+
     await saveActiveWindowsToStorage();
   }
   lockedWindowIds.delete(windowId);
@@ -1269,6 +1325,10 @@ chrome.runtime.onMessage.addListener(
         ensureStateHydrated().then(async () => {
           const { workspaceId, internalWindowId } = message.payload;
           let physicalId: number | null = null;
+          console.log(
+            `🗑️ DELETE REQUEST: Workspace ${workspaceId}, Win ${internalWindowId}`
+          );
+
           for (const [pId, map] of activeWindows.entries()) {
             if (
               map.workspaceId === workspaceId &&
@@ -1289,11 +1349,21 @@ chrome.runtime.onMessage.addListener(
           );
           try {
             await deleteDoc(docRef);
+
             if (physicalId) {
               activeWindows.delete(physicalId);
-              await saveActiveWindowsToStorage();
+              console.log(
+                `Found physical window ${physicalId}. Removing from map.`
+              );
+            }
+
+            // --- RE-INDEXER FRA DB ---
+            await reindexWorkspaceWindows(workspaceId, uid);
+
+            if (physicalId) {
               await chrome.windows.remove(physicalId).catch(() => {});
             }
+
             sendResponse({ success: true });
           } catch (e) {
             const error = e as Error;
@@ -1762,19 +1832,6 @@ async function handleCreateNewWindowInWorkspace(
       }
 
       // 4. Gem endelig tilstand
-      const snap = await getDocs(
-        collection(db, "users", uid, "workspaces_data", workspaceId, "windows")
-      );
-      const mapping: WinMapping = {
-        workspaceId,
-        internalWindowId: internalId,
-        workspaceName: name,
-        index: snap.size + 1,
-      };
-
-      activeWindows.set(winId, mapping);
-      await saveActiveWindowsToStorage();
-
       await setDoc(
         doc(
           db,
@@ -1793,6 +1850,11 @@ async function handleCreateNewWindowInWorkspace(
           createdAt: serverTimestamp(),
         }
       );
+
+      // --- CRITICAL CALL: RE-INDEX EFTER OPRETTELSE ---
+      // Dette sikrer at det nye vindue får det korrekte næste nummer (f.eks. 3 i stedet for 4 hvis 2 blev slettet)
+      await reindexWorkspaceWindows(workspaceId, uid);
+      // ------------------------------------------------
 
       lockedWindowIds.delete(winId);
     }
