@@ -80,6 +80,25 @@ export const PasteModal = ({
     });
   }, [windows, activeMappings, isCreatingNew]);
 
+  // Tjek om der rent faktisk er dubletter i inputtet pr. sektion
+  // Dette bestemmer om "Kun Unikke" knappen skal vises
+  const hasDuplicates = useMemo(() => {
+    if (!text.trim()) return false;
+
+    const sections = text.split("###");
+
+    // Vi tjekker hver sektion. Hvis bare én sektion har dubletter, viser vi muligheden.
+    return sections.some((section) => {
+      // Vi parser med uniqueOnly = false for at se rå data
+      const tabs = LinkManager.parseAndCreateTabs(section, false);
+      const urls = tabs.map((t) => t.url);
+      const uniqueUrls = new Set(urls);
+
+      // Hvis længden af arrayet er større end settet, er der dubletter
+      return urls.length > uniqueUrls.size;
+    });
+  }, [text]);
+
   useEffect(() => {
     if (dialogRef.current && !dialogRef.current.open) {
       dialogRef.current.showModal();
@@ -404,39 +423,41 @@ export const PasteModal = ({
 
           {/* Controls Bar */}
           <div className="flex gap-2">
-            {/* Toggle Switch: Unique */}
-            <div
-              onClick={() => setUniqueOnly(!uniqueOnly)}
-              className={`flex-1 flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all select-none ${
-                uniqueOnly
-                  ? "bg-blue-900/20 border-blue-500/50"
-                  : "bg-slate-900 border-slate-700/50 hover:border-slate-600"
-              }`}
-            >
-              <div className="flex flex-col">
-                <span
-                  className={`text-xs font-bold ${
-                    uniqueOnly ? "text-blue-400" : "text-slate-400"
-                  }`}
-                >
-                  Kun Unikke (Pr. Vindue)
-                </span>
-                <span className="text-[10px] text-slate-500">
-                  Dubletter i samme vindue fjernes
-                </span>
-              </div>
+            {/* Toggle Switch: Unique - VISES KUN HVIS DER ER DUBLETTER */}
+            {hasDuplicates && (
               <div
-                className={`transition-colors ${
-                  uniqueOnly ? "text-blue-400" : "text-slate-600"
+                onClick={() => setUniqueOnly(!uniqueOnly)}
+                className={`flex-1 flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all select-none ${
+                  uniqueOnly
+                    ? "bg-blue-900/20 border-blue-500/50"
+                    : "bg-slate-900 border-slate-700/50 hover:border-slate-600"
                 }`}
               >
-                {uniqueOnly ? (
-                  <ToggleRight size={28} />
-                ) : (
-                  <ToggleLeft size={28} />
-                )}
+                <div className="flex flex-col">
+                  <span
+                    className={`text-xs font-bold ${
+                      uniqueOnly ? "text-blue-400" : "text-slate-400"
+                    }`}
+                  >
+                    Kun Unikke (Pr. Vindue)
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    Dubletter i samme vindue fjernes
+                  </span>
+                </div>
+                <div
+                  className={`transition-colors ${
+                    uniqueOnly ? "text-blue-400" : "text-slate-600"
+                  }`}
+                >
+                  {uniqueOnly ? (
+                    <ToggleRight size={28} />
+                  ) : (
+                    <ToggleLeft size={28} />
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Toggle Switch: Smart Empty Window - Vises kun hvis det er muligt */}
             {isCreatingNew && availableReuseIndex !== -1 && (
