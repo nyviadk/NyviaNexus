@@ -24,13 +24,22 @@ import { useEffect, useRef, useState } from "react";
 import { db } from "../lib/firebase";
 import { LinkManager } from "../services/linkManager";
 import { WinMapping } from "@/background/main";
+import { WorkspaceWindow } from "../types";
 
 interface PasteModalProps {
   workspaceId: string;
   windowId?: string | null; // Null = Nyt Vindue (Standard nu)
   windowName?: string;
   activeMappings?: [number, WinMapping][];
+  windows?: WorkspaceWindow[]; // Liste af eksisterende vinduer til korrekt nummerering
   onClose: () => void;
+}
+
+interface WindowStat {
+  index: number;
+  count: number;
+  // Vi tilføjer en dynamisk titel til stat-objektet
+  dynamicTitle: string;
 }
 
 export const PasteModal = ({
@@ -38,6 +47,7 @@ export const PasteModal = ({
   windowId,
   windowName,
   activeMappings = [],
+  windows = [],
   onClose,
 }: PasteModalProps) => {
   const [text, setText] = useState("");
@@ -46,10 +56,11 @@ export const PasteModal = ({
   const [useEmptyWindow, setUseEmptyWindow] = useState(true); // Toggle til at genbruge tomt vindue
 
   // Stats til preview
+  const [previewStats, setPreviewStats] = useState<WindowStat[]>([]);
   const [totalLinks, setTotalLinks] = useState(0);
-  const [windowCount, setWindowCount] = useState(1);
 
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const mouseDownTarget = useRef<EventTarget | null>(null);
 
   useEffect(() => {
     if (dialogRef.current && !dialogRef.current.open) {
@@ -57,34 +68,123 @@ export const PasteModal = ({
     }
   }, []);
 
-  // Vi betragter det som "Nyt Vindue" hvis ID mangler
+  // Håndter lukning: Kun hvis man KLIKKER på baggrunden (mousedown + mouseup på backdrop)
+  // Dette forhindrer lukning når man markerer tekst og slipper musen udenfor
+  const handleBackdropMouseDown = (e: React.MouseEvent) => {
+    mouseDownTarget.current = e.target;
+  };
+
+  const handleBackdropMouseUp = (e: React.MouseEvent) => {
+    if (
+      e.target === dialogRef.current &&
+      mouseDownTarget.current === dialogRef.current
+    ) {
+      onClose();
+    }
+    mouseDownTarget.current = null;
+  };
+
   const isCreatingNew = !windowId;
 
   // Beregn preview stats når tekst eller settings ændres
   useEffect(() => {
-    if (isCreatingNew && text.includes("###")) {
-      // Batch mode logik
-      const sections = text.split("###");
-      let linkSum = 0;
-      let validWindows = 0;
+    const calculateStats = () => {
+      let stats: WindowStat[] = [];
+      let total = 0;
 
-      sections.forEach((section) => {
-        const links = LinkManager.parseAndCreateTabs(section, uniqueOnly);
-        if (links.length > 0) {
-          linkSum += links.length;
-          validWindows++;
+      // Find ud af om vi har et genbrugeligt vindue (til visuel nummerering)
+      let reusableWindowIndex = -1; // -1 betyder "ingen"
+
+      if (isCreatingNew && useEmptyWindow) {
+        // Vi leder efter det første vindue der er tomt og lukket i den tilsendte liste
+        // windows arrayet kommer sorteret fra Dashboard
+        const idx = windows.findIndex((w) => {
+          const isEmpty = !w.tabs || w.tabs.length === 0;
+          const isPhysicallyOpen = activeMappings.some(
+            ([_, mapping]) => mapping.internalWindowId === w.id
+          );
+          return isEmpty && !isPhysicallyOpen;
+        });
+
+        if (idx !== -1) {
+          reusableWindowIndex = idx;
         }
-      });
+      }
 
-      setTotalLinks(linkSum);
-      setWindowCount(validWindows > 0 ? validWindows : 1);
-    } else {
-      // Standard mode
-      const urls = LinkManager.parseAndCreateTabs(text, uniqueOnly);
-      setTotalLinks(urls.length);
-      setWindowCount(1);
-    }
-  }, [text, uniqueOnly, isCreatingNew]);
+      const totalExistingWindows = windows.length;
+
+      if (isCreatingNew && text.includes("###")) {
+        // Batch mode logik
+        const sections = text.split("###");
+
+        let addedWindowsCount = 0; // Tæller hvor mange *nye* vinduer vi har tilføjet i denne batch
+
+        sections.forEach((section, idx) => {
+          const links = LinkManager.parseAndCreateTabs(section, uniqueOnly);
+          if (links.length > 0) {
+            // Beregn navnet
+            let displayName = "";
+
+            // Hvis det er første gruppe, og vi har et genbrugeligt vindue
+            if (idx === 0 && reusableWindowIndex !== -1) {
+              // Vi bruger det eksisterende vindues nummer (1-based index)
+              displayName = windowName || `Vindue ${reusableWindowIndex + 1}`;
+            } else {
+              // Ellers er det et nyt vindue i enden af listen
+              // Nummeret er: Antal nuværende + Antal vi allerede har lavet i denne batch + 1
+              const visualIndex = totalExistingWindows + addedWindowsCount + 1;
+              displayName = windowName
+                ? `${windowName} ${idx + 1}`
+                : `Vindue ${visualIndex}`;
+              addedWindowsCount++;
+            }
+
+            stats.push({
+              index: idx + 1, // Internt ID til key
+              count: links.length,
+              dynamicTitle: displayName,
+            });
+            total += links.length;
+          }
+        });
+      } else {
+        // Standard mode (eller enkelt vindue)
+        const urls = LinkManager.parseAndCreateTabs(text, uniqueOnly);
+        if (urls.length > 0) {
+          let displayName = "";
+          if (isCreatingNew) {
+            if (reusableWindowIndex !== -1) {
+              displayName = windowName || `Vindue ${reusableWindowIndex + 1}`;
+            } else {
+              displayName = windowName || `Vindue ${totalExistingWindows + 1}`;
+            }
+          } else {
+            displayName = windowName || "Eksisterende Vindue";
+          }
+
+          stats.push({
+            index: 1,
+            count: urls.length,
+            dynamicTitle: displayName,
+          });
+          total += urls.length;
+        }
+      }
+
+      setPreviewStats(stats);
+      setTotalLinks(total);
+    };
+
+    calculateStats();
+  }, [
+    text,
+    uniqueOnly,
+    isCreatingNew,
+    useEmptyWindow,
+    windows,
+    activeMappings,
+    windowName,
+  ]);
 
   const handleSave = async () => {
     if (totalLinks === 0) return;
@@ -128,7 +228,6 @@ export const PasteModal = ({
         let reusedWindowId: string | null = null;
 
         if (useEmptyWindow) {
-          // Hent frisk data fra Firestore (SKAL gøres for at undgå race conditions)
           const windowsRef = collection(
             db,
             "users",
@@ -146,7 +245,6 @@ export const PasteModal = ({
 
             // Tjek: Er tabs tomme?
             const isEmpty = !data.tabs || data.tabs.length === 0;
-
             // Tjek: Er vinduet fysisk åbent?
             // Vi mapper activeMappings for at se om Internal ID'et findes
             const isPhysicallyOpen = activeMappings.some(
@@ -156,6 +254,20 @@ export const PasteModal = ({
             if (isEmpty && !isPhysicallyOpen) {
               reusedWindowId = wId;
             }
+          } else {
+            // Hvis der er flere vinduer i DB, skal vi stadig finde "det tomme" hvis det findes
+            // For at matche UI'et præcist, genbruger vi logikken om at finde det første ledige
+            const allDocs = snap.docs;
+            const target = allDocs.find((d) => {
+              const dData = d.data();
+              const isEmpty = !dData.tabs || dData.tabs.length === 0;
+              const isOpen = activeMappings.some(
+                ([_, mapping]) => mapping.internalWindowId === d.id
+              );
+              return isEmpty && !isOpen;
+            });
+
+            if (target) reusedWindowId = target.id;
           }
         }
 
@@ -165,7 +277,6 @@ export const PasteModal = ({
 
           if (newTabs.length === 0) return;
 
-          // HVIS det er første sektion, OG vi har fundet et genbrugeligt vindue -> Opdater det
           if (index === 0 && reusedWindowId) {
             const existingWinRef = doc(
               db,
@@ -177,17 +288,19 @@ export const PasteModal = ({
               reusedWindowId
             );
 
-            // Vi overskriver titel hvis brugeren har skrevet en (eller batch), ellers beholder vi den gamle
+            // Vi genbruger titlen fra preview logikken (hvis muligt), ellers fallback
             const baseTitle = windowName || "Importeret Vindue";
+            // Her gemmer vi bare en fornuftig titel i DB.
+            // UI'et i Sidebar vil selv nummerere det som "Vindue X" baseret på sortering alligevel,
+            // medmindre vi hardcoder en titel.
             const title = rawSections.length > 1 ? `${baseTitle} 1` : baseTitle;
 
             await updateDoc(existingWinRef, {
-              tabs: newTabs, // Overskriv (den var tom alligevel)
+              tabs: newTabs,
               title: title,
               lastActive: serverTimestamp(),
             });
           } else {
-            // Ellers opret nyt vindue
             const newWinId = `win_${Date.now()}_${index}`;
 
             const newWindowRef = doc(
@@ -231,16 +344,20 @@ export const PasteModal = ({
     <dialog
       ref={dialogRef}
       onCancel={onClose}
+      onMouseDown={handleBackdropMouseDown}
+      onMouseUp={handleBackdropMouseUp}
       className="bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm open:animate-in open:fade-in open:zoom-in-95 m-auto"
-      onClick={(e) => e.target === dialogRef.current && onClose()}
     >
-      <div className="bg-slate-800 border border-slate-600 w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+      <div
+        className="bg-slate-800 border border-slate-600 w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+        onMouseDown={(e) => e.stopPropagation()} // Stop propagation så vi ikke trigger backdrop logik indefra
+      >
         {/* Header */}
         <div className="p-4 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-600/20 rounded-lg text-purple-400">
               {isCreatingNew ? (
-                windowCount > 1 ? (
+                previewStats.length > 1 ? (
                   <Layers size={20} />
                 ) : (
                   <PlusCircle size={20} />
@@ -252,7 +369,7 @@ export const PasteModal = ({
             <div>
               <h3 className="font-bold text-slate-200">
                 {isCreatingNew
-                  ? windowCount > 1
+                  ? previewStats.length > 1
                     ? "Batch Import (Flere Vinduer)"
                     : "Importer til Nyt Vindue"
                   : "Importer Links"}
@@ -291,7 +408,7 @@ export const PasteModal = ({
             className="flex-1 min-h-64 bg-slate-900/50 border border-slate-700 rounded-xl p-4 text-sm font-mono text-slate-300 outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 resize-none placeholder:text-slate-600 custom-scrollbar leading-relaxed"
           />
 
-          {/* Controls Bar: Unique Toggle & Smart Fill */}
+          {/* Controls Bar */}
           <div className="flex gap-2">
             {/* Toggle Switch: Unique */}
             <div
@@ -355,7 +472,7 @@ export const PasteModal = ({
                   }`}
                 >
                   {useEmptyWindow ? (
-                    <Maximize size={24} /> // Bruger Maximize som symbol på at "fylde" et vindue
+                    <Maximize size={24} />
                   ) : (
                     <div className="w-6 h-6 rounded-full border-2 border-slate-600"></div>
                   )}
@@ -367,36 +484,57 @@ export const PasteModal = ({
 
         {/* Footer */}
         <div className="p-4 bg-slate-900/50 border-t border-slate-700 flex justify-between gap-2 ">
-          {/* Stats */}
-          <div className="flex-1 flex items-center justify-center gap-3 bg-slate-900 rounded-lg p-3 border border-slate-700/50">
-            <div className="flex items-center gap-2">
-              <LinkIcon
-                size={16}
-                className={totalLinks > 0 ? "text-green-400" : "text-slate-500"}
-              />
-              <span
-                className={`text-sm font-bold ${
-                  totalLinks > 0 ? "text-green-400" : "text-slate-500"
-                }`}
-              >
-                {totalLinks} links
-              </span>
-            </div>
+          {/* Stats Display */}
+          <div className="flex-1 flex flex-col justify-center bg-slate-900 rounded-lg border border-slate-700/50 min-h-12.5 max-h-30 overflow-y-auto custom-scrollbar">
+            {previewStats.length === 0 ? (
+              // EMPTY STATE
+              <div className="flex items-center justify-center gap-2 text-slate-500 h-full p-3">
+                <LinkIcon size={18} />
+                <span className="text-sm font-bold">0 links fundet</span>
+              </div>
+            ) : previewStats.length === 1 && !isCreatingNew ? (
+              // SINGLE / LEGACY VIEW (Til eksisterende vindue)
+              <div className="flex items-center justify-center gap-2 text-green-400 h-full p-3">
+                <LinkIcon size={18} />
+                <span className="text-sm font-bold">
+                  {previewStats[0].count}{" "}
+                  {previewStats[0].count === 1 ? "link" : "links"} fundet
+                </span>
+              </div>
+            ) : (
+              // LIST VIEW (Aligned Grid)
+              <div className="py-2 px-1 flex flex-col w-full">
+                {previewStats.map((stat) => (
+                  <div
+                    key={stat.index}
+                    className="flex items-center text-sm w-full px-3 py-1 hover:bg-slate-800/50 rounded transition-colors"
+                  >
+                    {/* Left: Count & Icon (Fixed width for alignment) */}
+                    <div className="w-24 flex items-center justify-end gap-2 text-green-400 font-bold">
+                      <span>{stat.count}</span>
+                      <span className="font-normal text-green-400/80 text-xs uppercase tracking-wide">
+                        {stat.count === 1 ? "link" : "links"}
+                      </span>
+                      <LinkIcon size={14} className="ml-1 opacity-70" />
+                    </div>
 
-            {windowCount > 1 && (
-              <>
-                <span className="text-slate-700">|</span>
-                <div className="flex items-center gap-2">
-                  <Layers size={16} className="text-purple-400" />
-                  <span className="text-sm font-bold text-purple-400">
-                    {windowCount} vinduer
-                  </span>
-                </div>
-              </>
+                    {/* Middle: Separator */}
+                    <div className="text-slate-600 mx-3 font-light text-lg">
+                      |
+                    </div>
+
+                    {/* Right: Window Name (DYNAMIC) */}
+                    <div className="flex-1 text-purple-400 font-medium flex items-center gap-2 truncate">
+                      <Layers size={14} className="opacity-70" />
+                      <span className="truncate">{stat.dynamicTitle}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
-          <div className="flex justify-end gap-3">
+          <div className="flex justify-end gap-3 items-center">
             <button
               onClick={onClose}
               className="px-4 py-2 text-slate-400 hover:text-white text-sm font-medium transition cursor-pointer"
@@ -406,7 +544,7 @@ export const PasteModal = ({
             <button
               onClick={handleSave}
               disabled={totalLinks === 0 || isSaving}
-              className={`px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition shadow-lg cursor-pointer ${
+              className={`px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition shadow-lg cursor-pointer h-fit ${
                 totalLinks > 0 && !isSaving
                   ? "bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/20 active:scale-95"
                   : "bg-slate-700 text-slate-500 cursor-not-allowed"
@@ -414,14 +552,14 @@ export const PasteModal = ({
             >
               {isSaving ? (
                 <Loader2 size={16} className="animate-spin" />
-              ) : isCreatingNew && windowCount > 1 ? (
+              ) : isCreatingNew && previewStats.length > 1 ? (
                 <Layers size={16} />
               ) : (
                 <Save size={16} />
               )}
 
               {isCreatingNew
-                ? windowCount > 1
+                ? previewStats.length > 1
                   ? "Opret Alle"
                   : "Opret/Indsæt"
                 : "Importer"}

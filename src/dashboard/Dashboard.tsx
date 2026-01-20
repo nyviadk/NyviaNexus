@@ -513,6 +513,7 @@ export const Dashboard = () => {
           windowId={pasteModalData.windowId}
           windowName={pasteModalData.windowName}
           activeMappings={activeMappings}
+          windows={sortedWindows}
           onClose={() => setPasteModalData(null)}
         />
       )}
