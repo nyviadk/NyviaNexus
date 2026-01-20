@@ -137,16 +137,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isAlreadyAtRoot = draggedItem?.parentId === "root";
 
   return (
-    <aside className="w-96 border-r border-slate-700 bg-slate-800 flex flex-col shrink-0 shadow-2xl z-20">
-      <div className="p-6 border-b border-slate-700 font-black text-white text-xl uppercase tracking-tighter flex items-center gap-3">
-        <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center">
-          N
-        </div>{" "}
+    <aside className="w-96 flex flex-col shrink-0 z-20 bg-gradient-to-b from-slate-900 via-slate-800/60 to-slate-900 border-r border-slate-700/50 shadow-2xl relative overflow-hidden">
+      <div className="p-6 border-b border-slate-700/30 font-black text-white text-xl uppercase tracking-tighter flex items-center gap-3 bg-slate-900/10 backdrop-blur-sm">
         NyviaNexus
       </div>
 
       {chromeWindows.length > 0 && (
-        <div className="px-4 py-3 bg-slate-900/30 border-b border-slate-700/50">
+        <div className="px-4 py-3 bg-slate-900/20 border-b border-slate-700/30 backdrop-blur-sm">
           <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 px-1">
             Åbne Vinduer
           </div>
@@ -180,10 +177,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   label = "Slettet Space";
                 }
 
-                // Vi bruger nu indekset direkte fra mappingen, da Background Scriptet
-                // garanterer at dette indeks er opdateret korrekt ift. databasen.
                 if (mapping.index !== undefined) {
-                  // Log for debugging i konsollen
                   if (isCurrent) {
                     console.log(
                       `🪟 Sidebar (Current Win ${cWin.id}):`,
@@ -208,10 +202,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       chrome.windows.update(cWin.id, { focused: true });
                     }
                   }}
-                  className={`flex items-center justify-between p-2 rounded-lg text-xs transition-colors ${
+                  className={`flex items-center justify-between p-2 rounded-lg text-xs transition-all duration-200 ${
                     isCurrent
-                      ? "bg-green-500/10 border border-green-500/30 cursor-default"
-                      : "bg-slate-700/30 border border-transparent cursor-pointer hover:bg-slate-700"
+                      ? "bg-green-500/10 border border-green-500/30 cursor-default shadow-[0_0_10px_rgba(34,197,94,0.1)]"
+                      : "bg-slate-700/30 border border-transparent cursor-pointer hover:bg-slate-700/50 hover:border-slate-600"
                   }`}
                 >
                   <div className="flex flex-col truncate min-w-0">
@@ -255,7 +249,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     )}
                   </div>
                   {isCurrent && (
-                    <div className="text-[9px] font-black text-green-500 bg-green-500/20 px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0 ml-2">
+                    <div className="text-[9px] font-black text-green-500 bg-green-500/20 px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0 ml-2 shadow-[0_0_5px_rgba(34,197,94,0.2)]">
                       HER
                     </div>
                   )}
@@ -266,9 +260,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      <div className="p-4 flex-1 overflow-y-auto space-y-6">
+      <div className="p-4 flex-1 overflow-y-auto space-y-6 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
         {aiHealth === "down" && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-start gap-3">
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-start gap-3 shadow-lg shadow-amber-900/20">
             <AlertTriangle
               size={18}
               className="text-amber-500 shrink-0 mt-0.5"
@@ -282,7 +276,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 kategoriseret, så snart servicen er oppe igen.
               </p>
               <a
-                className="text-amber-200/70 text-[10px] mt-1 leading-relaxed"
+                className="text-amber-200/70 text-[10px] mt-1 leading-relaxed hover:text-amber-200 underline"
                 href="https://statusgator.com/services/cerebras"
                 target="_blank"
               >
@@ -300,7 +294,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               setSelectedWorkspace(null);
               setViewMode("workspace");
             }}
-            className="flex-1 bg-slate-700 p-2 rounded-xl border border-slate-600 text-sm outline-none text-white cursor-pointer"
+            className="flex-1 bg-slate-800/50 p-2 rounded-xl border border-slate-600 text-sm outline-none text-white cursor-pointer hover:border-slate-500 transition-colors focus:ring-2 focus:ring-blue-500/20"
           >
             {profiles.map((p: Profile) => (
               <option key={p.id} value={p.id}>
@@ -310,7 +304,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </select>
           <button
             onClick={() => setModalType("settings")}
-            className="p-2 text-slate-400 hover:text-blue-400 bg-slate-700 rounded-xl border border-slate-600 cursor-pointer"
+            className="p-2 text-slate-400 hover:text-blue-400 bg-slate-800/50 rounded-xl border border-slate-600 cursor-pointer hover:border-slate-500 transition-colors"
           >
             <Settings size={22} />
           </button>
@@ -346,8 +340,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
               className={`p-4 border-2 border-dashed rounded-2xl flex items-center justify-center gap-3 transition-all ${
                 isDragOverRoot
-                  ? "bg-blue-600/20 border-blue-400 scale-[1.02] text-blue-400"
-                  : "bg-slate-700/40 border-slate-600 text-slate-500"
+                  ? "bg-blue-600/20 border-blue-400 scale-[1.02] text-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.2)]"
+                  : "bg-slate-700/20 border-slate-600/50 text-slate-500 hover:border-slate-500"
               }`}
             >
               {isSyncingRoot ? (
@@ -394,7 +388,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       await b.commit();
                     }
                   }}
-                  className="cursor-pointer"
+                  className="cursor-pointer transition-transform hover:scale-110"
                 >
                   <LifeBuoy size={18} className="hover:text-red-400" />
                 </button>
@@ -403,7 +397,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     setModalParentId("root");
                     setModalType("folder");
                   }}
-                  className="cursor-pointer"
+                  className="cursor-pointer transition-transform hover:scale-110"
                 >
                   <FolderPlus size={18} className="hover:text-white" />
                 </button>
@@ -412,7 +406,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     setModalParentId("root");
                     setModalType("workspace");
                   }}
-                  className="cursor-pointer"
+                  className="cursor-pointer transition-transform hover:scale-110"
                 >
                   <PlusCircle size={18} className="hover:text-white" />
                 </button>
@@ -510,7 +504,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               setSelectedWorkspace(null);
               setViewMode("inbox");
             }}
-            className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all border mb-2 ${
+            className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all border mb-2 backdrop-blur-sm ${
               viewMode === "inbox"
                 ? "bg-orange-600/20 text-orange-400 border-orange-500/50 shadow-lg"
                 : inboxDropStatus === "invalid" && isInboxDragOver
@@ -518,8 +512,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   : inboxDropStatus === "valid" && isInboxDragOver
                     ? "bg-emerald-900/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)] scale-[1.02] text-emerald-400"
                     : isInboxDragOver
-                      ? "bg-slate-700 border-slate-500 text-slate-200"
-                      : "hover:bg-slate-700 text-slate-400 border-transparent"
+                      ? "bg-slate-700/50 border-slate-500 text-slate-200"
+                      : "hover:bg-slate-700/30 text-slate-400 border-transparent hover:text-slate-200"
             }`}
           >
             {isInboxSyncing ? (
@@ -547,12 +541,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               setSelectedWorkspace(null);
               setViewMode("incognito");
             }}
-            className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all border ${
+            className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer text-sm transition-all border backdrop-blur-sm ${
               viewMode === "incognito"
                 ? "bg-purple-900/40 text-purple-400 border-purple-500/50 shadow-lg"
                 : inboxDropStatus === "invalid" && isInboxDragOver
                   ? "opacity-30 grayscale cursor-not-allowed"
-                  : "hover:bg-slate-700 text-slate-400 border-transparent"
+                  : "hover:bg-slate-700/30 text-slate-400 border-transparent hover:text-slate-200"
             }`}
           >
             <VenetianMask size={20} />
@@ -561,7 +555,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
       </div>
 
-      <div className="p-4 border-t border-slate-700 bg-slate-800/50 flex flex-col gap-3 text-sm">
+      <div className="p-4 border-t border-slate-700/30 bg-slate-900/30 backdrop-blur-md flex flex-col gap-3 text-sm">
         <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase">
           <Activity size={14} className="animate-pulse" /> Live Sync
         </div>
