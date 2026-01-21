@@ -72,7 +72,7 @@ export const TabItem = React.memo(
           <X size={14} />
         </button>
         <div
-          className="absolute top-2 left-2 cursor-pointer z-20 text-slate-500 hover:text-blue-400"
+          className="absolute -top-2 -left-2 cursor-pointer z-20 text-slate-500 hover:text-blue-400"
           onClick={(e) => {
             e.stopPropagation();
             onSelect(tab);
@@ -123,10 +123,10 @@ export const TabItem = React.memo(
             );
             if (onDragStart) onDragStart();
           }}
-          className={`p-4 rounded-2xl border cursor-default active:cursor-grabbing transform-gpu flex flex-col h-full transition-all group shadow-md pl-8 overflow-hidden ${
+          className={`pt-2 pr-2 pb-4 rounded-2xl border cursor-default active:cursor-grabbing transform-gpu flex flex-col h-full transition-all group shadow-md pl-4 overflow-hidden ${
             isSelected
               ? "bg-slate-900 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.25)]"
-              : "bg-[linear-gradient(90deg,var(--color-slate-900)_0%,rgb(30_41_59/50%)_20%,rgb(30_41_59/50%)_70%,var(--color-slate-900)_100%)] border-slate-700/50 hover:border-slate-500 hover:shadow-lg"
+              : "bg-[linear-gradient(90deg,var(--color-slate-900)_0%,rgb(30_41_59/50%)_25%,rgb(30_41_59/50%)_85%,rgb(20_28_45)_100%)] border-slate-700/50 hover:border-slate-500 hover:shadow-lg"
           }`}
         >
           <div className="flex flex-col gap-2 min-w-0">
