@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import {
   ArrowRightLeft,
+  Ban,
   Check,
   ChevronDown,
   Copy,
@@ -77,6 +78,9 @@ export const RemoteAccessSettings = () => {
   const [myUidCopied, setMyUidCopied] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
+
+  // Ny state til at håndtere loading specifikt på kopier-knapper
+  const [copyingId, setCopyingId] = useState<string | null>(null);
 
   // Remote Fetching Data
   const [remoteSpaces, setRemoteSpaces] = useState<RemoteSpaceSummary[]>([]);
@@ -272,7 +276,7 @@ export const RemoteAccessSettings = () => {
     }
   };
 
-  // --- FETCH LOGIC (FIXED: Uses 'items' for space list) ---
+  // --- FETCH LOGIC ---
 
   const fetchRemoteData = async (targetUid: string) => {
     setActiveExpandedUid(targetUid);
@@ -284,13 +288,11 @@ export const RemoteAccessSettings = () => {
     await wait(800);
 
     try {
-      // Vi henter nu Spaces fra 'items' collectionen og filtrerer på type == 'workspace'.
       const itemsQuery = query(
         collection(db, "users", targetUid, "items"),
         where("type", "==", "workspace"),
       );
 
-      // Vi bruger Promise.allSettled for at køre requests parallelt.
       const [spacesResult, inboxResult] = await Promise.allSettled([
         getDocs(itemsQuery),
         getDoc(doc(db, "users", targetUid, "inbox_data", "global")),
@@ -301,10 +303,10 @@ export const RemoteAccessSettings = () => {
       let newInbox: TabData[] = [];
       let newIncognito: TabData[] = [];
 
-      // 1. Handle Spaces Result (from items collection)
+      // 1. Handle Spaces Result
       if (spacesResult.status === "fulfilled") {
         newSpaces = spacesResult.value.docs.map((d) => ({
-          id: d.id, // Bruger dokumentets ID (f.eks. ws_1768...)
+          id: d.id,
           name: d.data().name || "Navnløst Space",
         }));
       } else {
@@ -356,10 +358,18 @@ export const RemoteAccessSettings = () => {
     }
   };
 
-  // --- COPY LOGIC ---
+  // --- COPY LOGIC (FIXED) ---
 
   const copyTabsToClipboard = async (tabs: TabData[], idForStatus: string) => {
-    if (tabs.length === 0) return;
+    // 1. Tjek om der faktisk er faner at kopiere
+    if (!tabs || tabs.length === 0) {
+      setCopyStatus(`${idForStatus}_empty`);
+      await wait(1500);
+      setCopyStatus(null);
+      return;
+    }
+
+    // 2. Start Success flow
     setCopyStatus(idForStatus);
     await wait(300);
 
@@ -371,13 +381,12 @@ export const RemoteAccessSettings = () => {
   };
 
   const copyRemoteSpace = async (spaceId: string) => {
-    if (!activeExpandedUid) return;
-    setCopyStatus(spaceId);
-    await wait(500);
+    if (!activeExpandedUid || copyingId) return; // Forhindrer dobbelt-klik
+
+    // 1. Indiker at vi loader (vis spinner)
+    setCopyingId(spaceId);
 
     try {
-      // NOTE: Vi henter stadig selve dataen fra workspaces_data/{spaceId}/windows
-      // Dette er korrekt ifølge din datastruktur.
       const winsRef = collection(
         db,
         "users",
@@ -390,12 +399,25 @@ export const RemoteAccessSettings = () => {
       const q = query(winsRef, orderBy("createdAt", "asc"));
       const snapshot = await getDocs(q);
 
-      if (snapshot.empty) {
-        alert("Space er tomt eller kunne ikke læses.");
+      // 2. Ekstraher ALLE faner fra ALLE vinduer
+      const allTabs: TabData[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data.tabs && Array.isArray(data.tabs)) {
+          allTabs.push(...data.tabs);
+        }
+      });
+
+      // 3. Tjek om der faktisk er faner
+      if (allTabs.length === 0) {
+        setCopyingId(null); // Stop spinner
+        setCopyStatus(`${spaceId}_empty`); // Vis "Tom"
+        await wait(1500);
         setCopyStatus(null);
         return;
       }
 
+      // 4. Hvis der er data, formatér og kopier
       const windowStrings = snapshot.docs.map((doc) => {
         const data = doc.data();
         const tabs = (data.tabs || []) as TabData[];
@@ -405,10 +427,14 @@ export const RemoteAccessSettings = () => {
       const finalString = windowStrings.join("\n\n###\n\n");
       await navigator.clipboard.writeText(finalString);
 
+      // 5. Vis Success
+      setCopyingId(null);
+      setCopyStatus(spaceId);
       await wait(1500);
       setCopyStatus(null);
     } catch (err) {
       console.error("Copy Space Error:", err);
+      setCopyingId(null);
       setCopyStatus(null);
       alert(
         "Kunne ikke kopiere space. Mangler muligvis rettigheder eller index.",
@@ -668,33 +694,58 @@ export const RemoteAccessSettings = () => {
                         </div>
                         {remoteSpaces.length > 0 ? (
                           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            {remoteSpaces.map((space) => (
-                              <div
-                                key={space.id}
-                                className="group flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900 p-3 transition hover:border-slate-600"
-                              >
-                                <div className="flex items-center gap-3 overflow-hidden">
-                                  <div className="h-8 w-2 shrink-0 rounded-full bg-purple-500/50"></div>
-                                  <span className="truncate pr-2 text-sm font-medium text-slate-300">
-                                    {space.name}
-                                  </span>
-                                </div>
-                                <button
-                                  onClick={() => copyRemoteSpace(space.id)}
-                                  className="cursor-pointer rounded-lg p-2 text-slate-500 transition hover:bg-slate-700 hover:text-white"
-                                  title="Kopier Space URLs"
+                            {remoteSpaces.map((space) => {
+                              const isEmptyState =
+                                copyStatus === `${space.id}_empty`;
+                              const isCopiedState = copyStatus === space.id;
+                              const isLoading = copyingId === space.id;
+
+                              return (
+                                <div
+                                  key={space.id}
+                                  className="group flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900 p-3 transition hover:border-slate-600"
                                 >
-                                  {copyStatus === space.id ? (
-                                    <Check
-                                      size={16}
-                                      className="text-green-500"
-                                    />
-                                  ) : (
-                                    <Copy size={16} />
-                                  )}
-                                </button>
-                              </div>
-                            ))}
+                                  <div className="flex items-center gap-3 overflow-hidden">
+                                    <div className="h-8 w-2 shrink-0 rounded-full bg-purple-500/50"></div>
+                                    <span className="truncate pr-2 text-sm font-medium text-slate-300">
+                                      {space.name}
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() => copyRemoteSpace(space.id)}
+                                    disabled={isLoading}
+                                    className={`cursor-pointer rounded-lg p-2 transition ${
+                                      isEmptyState
+                                        ? "bg-orange-500/10 text-orange-400 hover:bg-orange-500/20"
+                                        : "text-slate-500 hover:bg-slate-700 hover:text-white"
+                                    }`}
+                                    title={
+                                      isEmptyState
+                                        ? "Space er tomt"
+                                        : "Kopier Space URLs"
+                                    }
+                                  >
+                                    {isLoading ? (
+                                      <Loader2
+                                        size={16}
+                                        className="animate-spin text-purple-400"
+                                      />
+                                    ) : isCopiedState ? (
+                                      <Check
+                                        size={16}
+                                        className="text-green-500"
+                                      />
+                                    ) : isEmptyState ? (
+                                      <span className="text-[10px] font-bold">
+                                        TOM
+                                      </span>
+                                    ) : (
+                                      <Copy size={16} />
+                                    )}
+                                  </button>
+                                </div>
+                              );
+                            })}
                           </div>
                         ) : (
                           <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-800 bg-slate-900/30 p-4 text-xs text-slate-500">
@@ -716,14 +767,24 @@ export const RemoteAccessSettings = () => {
                                 onClick={() =>
                                   copyTabsToClipboard(remoteInbox, "inbox")
                                 }
-                                className="flex cursor-pointer items-center gap-1 rounded bg-purple-500/10 px-2 py-1 text-[10px] font-bold text-purple-400 transition hover:bg-purple-500 hover:text-white"
+                                className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-bold transition ${
+                                  copyStatus === "inbox_empty"
+                                    ? "bg-orange-500/10 text-orange-400 hover:bg-orange-500/20"
+                                    : "bg-purple-500/10 text-purple-400 hover:bg-purple-500 hover:text-white"
+                                }`}
                               >
                                 {copyStatus === "inbox" ? (
                                   <Check size={12} />
+                                ) : copyStatus === "inbox_empty" ? (
+                                  <Ban size={12} />
                                 ) : (
                                   <Copy size={12} />
                                 )}
-                                {copyStatus === "inbox" ? "Kopieret" : "Kopier"}
+                                {copyStatus === "inbox"
+                                  ? "Kopieret"
+                                  : copyStatus === "inbox_empty"
+                                    ? "Tom"
+                                    : "Kopier"}
                               </button>
                             </div>
                             <div className="custom-scrollbar max-h-48 overflow-y-auto rounded-xl border border-slate-800/50 bg-slate-900/50 p-2">
@@ -761,16 +822,24 @@ export const RemoteAccessSettings = () => {
                                     "incognito",
                                   )
                                 }
-                                className="flex cursor-pointer items-center gap-1 rounded bg-purple-500/10 px-2 py-1 text-[10px] font-bold text-purple-400 transition hover:bg-purple-500 hover:text-white"
+                                className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-bold transition ${
+                                  copyStatus === "incognito_empty"
+                                    ? "bg-orange-500/10 text-orange-400 hover:bg-orange-500/20"
+                                    : "bg-purple-500/10 text-purple-400 hover:bg-purple-500 hover:text-white"
+                                }`}
                               >
                                 {copyStatus === "incognito" ? (
                                   <Check size={12} />
+                                ) : copyStatus === "incognito_empty" ? (
+                                  <Ban size={12} />
                                 ) : (
                                   <Copy size={12} />
                                 )}
                                 {copyStatus === "incognito"
                                   ? "Kopieret"
-                                  : "Kopier"}
+                                  : copyStatus === "incognito_empty"
+                                    ? "Tom"
+                                    : "Kopier"}
                               </button>
                             </div>
                             <div className="custom-scrollbar max-h-48 overflow-y-auto rounded-xl border border-slate-800/50 bg-slate-900/50 p-2">
