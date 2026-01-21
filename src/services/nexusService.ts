@@ -17,7 +17,7 @@ const getUid = () => {
   const auth = getAuth();
   if (!auth.currentUser) {
     throw new Error(
-      "Critical: Ingen bruger logget ind ved database operation."
+      "Critical: Ingen bruger logget ind ved database operation.",
     );
   }
   return auth.currentUser.uid;
@@ -48,11 +48,11 @@ export const NexusService = {
 
         // Slet windows-subcollection under users/{uid}/workspaces_data/{id}/windows
         const winSnap = await getDocs(
-          collection(db, "users", uid, "workspaces_data", id, "windows")
+          collection(db, "users", uid, "workspaces_data", id, "windows"),
         );
         winSnap.docs.forEach((winDoc) => {
           batch.delete(
-            doc(db, "users", uid, "workspaces_data", id, "windows", winDoc.id)
+            doc(db, "users", uid, "workspaces_data", id, "windows", winDoc.id),
           );
         });
       }
@@ -75,7 +75,7 @@ export const NexusService = {
       } catch (e) {
         console.warn(
           "Kunne ikke sende lukke-besked til background script (måske allerede lukket)",
-          e
+          e,
         );
       }
     }
@@ -111,7 +111,7 @@ export const NexusService = {
           lastActive: Date.now(),
           createdAt: serverTimestamp(),
           isActive: false,
-        }
+        },
       );
     }
     await batch.commit();
@@ -136,7 +136,7 @@ export const NexusService = {
   async deleteTab(tab: TabData, workspaceId: string, windowId: string) {
     const uid = getUid();
     console.log(
-      `🗑️ [NexusService] deleteTab: ${tab.title} (UID: ${tab.uid}) fra ${workspaceId}/${windowId}`
+      `🗑️ [NexusService] deleteTab: ${tab.title} (UID: ${tab.uid}) fra ${workspaceId}/${windowId}`,
     );
 
     const ref =
@@ -151,13 +151,13 @@ export const NexusService = {
             "workspaces_data",
             workspaceId,
             "windows",
-            windowId
+            windowId,
           );
 
     const snap = await getDoc(ref);
     if (snap.exists()) {
       const tabs = (snap.data().tabs || []).filter(
-        (t: TabData) => t.uid !== tab.uid
+        (t: TabData) => t.uid !== tab.uid,
       );
       await updateDoc(ref, { tabs });
       console.log("✅ [NexusService] Tab fjernet fra Firestore.");
@@ -169,11 +169,11 @@ export const NexusService = {
     sourceWorkspaceId: string,
     sourceWindowId: string,
     targetWorkspaceId: string,
-    targetWindowId: string
+    targetWindowId: string,
   ) {
     const uid = getUid();
     console.log(
-      "🚀 [NexusService] START moveTabBetweenWindows (Samme Space logic)"
+      "🚀 [NexusService] START moveTabBetweenWindows (Samme Space logic)",
     );
 
     const getRef = (wsId: string, winId: string) => {
@@ -198,7 +198,7 @@ export const NexusService = {
     if (sourceSnap.exists()) {
       const currentTabs = sourceSnap.data().tabs || [];
       const newSourceTabs = currentTabs.filter(
-        (t: TabData) => t.uid !== tabToMove.uid
+        (t: TabData) => t.uid !== tabToMove.uid,
       );
       batch.update(sourceRef, { tabs: newSourceTabs });
     }
@@ -245,14 +245,14 @@ export const NexusService = {
         "workspaces_data",
         data.id,
         "windows",
-        data.internalWindowId
+        data.internalWindowId,
       ),
       {
         tabs: tabsWithUid,
         lastActive: Date.now(),
         createdAt: serverTimestamp(),
         isActive: true,
-      }
+      },
     );
     return await batch.commit();
   },

@@ -18,10 +18,10 @@ import {
 import { getCategoryStyle, getContrastYIQ } from "../../dashboard/utils";
 import { TabData, UserCategory } from "../../types";
 
-// Udvidet prop definition indtil global type opdateres
+// Udvidet prop definition
 type ExtendedTabItemProps = TabItemProps & {
   selectionCount?: number;
-  onConsume?: (tab: TabData) => void;
+  onConsume?: (tab: TabData) => Promise<void> | void;
 };
 
 export const TabItem = React.memo(
@@ -152,6 +152,8 @@ export const TabItem = React.memo(
                 try {
                   const runtimeTab = tab as RuntimeTabData;
                   const runtimeId = runtimeTab.id;
+
+                  // 1. Check if ID exists directly
                   if (runtimeId) {
                     const existing = await chrome.tabs
                       .get(runtimeId)
@@ -163,6 +165,7 @@ export const TabItem = React.memo(
                     }
                   }
 
+                  // 2. Smart Match fallback
                   const matches = await chrome.tabs.query({ url: tab.url });
                   const exactMatches = matches.filter(
                     (t) => t.incognito === tab.isIncognito,
@@ -184,7 +187,24 @@ export const TabItem = React.memo(
                   console.warn("Smart-focus failed:", err);
                 }
 
-                // Hvis vi når hertil, opretter vi en NY fane
+                // Hvis vi når hertil, opretter vi en NY fane.
+
+                // Hvis dette er Inbox (onConsume findes), skal vi slette fanen fra Firestore FØRST.
+                // Dette forhindrer Race Condition hvor background scriptet ser den nye fane OG den gamle i databasen samtidig.
+                if (onConsume) {
+                  try {
+                    await onConsume(tab);
+                  } catch (consumeErr) {
+                    console.error(
+                      "Failed to consume tab before opening:",
+                      consumeErr,
+                    );
+                    // Vi fortsætter alligevel, så brugeren får sin fane,
+                    // men logger fejlen.
+                  }
+                }
+
+                // Nu åbner vi den fysiske fane
                 if (tab.isIncognito) {
                   chrome.windows.create({
                     url: tab.url,
@@ -193,11 +213,6 @@ export const TabItem = React.memo(
                   });
                 } else {
                   chrome.tabs.create({ url: tab.url, active: true });
-                }
-
-                // HER trigger vi sletningen fra listen (Consume)
-                if (onConsume) {
-                  onConsume(tab);
                 }
               }}
             >
