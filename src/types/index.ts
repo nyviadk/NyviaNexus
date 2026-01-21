@@ -47,3 +47,11 @@ export interface AiSettings {
   useUncategorized: boolean; // Skal vi bruge "Ukategoriseret" hvis intet passer (kun hvis allowDynamic = false)
   userCategories: UserCategory[];
 }
+
+// --- NY TYPE TIL ARKIV FUNKTIONEN ---
+export interface ArchiveItem {
+  id: string;
+  url: string;
+  title?: string;
+  createdAt: number;
+}

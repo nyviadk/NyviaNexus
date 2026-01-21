@@ -1,4 +1,10 @@
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+} from "firebase/firestore";
 import { Loader2, Monitor } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -6,11 +12,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CreateItemModal } from "../components/CreateItemModal";
 import { LoginForm } from "../components/LoginForm";
 import { PasteModal } from "../components/PasteModal";
+import { ArchiveSidebar } from "../components/dashboard/ArchiveSidebar";
 import { CategoryMenu } from "../components/dashboard/CategoryMenu";
 import { DashboardHeader } from "../components/dashboard/DashboardHeader";
 import { ReasoningModal } from "../components/dashboard/ReasoningModal";
-import { SettingsModal } from "../components/dashboard/SettingsModal";
 import { RemoteAccessModal } from "../components/dashboard/RemoteAccessModal";
+import { SettingsModal } from "../components/dashboard/SettingsModal";
 import { Sidebar } from "../components/dashboard/Sidebar";
 import { TabGrid } from "../components/dashboard/TabGrid";
 
@@ -27,6 +34,7 @@ import { LinkManager } from "../services/linkManager";
 import { AiData, WinMapping } from "@/background/main";
 import {
   AiSettings,
+  ArchiveItem,
   NexusItem,
   TabData,
   UserCategory,
@@ -55,16 +63,22 @@ export const Dashboard = () => {
   const [viewMode, setViewMode] = useState<"workspace" | "inbox" | "incognito">(
     "workspace",
   );
+
   const [modalType, setModalType] = useState<
     "folder" | "workspace" | "settings" | "remote-access" | null
   >(null);
   const [modalParentId, setModalParentId] = useState<string>("root");
 
   const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
+  const [archiveItems, setArchiveItems] = useState<ArchiveItem[]>([]);
+
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
+
+  // FIX: Type definition her er vigtig for at matche activeMappings i ArchiveSidebar
   const [activeMappings, setActiveMappings] = useState<[number, WinMapping][]>(
     [],
   );
+
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
   const [restorationStatus, setRestorationStatus] = useState<string | null>(
     null,
@@ -98,7 +112,7 @@ export const Dashboard = () => {
 
   const hasLoadedUrlParams = useRef(false);
 
-  // --- ACTIONS HOOK (Flyt, Drop, Slet logik) ---
+  // --- ACTIONS HOOK ---
   const {
     handleSidebarTabDrop,
     handleTabDrop,
@@ -119,6 +133,7 @@ export const Dashboard = () => {
       if (selectedWorkspace?.id === deletedId) {
         setSelectedWorkspace(null);
         setWindows([]);
+        setArchiveItems([]);
         setViewMode("workspace");
       }
     },
@@ -145,10 +160,8 @@ export const Dashboard = () => {
     };
 
     return [...windows].sort((a, b) => {
-      // 1. Prioritet: Persistent rækkefølge (createdAt)
       const createA = getTime(a.createdAt);
       const createB = getTime(b.createdAt);
-
       return createA - createB;
     });
   }, [windows]);
@@ -156,32 +169,23 @@ export const Dashboard = () => {
   // --- AI CATEGORY AGGREGATION ---
   const aiGeneratedCategories = useMemo(() => {
     const uniqueAiCats = new Set<string>();
-
     const scanTabs = (tabs: TabData[] | undefined) => {
       tabs?.forEach((t) => {
-        if (
-          t.aiData?.status === "completed" &&
-          t.aiData?.category &&
-          typeof t.aiData.category === "string"
-        ) {
+        if (t.aiData?.status === "completed" && t.aiData?.category)
           uniqueAiCats.add(t.aiData.category);
-        }
       });
     };
-
     if (inboxData?.tabs) scanTabs(inboxData.tabs);
     windows.forEach((w) => scanTabs(w.tabs));
-
     const existingNames = new Set(
       aiSettings.userCategories.map((c) => c.name.toLowerCase()),
     );
-
     return Array.from(uniqueAiCats)
       .filter((catName) => !existingNames.has(catName.toLowerCase()))
       .map((catName) => ({
         id: `ai-${catName}`,
         name: catName,
-        color: "#64748b", // Standard Slate-color for AI-forslag
+        color: "#64748b",
       })) as UserCategory[];
   }, [inboxData, windows, aiSettings.userCategories]);
 
@@ -195,7 +199,7 @@ export const Dashboard = () => {
     [windows],
   );
 
-  // Update Cache logic for flickering prevention
+  // Update Cache logic (Using imported windowOrderCache)
   if (selectedWorkspace && sortedWindows.length > 0) {
     const wsId = selectedWorkspace.id;
     const signature = `${wsId}-${sortedWindows.length}-${sortedWindows
@@ -234,7 +238,7 @@ export const Dashboard = () => {
     );
   }, []);
 
-  // Window Sync fra Firestore
+  // Window Sync
   useEffect(() => {
     if (!user || !selectedWorkspace) {
       setWindows([]);
@@ -260,7 +264,33 @@ export const Dashboard = () => {
     });
   }, [user, selectedWorkspace]);
 
-  // Chrome Events & Storage Listeners
+  // Archive Sync
+  useEffect(() => {
+    if (!user || !selectedWorkspace) {
+      setArchiveItems([]);
+      return;
+    }
+    const docRef = doc(
+      db,
+      "users",
+      user.uid,
+      "workspaces_data",
+      selectedWorkspace.id,
+      "archive_data",
+      "list",
+    );
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setArchiveItems((data.items || []) as ArchiveItem[]);
+      } else {
+        setArchiveItems([]);
+      }
+    });
+    return () => unsubscribe();
+  }, [user, selectedWorkspace]);
+
+  // Listeners
   useEffect(() => {
     if (user) {
       chrome.windows.getCurrent((win) => win.id && setCurrentWindowId(win.id));
@@ -309,7 +339,7 @@ export const Dashboard = () => {
     };
   }, [user, refreshChromeWindows]);
 
-  // URL Params Synchronization
+  // ... (URL Params & Auto-select effects unchanged) ...
   useEffect(() => {
     if (items.length > 0 && !hasLoadedUrlParams.current) {
       const params = new URLSearchParams(window.location.search);
@@ -326,7 +356,6 @@ export const Dashboard = () => {
     }
   }, [items]);
 
-  // Auto-select first window logic
   useEffect(() => {
     if (
       selectedWorkspace &&
@@ -349,6 +378,7 @@ export const Dashboard = () => {
       setViewMode("workspace");
       setSelectedWindowId(null);
       setWindows([]);
+      setArchiveItems([]);
       setSelectedWorkspace(item);
     },
     [selectedWorkspace],
@@ -420,7 +450,7 @@ export const Dashboard = () => {
         isLoading={items.length === 0}
       />
 
-      <main className="relative flex flex-1 flex-col bg-slate-900">
+      <main className="relative flex flex-1 flex-col overflow-hidden bg-slate-900">
         {isProcessingMove && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
             <Loader2 className="animate-spin text-blue-500" size={48} />
@@ -451,21 +481,36 @@ export const Dashboard = () => {
               setSelectedUrls={setSelectedUrls}
               inboxData={inboxData}
             />
-            {/* VIGTIGT: Husk at opdatere TabGrid til at modtage onConsume! */}
-            <TabGrid
-              viewMode={viewMode}
-              getFilteredInboxTabs={getFilteredInboxTabs}
-              windows={windows}
-              selectedWindowId={selectedWindowId}
-              selectedWorkspace={selectedWorkspace}
-              selectedUrls={selectedUrls}
-              handleTabSelect={handleTabSelect}
-              handleTabDelete={handleTabDelete}
-              onConsume={handleTabConsume}
-              setReasoningData={setReasoningData}
-              setMenuData={setMenuData}
-              aiSettings={aiSettings}
-            />
+
+            {/* --- HOVED CONTENT AREA (FLEX ROW) --- */}
+            <div className="flex flex-1 overflow-hidden">
+              {/* VENSTRE: TAB GRID (Skrumper automatisk) */}
+              <div className="flex-1 overflow-y-auto">
+                <TabGrid
+                  viewMode={viewMode}
+                  getFilteredInboxTabs={getFilteredInboxTabs}
+                  windows={windows}
+                  selectedWindowId={selectedWindowId}
+                  selectedWorkspace={selectedWorkspace}
+                  selectedUrls={selectedUrls}
+                  handleTabSelect={handleTabSelect}
+                  handleTabDelete={handleTabDelete}
+                  onConsume={handleTabConsume}
+                  setReasoningData={setReasoningData}
+                  setMenuData={setMenuData}
+                  aiSettings={aiSettings}
+                />
+              </div>
+
+              {/* HØJRE: ARKIV SIDEBAR */}
+              {viewMode === "workspace" && selectedWorkspace && (
+                <ArchiveSidebar
+                  workspaceId={selectedWorkspace.id}
+                  items={archiveItems}
+                  activeMappings={activeMappings} // Sender nu activeMappings med
+                />
+              )}
+            </div>
           </>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-4 text-slate-600">

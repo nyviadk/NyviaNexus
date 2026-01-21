@@ -1,16 +1,18 @@
 import { getAuth } from "firebase/auth";
 import {
+  arrayRemove,
   arrayUnion,
   collection,
   doc,
   getDoc,
   getDocs,
   serverTimestamp,
+  setDoc,
   updateDoc,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { NexusItem, TabData } from "../types";
+import { ArchiveItem, NexusItem, TabData } from "../types";
 
 // Hjælpefunktion til at hente nuværende bruger ID sikkert
 const getUid = () => {
@@ -46,7 +48,7 @@ export const NexusService = {
       if (currentItem?.type === "workspace") {
         workspacesToClose.push(id);
 
-        // Slet windows-subcollection under users/{uid}/workspaces_data/{id}/windows
+        // Slet windows-subcollection
         const winSnap = await getDocs(
           collection(db, "users", uid, "workspaces_data", id, "windows"),
         );
@@ -55,6 +57,13 @@ export const NexusService = {
             doc(db, "users", uid, "workspaces_data", id, "windows", winDoc.id),
           );
         });
+
+        // Slet også archive_data subcollection for workspacet, så vi ikke efterlader "orphan" data
+        // Bemærk: En batch kan max have 500 operationer. Hvis arkivet er enormt, bør dette håndteres separat,
+        // men for en simpel liste er det fint at tage dokumentet med.
+        batch.delete(
+          doc(db, "users", uid, "workspaces_data", id, "archive_data", "list"),
+        );
       }
 
       // Slet selve itemet fra users/{uid}/items
@@ -111,6 +120,13 @@ export const NexusService = {
           lastActive: Date.now(),
           createdAt: serverTimestamp(),
           isActive: false,
+        },
+      );
+      // Opret tomt arkiv dokument
+      batch.set(
+        doc(db, "users", uid, "workspaces_data", id, "archive_data", "list"),
+        {
+          items: [],
         },
       );
     }
@@ -203,8 +219,7 @@ export const NexusService = {
       batch.update(sourceRef, { tabs: newSourceTabs });
     }
 
-    // Håndter målet (tilføj fane) - Brug SET med merge for robusthed (Fallback Creation)
-    // Dette sikrer, at hvis vi flytter til Inbox/Global, og den ikke findes, bliver den oprettet.
+    // Håndter målet (tilføj fane) - Brug SET med merge for robusthed
     batch.set(targetRef, { tabs: arrayUnion(tabToMove) }, { merge: true });
 
     const result = await batch.commit();
@@ -254,6 +269,65 @@ export const NexusService = {
         isActive: true,
       },
     );
+
+    // Opret tomt arkiv
+    batch.set(
+      doc(db, "users", uid, "workspaces_data", data.id, "archive_data", "list"),
+      { items: [] },
+    );
+
     return await batch.commit();
+  },
+
+  // --- ARCHIVE METHODS ---
+  async addArchiveItem(workspaceId: string, url: string) {
+    const uid = getUid();
+    // Normaliser URL
+    let cleanUrl = url.trim();
+    if (!cleanUrl.startsWith("http")) {
+      cleanUrl = `https://${cleanUrl}`;
+    }
+
+    const newItem: ArchiveItem = {
+      id: crypto.randomUUID(),
+      url: cleanUrl,
+      createdAt: Date.now(),
+      title: cleanUrl,
+    };
+
+    const docRef = doc(
+      db,
+      "users",
+      uid,
+      "workspaces_data",
+      workspaceId,
+      "archive_data",
+      "list",
+    );
+
+    // Brug set med merge for at være sikker på dokumentet findes
+    return await setDoc(
+      docRef,
+      {
+        items: arrayUnion(newItem),
+      },
+      { merge: true },
+    );
+  },
+
+  async removeArchiveItem(workspaceId: string, item: ArchiveItem) {
+    const uid = getUid();
+    const docRef = doc(
+      db,
+      "users",
+      uid,
+      "workspaces_data",
+      workspaceId,
+      "archive_data",
+      "list",
+    );
+    return await updateDoc(docRef, {
+      items: arrayRemove(item),
+    });
   },
 };

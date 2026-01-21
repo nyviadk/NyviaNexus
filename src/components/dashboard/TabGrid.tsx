@@ -225,7 +225,7 @@ export const TabGrid: React.FC<TabGridProps> = ({
                       )}
                     </div>
 
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-4">
                       {groupTabs.map((tab, i) => renderTabItem(tab, i))}
                     </div>
                   </div>
@@ -237,7 +237,7 @@ export const TabGrid: React.FC<TabGridProps> = ({
 
     // 3. Workspace view (Fladt grid)
     return (
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-4">
         {rawList.map((tab, i) => renderTabItem(tab, i))}
       </div>
     );

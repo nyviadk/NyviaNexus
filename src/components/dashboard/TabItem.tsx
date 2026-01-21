@@ -68,7 +68,7 @@ export const TabItem = React.memo(
         : getCategoryStyle(categoryName || "");
 
     return (
-      <div className="group relative h-full w-full">
+      <div className="group relative h-full w-full min-w-65">
         <button
           onClick={(e) => {
             e.stopPropagation();
