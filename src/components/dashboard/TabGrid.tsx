@@ -104,7 +104,11 @@ export const TabGrid: React.FC<TabGridProps> = ({
         selectionCount={selectedUrls.length}
         onSelect={handleTabSelect}
         onDelete={handleTabDelete}
-        onConsume={onConsume} // Sender onConsume videre til TabItem
+        onConsume={
+          viewMode === "inbox" || viewMode === "incognito"
+            ? onConsume
+            : undefined
+        }
         sourceWorkspaceId={sourceWSId}
         userCategories={aiSettings.userCategories}
         onShowReasoning={setReasoningData}
