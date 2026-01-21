@@ -601,7 +601,9 @@ export const RemoteAccessSettings = () => {
                     )}
                     <span className="text-xs font-bold tracking-wide uppercase">
                       {/* Dynamisk tekst baseret på permission state */}
-                      {contact.isAllowed ? "Har adgang" : "Ingen adgang"}
+                      {contact.isAllowed
+                        ? `Personen har adgang til dine faner`
+                        : "Ingen adgang"}
                     </span>
                   </div>
 

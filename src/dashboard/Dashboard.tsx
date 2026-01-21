@@ -10,6 +10,7 @@ import { CategoryMenu } from "../components/dashboard/CategoryMenu";
 import { DashboardHeader } from "../components/dashboard/DashboardHeader";
 import { ReasoningModal } from "../components/dashboard/ReasoningModal";
 import { SettingsModal } from "../components/dashboard/SettingsModal";
+import { RemoteAccessModal } from "../components/dashboard/RemoteAccessModal";
 import { Sidebar } from "../components/dashboard/Sidebar";
 import { TabGrid } from "../components/dashboard/TabGrid";
 
@@ -55,7 +56,7 @@ export const Dashboard = () => {
     "workspace",
   );
   const [modalType, setModalType] = useState<
-    "folder" | "workspace" | "settings" | null
+    "folder" | "workspace" | "settings" | "remote-access" | null
   >(null);
   const [modalParentId, setModalParentId] = useState<string>("root");
 
@@ -496,6 +497,9 @@ export const Dashboard = () => {
           activeProfile={activeProfile}
           setActiveProfile={setActiveProfile}
         />
+      )}
+      {modalType === "remote-access" && (
+        <RemoteAccessModal onClose={() => setModalType(null)} />
       )}
       {reasoningData && (
         <ReasoningModal

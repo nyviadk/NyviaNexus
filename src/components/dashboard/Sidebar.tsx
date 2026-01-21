@@ -16,6 +16,7 @@ import {
   Monitor,
   PlusCircle,
   Settings,
+  Share2,
   VenetianMask,
   XCircle,
   AlertTriangle,
@@ -41,7 +42,9 @@ interface SidebarProps {
   setViewMode: (mode: "workspace" | "inbox" | "incognito") => void;
   selectedWorkspace: NexusItem | null;
   setSelectedWorkspace: (ws: NexusItem | null) => void;
-  setModalType: (type: "folder" | "workspace" | "settings" | null) => void;
+  setModalType: (
+    type: "folder" | "workspace" | "settings" | "remote-access" | null,
+  ) => void;
   setModalParentId: (id: string) => void;
   isLoading: boolean;
   activeDragId: string | null;
@@ -307,6 +310,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className="cursor-pointer rounded-xl border border-slate-600 bg-slate-800/50 p-2 text-slate-400 transition-colors hover:border-slate-500 hover:text-blue-400"
           >
             <Settings size={22} />
+          </button>
+          <button
+            onClick={() => setModalType("remote-access")}
+            className="cursor-pointer rounded-xl border border-slate-600 bg-slate-800/50 p-2 text-slate-400 transition-colors hover:border-slate-500 hover:text-purple-400"
+          >
+            <Share2 size={22} />
           </button>
         </div>
 
