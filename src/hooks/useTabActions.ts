@@ -24,7 +24,7 @@ export const useTabActions = (
   selectedWorkspace: NexusItem | null,
   selectedWindowId: string | null,
   setIsProcessingMove: (val: boolean) => void,
-  setIsInboxSyncing?: (val: boolean) => void
+  setIsInboxSyncing?: (val: boolean) => void,
 ) => {
   /**
    * Helper til at nulstille AI data hvis vi flytter på tværs af spaces
@@ -32,11 +32,11 @@ export const useTabActions = (
   const prepareTabData = (
     tab: DraggedTabPayload,
     sourceWorkspaceId: string,
-    targetWorkspaceId: string
+    targetWorkspaceId: string,
   ): DraggedTabPayload => {
     if (sourceWorkspaceId !== targetWorkspaceId) {
       console.log(
-        `🧠 [AI Reset] Moving from ${sourceWorkspaceId} to ${targetWorkspaceId}. Resetting AI status.`
+        `🧠 [AI Reset] Moving from ${sourceWorkspaceId} to ${targetWorkspaceId}. Resetting AI status.`,
       );
       return {
         ...tab,
@@ -71,7 +71,7 @@ export const useTabActions = (
       const tab = prepareTabData(
         draggedTab,
         sourceWorkspaceId,
-        targetWorkspaceId
+        targetWorkspaceId,
       );
 
       setIsProcessingMove(true);
@@ -90,10 +90,10 @@ export const useTabActions = (
               uid,
               "workspaces_data",
               targetWorkspaceId,
-              "windows"
+              "windows",
             ),
             orderBy("createdAt", "asc"),
-            limit(1)
+            limit(1),
           );
           const winSnap = await getDocs(winQuery);
           targetWinId = winSnap.empty
@@ -103,7 +103,7 @@ export const useTabActions = (
           const mapping = activeMappings.find(
             ([_, m]) =>
               m.workspaceId === targetWorkspaceId &&
-              m.internalWindowId === targetWinId
+              m.internalWindowId === targetWinId,
           );
           if (mapping) targetPhysicalWindowId = mapping[0];
         } else {
@@ -111,7 +111,7 @@ export const useTabActions = (
         }
 
         const sourceMapping = activeMappings.find(
-          ([_, m]) => m.internalWindowId === sourceId
+          ([_, m]) => m.internalWindowId === sourceId,
         );
         const batch = writeBatch(db);
 
@@ -120,7 +120,7 @@ export const useTabActions = (
         // Dette gøres før scenarie-logikken for at undgå at Scenarie D (Storage->Storage) ignorerer fysiske faner.
         if (sourceWorkspaceId === "global") {
           console.log(
-            `🗑️ Inbox Clean-up: Requesting close for tab ${tab.id} (UID: ${tab.uid})`
+            `🗑️ Inbox Clean-up: Requesting close for tab ${tab.id} (UID: ${tab.uid})`,
           );
           chrome.runtime.sendMessage({
             type: "CLOSE_PHYSICAL_TABS",
@@ -147,7 +147,7 @@ export const useTabActions = (
             if (snap.exists()) {
               const tabs = (snap.data().tabs || []) as TabData[];
               const updatedTabs = tabs.map((t) =>
-                t.uid === draggedTab.uid ? { ...t, isIncognito: false } : t
+                t.uid === draggedTab.uid ? { ...t, isIncognito: false } : t,
               );
 
               await updateDoc(globalRef, { tabs: updatedTabs });
@@ -178,7 +178,7 @@ export const useTabActions = (
         // SCENARIE B: Active -> Storage
         else if (sourceMapping && !targetPhysicalWindowId) {
           console.log(
-            "📦 Active -> Storage: Closing physical & saving to Firestore"
+            "📦 Active -> Storage: Closing physical & saving to Firestore",
           );
 
           // Kun send hvis ikke allerede håndteret af Inbox-fixet ovenfor
@@ -203,7 +203,7 @@ export const useTabActions = (
                   "workspaces_data",
                   targetWorkspaceId,
                   "windows",
-                  targetWinId!
+                  targetWinId!,
                 );
 
           const tSnap = await getDoc(targetRef);
@@ -230,13 +230,13 @@ export const useTabActions = (
             "workspaces_data",
             sourceWorkspaceId,
             "windows",
-            sourceId
+            sourceId,
           );
           const sSnap = await getDoc(sourceRef);
           if (sSnap.exists()) {
             batch.update(sourceRef, {
               tabs: (sSnap.data().tabs || []).filter(
-                (t: TabData) => t.uid !== tab.uid
+                (t: TabData) => t.uid !== tab.uid,
               ),
             });
           }
@@ -273,7 +273,7 @@ export const useTabActions = (
               sourceWorkspaceId,
               sourceId,
               targetWorkspaceId,
-              targetWinId!
+              targetWinId,
             );
           }
         }
@@ -291,7 +291,7 @@ export const useTabActions = (
                   "workspaces_data",
                   targetWorkspaceId,
                   "windows",
-                  targetWinId!
+                  targetWinId,
                 );
 
           const sourceRef =
@@ -304,7 +304,7 @@ export const useTabActions = (
                   "workspaces_data",
                   sourceWorkspaceId,
                   "windows",
-                  sourceId
+                  sourceId,
                 );
 
           const [tSnap, sSnap] = await Promise.all([
@@ -330,7 +330,7 @@ export const useTabActions = (
           if (sSnap.exists()) {
             batch.update(sourceRef, {
               tabs: (sSnap.data().tabs || []).filter(
-                (t: TabData) => t.uid !== tab.uid
+                (t: TabData) => t.uid !== tab.uid,
               ),
             });
           }
@@ -351,7 +351,7 @@ export const useTabActions = (
       selectedWorkspace,
       setIsProcessingMove,
       setIsInboxSyncing,
-    ]
+    ],
   );
 
   const handleTabDrop = useCallback(
@@ -379,16 +379,16 @@ export const useTabActions = (
       const tab = prepareTabData(
         draggedTab,
         sourceWorkspaceId,
-        targetWorkspaceId
+        targetWorkspaceId,
       );
 
       setIsProcessingMove(true);
       try {
         const targetMapping = activeMappings.find(
-          ([_, m]) => m.internalWindowId === targetWinId
+          ([_, m]) => m.internalWindowId === targetWinId,
         );
         const sourceMapping = activeMappings.find(
-          ([_, m]) => m.internalWindowId === sourceId
+          ([_, m]) => m.internalWindowId === sourceId,
         );
 
         // --- 🧹 FORCE CLOSE PHYSICAL INBOX TABS (GRID) ---
@@ -421,7 +421,7 @@ export const useTabActions = (
             "workspaces_data",
             targetWorkspaceId,
             "windows",
-            targetWinId
+            targetWinId,
           );
           const sourceRef = doc(
             db,
@@ -430,7 +430,7 @@ export const useTabActions = (
             "workspaces_data",
             sourceWorkspaceId,
             "windows",
-            sourceId
+            sourceId,
           );
 
           const [tSnap, sSnap] = await Promise.all([
@@ -447,7 +447,7 @@ export const useTabActions = (
           });
           batch.update(sourceRef, {
             tabs: (sSnap.data()?.tabs || []).filter(
-              (t: TabData) => t.uid !== tab.uid
+              (t: TabData) => t.uid !== tab.uid,
             ),
           });
 
@@ -487,7 +487,7 @@ export const useTabActions = (
               sourceWorkspaceId,
               sourceId,
               targetWorkspaceId,
-              targetWinId
+              targetWinId,
             );
           }
         }
@@ -501,7 +501,7 @@ export const useTabActions = (
             "workspaces_data",
             targetWorkspaceId,
             "windows",
-            targetWinId
+            targetWinId,
           );
           const sourceRef = doc(
             db,
@@ -510,7 +510,7 @@ export const useTabActions = (
             "workspaces_data",
             sourceWorkspaceId,
             "windows",
-            sourceId
+            sourceId,
           );
 
           const [tSnap, sSnap] = await Promise.all([
@@ -526,7 +526,7 @@ export const useTabActions = (
           });
           batch.update(sourceRef, {
             tabs: (sSnap.data()?.tabs || []).filter(
-              (t: TabData) => t.uid !== tab.uid
+              (t: TabData) => t.uid !== tab.uid,
             ),
           });
           await batch.commit();
@@ -544,7 +544,7 @@ export const useTabActions = (
       selectedWindowId,
       selectedWorkspace,
       setIsProcessingMove,
-    ]
+    ],
   );
 
   const handleTabDelete = useCallback(
@@ -567,12 +567,41 @@ export const useTabActions = (
         await NexusService.deleteTab(
           tab,
           selectedWorkspace?.id || "global",
-          sId
+          sId,
         );
       }
     },
-    [viewMode, selectedWindowId, selectedWorkspace]
+    [viewMode, selectedWindowId, selectedWorkspace],
   );
 
-  return { handleSidebarTabDrop, handleTabDrop, handleTabDelete };
+  // --- Handle Consume (Open & Remove from List ONLY IF INBOX) ---
+  const handleTabConsume = useCallback(
+    async (tab: TabData) => {
+      // 1. Tjek om vi er i Inbox (Global)
+      const isInbox = viewMode === "inbox" || viewMode === "incognito";
+
+      // Hvis vi IKKE er i inbox (dvs. vi er i et workspace), så skal vi IKKE slette fanen.
+      // Den skal blive stående i listen som en gemt fane i workspacet.
+      if (!isInbox) {
+        return;
+      }
+
+      // 2. Hvis vi er i Inbox, så slet den fra listen (Consume)
+      try {
+        // For Inbox er både workspaceId og windowId "global"
+        await NexusService.deleteTab(tab, "global", "global");
+        console.log("✅ Tab consumed (removed from Inbox):", tab.title);
+      } catch (err) {
+        console.error("❌ Failed to consume tab:", err);
+      }
+    },
+    [viewMode],
+  );
+
+  return {
+    handleSidebarTabDrop,
+    handleTabDrop,
+    handleTabDelete,
+    handleTabConsume,
+  };
 };

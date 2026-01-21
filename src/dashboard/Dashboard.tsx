@@ -98,14 +98,18 @@ export const Dashboard = () => {
   const hasLoadedUrlParams = useRef(false);
 
   // --- ACTIONS HOOK (Flyt, Drop, Slet logik) ---
-  const { handleSidebarTabDrop, handleTabDrop, handleTabDelete } =
-    useTabActions(
-      activeMappings,
-      viewMode,
-      selectedWorkspace,
-      selectedWindowId,
-      setIsProcessingMove,
-    );
+  const {
+    handleSidebarTabDrop,
+    handleTabDrop,
+    handleTabDelete,
+    handleTabConsume,
+  } = useTabActions(
+    activeMappings,
+    viewMode,
+    selectedWorkspace,
+    selectedWindowId,
+    setIsProcessingMove,
+  );
 
   // --- HELPERS & MEMOS ---
 
@@ -446,6 +450,7 @@ export const Dashboard = () => {
               setSelectedUrls={setSelectedUrls}
               inboxData={inboxData}
             />
+            {/* VIGTIGT: Husk at opdatere TabGrid til at modtage onConsume! */}
             <TabGrid
               viewMode={viewMode}
               getFilteredInboxTabs={getFilteredInboxTabs}
@@ -455,6 +460,7 @@ export const Dashboard = () => {
               selectedUrls={selectedUrls}
               handleTabSelect={handleTabSelect}
               handleTabDelete={handleTabDelete}
+              onConsume={handleTabConsume}
               setReasoningData={setReasoningData}
               setMenuData={setMenuData}
               aiSettings={aiSettings}

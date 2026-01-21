@@ -1,8 +1,8 @@
 import { AiData } from "@/background/main";
 import React, { useMemo } from "react";
+import { Clock } from "lucide-react"; // Vi genbruger Clock ikonet til info-boksen
 import { AiSettings, NexusItem, TabData, WorkspaceWindow } from "../../types";
 import { TabItem } from "./TabItem";
-import { Clock } from "lucide-react"; // Vi genbruger Clock ikonet til info-boksen
 
 interface TabGridProps {
   viewMode: "workspace" | "inbox" | "incognito";
@@ -15,6 +15,8 @@ interface TabGridProps {
   // Handlers
   handleTabSelect: (tab: TabData) => void;
   handleTabDelete: (tab: TabData) => void;
+  // Ny prop til at håndtere "consume" (åbn og fjern fra liste)
+  onConsume?: (tab: TabData) => void;
   setReasoningData: (data: AiData | null) => void;
   setMenuData: (data: any) => void;
 
@@ -62,6 +64,7 @@ export const TabGrid: React.FC<TabGridProps> = ({
   selectedUrls,
   handleTabSelect,
   handleTabDelete,
+  onConsume, // Modtager nu onConsume
   setReasoningData,
   setMenuData,
   aiSettings,
@@ -101,6 +104,7 @@ export const TabGrid: React.FC<TabGridProps> = ({
         selectionCount={selectedUrls.length}
         onSelect={handleTabSelect}
         onDelete={handleTabDelete}
+        onConsume={onConsume} // Sender onConsume videre til TabItem
         sourceWorkspaceId={sourceWSId}
         userCategories={aiSettings.userCategories}
         onShowReasoning={setReasoningData}
@@ -242,6 +246,7 @@ export const TabGrid: React.FC<TabGridProps> = ({
     selectedUrls,
     handleTabSelect,
     handleTabDelete,
+    onConsume,
     aiSettings.userCategories,
     setReasoningData,
     setMenuData,

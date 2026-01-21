@@ -16,7 +16,13 @@ import {
   TabItemProps,
 } from "../../dashboard/types";
 import { getCategoryStyle, getContrastYIQ } from "../../dashboard/utils";
-import { UserCategory } from "../../types";
+import { TabData, UserCategory } from "../../types";
+
+// Udvidet prop definition indtil global type opdateres
+type ExtendedTabItemProps = TabItemProps & {
+  selectionCount?: number;
+  onConsume?: (tab: TabData) => void;
+};
 
 export const TabItem = React.memo(
   ({
@@ -24,13 +30,14 @@ export const TabItem = React.memo(
     isSelected,
     onSelect,
     onDelete,
+    onConsume,
     sourceWorkspaceId,
     onDragStart,
     userCategories = [],
     onShowReasoning,
     onOpenMenu,
     selectionCount = 0,
-  }: TabItemProps & { selectionCount?: number }) => {
+  }: ExtendedTabItemProps) => {
     const aiData = tab.aiData || { status: "pending" };
     const isProcessing = aiData.status === "processing";
     const isPending = aiData.status === "pending";
@@ -151,6 +158,7 @@ export const TabItem = React.memo(
                       .catch(() => null);
                     if (existing) {
                       await focusTab(existing);
+                      // Vi sletter IKKE hvis den allerede findes fysisk
                       return;
                     }
                   }
@@ -169,12 +177,14 @@ export const TabItem = React.memo(
                       exactMatches[0];
 
                     await focusTab(bestMatch);
+                    // Vi sletter IKKE hvis den allerede findes fysisk (Smart Focus)
                     return;
                   }
                 } catch (err) {
                   console.warn("Smart-focus failed:", err);
                 }
 
+                // Hvis vi når hertil, opretter vi en NY fane
                 if (tab.isIncognito) {
                   chrome.windows.create({
                     url: tab.url,
@@ -183,6 +193,11 @@ export const TabItem = React.memo(
                   });
                 } else {
                   chrome.tabs.create({ url: tab.url, active: true });
+                }
+
+                // HER trigger vi sletningen fra listen (Consume)
+                if (onConsume) {
+                  onConsume(tab);
                 }
               }}
             >
