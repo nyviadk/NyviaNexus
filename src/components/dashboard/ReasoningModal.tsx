@@ -16,20 +16,20 @@ export const ReasoningModal = ({ data, onClose }: ReasoningModalProps) => {
       ref={dialogRef}
       onCancel={onClose}
       onClick={(e) => e.target === dialogRef.current && onClose()}
-      className="bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm open:animate-in open:fade-in open:zoom-in-95 m-auto"
+      className="open:animate-in open:fade-in open:zoom-in-95 m-auto bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm"
     >
-      <div className="bg-slate-800 border border-slate-600 w-full max-w-md rounded-3xl p-6 shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+      <div className="relative w-full max-w-md overflow-hidden rounded-3xl border border-slate-600 bg-slate-800 p-6 shadow-2xl">
+        <div className="pointer-events-none absolute top-0 right-0 p-4 opacity-10">
           <BrainCircuit size={120} className="text-blue-500" />
         </div>
 
-        <div className="flex justify-between items-start mb-4 relative z-10">
+        <div className="relative z-10 mb-4 flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-blue-600/20 rounded-xl text-blue-400">
+            <div className="rounded-xl bg-blue-600/20 p-3 text-blue-400">
               <Lightbulb size={24} />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white leading-tight">
+              <h3 className="text-lg leading-tight font-bold text-white">
                 AI Tankegang
               </h3>
               <p className="text-xs text-slate-400">
@@ -39,19 +39,19 @@ export const ReasoningModal = ({ data, onClose }: ReasoningModalProps) => {
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white outline-none cursor-pointer"
+            className="cursor-pointer text-slate-400 outline-none hover:text-white"
           >
             <X size={24} />
           </button>
         </div>
 
-        <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-700 relative z-10">
-          <div className="text-sm text-slate-300 italic leading-relaxed">
+        <div className="relative z-10 rounded-xl border border-slate-700 bg-slate-900/50 p-4">
+          <div className="text-sm leading-relaxed text-slate-300 italic">
             "{data.reasoning}"
           </div>
         </div>
 
-        <div className="mt-4 flex justify-between items-center relative z-10">
+        <div className="relative z-10 mt-4 flex items-center justify-between">
           <div className="text-xs text-slate-500">
             Sikkerhed:{" "}
             <span
@@ -64,7 +64,7 @@ export const ReasoningModal = ({ data, onClose }: ReasoningModalProps) => {
               {data.confidence}%
             </span>
           </div>
-          <div className="px-3 py-1 rounded-full bg-slate-700 text-xs font-bold text-white border border-slate-600 flex items-center gap-2">
+          <div className="flex items-center gap-2 rounded-full border border-slate-600 bg-slate-700 px-3 py-1 text-xs font-bold text-white">
             {data.category}
             {data.isLocked && <Lock size={10} className="text-slate-400" />}
           </div>

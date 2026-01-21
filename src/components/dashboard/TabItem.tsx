@@ -61,18 +61,18 @@ export const TabItem = React.memo(
         : getCategoryStyle(categoryName || "");
 
     return (
-      <div className="group relative w-full h-full">
+      <div className="group relative h-full w-full">
         <button
           onClick={(e) => {
             e.stopPropagation();
             onDelete(tab);
           }}
-          className="absolute -top-2 -right-2 z-30 bg-slate-800 border border-slate-600 text-slate-300 hover:text-red-400 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition shadow-xl cursor-pointer"
+          className="absolute -top-2 -right-2 z-30 cursor-pointer rounded-full border border-slate-600 bg-slate-800 p-1.5 text-slate-300 opacity-0 shadow-xl transition group-hover:opacity-100 hover:text-red-400"
         >
           <X size={14} />
         </button>
         <div
-          className="absolute -top-2 -left-2 cursor-pointer z-20 text-slate-500 hover:text-blue-400"
+          className="absolute -top-2 -left-2 z-20 cursor-pointer text-slate-500 hover:text-blue-400"
           onClick={(e) => {
             e.stopPropagation();
             onSelect(tab);
@@ -81,12 +81,12 @@ export const TabItem = React.memo(
           {isSelected ? (
             <CheckSquare
               size={20}
-              className="text-blue-500 bg-slate-900 rounded cursor-pointer shadow-md"
+              className="cursor-pointer rounded bg-slate-900 text-blue-500 shadow-md"
             />
           ) : (
             <Square
               size={20}
-              className="opacity-0 group-hover:opacity-100 bg-slate-900 text-slate-500 rounded cursor-pointer shadow-md border border-slate-700"
+              className="cursor-pointer rounded border border-slate-700 bg-slate-900 text-slate-500 opacity-0 shadow-md group-hover:opacity-100"
             />
           )}
         </div>
@@ -123,15 +123,15 @@ export const TabItem = React.memo(
             );
             if (onDragStart) onDragStart();
           }}
-          className={`pt-2 pr-2 pb-4 rounded-2xl border cursor-default active:cursor-grabbing transform-gpu flex flex-col h-full transition-all group shadow-md pl-4 overflow-hidden ${
+          className={`group flex h-full transform-gpu cursor-default flex-col overflow-hidden rounded-2xl border pt-2 pr-2 pb-4 pl-4 shadow-md transition-all active:cursor-grabbing ${
             isSelected
-              ? "bg-slate-900 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.25)]"
-              : "bg-[linear-gradient(90deg,var(--color-slate-900)_0%,rgb(30_41_59/50%)_25%,rgb(30_41_59/50%)_85%,rgb(20_28_45)_100%)] border-slate-700/50 hover:border-slate-500 hover:shadow-lg"
+              ? "border-blue-500 bg-slate-900 shadow-[0_0_15px_rgba(59,130,246,0.25)]"
+              : "border-slate-700/50 bg-[linear-gradient(90deg,var(--color-slate-900)_0%,rgb(30_41_59/50%)_25%,rgb(30_41_59/50%)_85%,rgb(20_28_45)_100%)] hover:border-slate-500 hover:shadow-lg"
           }`}
         >
-          <div className="flex flex-col gap-2 min-w-0">
+          <div className="flex min-w-0 flex-col gap-2">
             <div
-              className="flex flex-col gap-1 cursor-pointer group/link p-2 -ml-2 rounded-lg hover:bg-slate-700/50 transition-colors"
+              className="group/link -ml-2 flex cursor-pointer flex-col gap-1 rounded-lg p-2 transition-colors hover:bg-slate-700/50"
               onClick={async (e) => {
                 e.stopPropagation();
 
@@ -191,25 +191,25 @@ export const TabItem = React.memo(
                   size={18}
                   className={`${
                     tab.isIncognito ? "text-purple-400" : "text-slate-500"
-                  } group-hover/link:text-blue-400 shrink-0 transition-colors`}
+                  } shrink-0 transition-colors group-hover/link:text-blue-400`}
                 />
-                <div className="truncate text-sm font-semibold text-slate-200 pointer-events-none w-full group-hover/link:text-blue-200 transition-colors">
+                <div className="pointer-events-none w-full truncate text-sm font-semibold text-slate-200 transition-colors group-hover/link:text-blue-200">
                   {tab.title}
                 </div>
                 <ExternalLink
                   size={16}
-                  className="text-blue-400 opacity-0 group-hover/link:opacity-100 transition-opacity shrink-0"
+                  className="shrink-0 text-blue-400 opacity-0 transition-opacity group-hover/link:opacity-100"
                 />
               </div>
 
-              <div className="truncate text-[10px] text-slate-500 italic font-mono pointer-events-none w-full pl-8 group-hover/link:text-blue-300/70">
+              <div className="pointer-events-none w-full truncate pl-8 font-mono text-[10px] text-slate-500 italic group-hover/link:text-blue-300/70">
                 {tab.url}
               </div>
             </div>
 
-            <div className="pl-8 flex flex-wrap gap-2 mt-1 min-h-6">
+            <div className="mt-1 flex min-h-6 flex-wrap gap-2 pl-8">
               {isProcessing && (
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-700/50 border border-slate-600/50 text-[10px] font-medium text-slate-400 animate-pulse w-fit cursor-wait">
+                <div className="inline-flex w-fit animate-pulse cursor-wait items-center gap-1.5 rounded-full border border-slate-600/50 bg-slate-700/50 px-2.5 py-0.5 text-[10px] font-medium text-slate-400">
                   <Loader2 size={10} className="animate-spin" />
                   AI sorterer...
                 </div>
@@ -217,7 +217,7 @@ export const TabItem = React.memo(
 
               {isPending && (
                 <div
-                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-700/50 border border-slate-600/50 text-[10px] font-medium text-slate-400 w-fit cursor-help"
+                  className="inline-flex w-fit cursor-help items-center gap-1.5 rounded-full border border-slate-600/50 bg-slate-700/50 px-2.5 py-0.5 text-[10px] font-medium text-slate-400"
                   title="Analyseres næste gang ai kører"
                 >
                   <Clock size={10} />I kø til AI
@@ -237,7 +237,7 @@ export const TabItem = React.memo(
                     e.stopPropagation();
                     onOpenMenu(e, tab);
                   }}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wide w-fit shadow-sm backdrop-blur-sm transition-all duration-300 hover:scale-105 active:scale-95 cursor-pointer ${classNameStyle}`}
+                  className={`inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wide uppercase shadow-sm backdrop-blur-sm transition-all duration-300 hover:scale-105 active:scale-95 ${classNameStyle}`}
                   style={inlineStyle}
                   title="Venstreklik: Info | Højreklik: Skift kategori"
                 >

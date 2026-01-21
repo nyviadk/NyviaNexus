@@ -49,10 +49,10 @@ export const Dashboard = () => {
   // Local State
   const [activeProfile, setActiveProfile] = useState<string>("");
   const [selectedWorkspace, setSelectedWorkspace] = useState<NexusItem | null>(
-    null
+    null,
   );
   const [viewMode, setViewMode] = useState<"workspace" | "inbox" | "incognito">(
-    "workspace"
+    "workspace",
   );
   const [modalType, setModalType] = useState<
     "folder" | "workspace" | "settings" | null
@@ -62,14 +62,14 @@ export const Dashboard = () => {
   const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const [activeMappings, setActiveMappings] = useState<[number, WinMapping][]>(
-    []
+    [],
   );
   const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
   const [restorationStatus, setRestorationStatus] = useState<string | null>(
-    null
+    null,
   );
   const [chromeWindows, setChromeWindows] = useState<chrome.windows.Window[]>(
-    []
+    [],
   );
 
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
@@ -78,10 +78,10 @@ export const Dashboard = () => {
   const [isProcessingMove, setIsProcessingMove] = useState(false);
 
   const [pasteModalData, setPasteModalData] = useState<PasteModalState | null>(
-    null
+    null,
   );
   const [headerCopyStatus, setHeaderCopyStatus] = useState<"idle" | "copied">(
-    "idle"
+    "idle",
   );
 
   const [aiSettings, setAiSettings] = useState<AiSettings>({
@@ -104,7 +104,7 @@ export const Dashboard = () => {
       viewMode,
       selectedWorkspace,
       selectedWindowId,
-      setIsProcessingMove
+      setIsProcessingMove,
     );
 
   // --- HELPERS & MEMOS ---
@@ -117,17 +117,17 @@ export const Dashboard = () => {
         setViewMode("workspace");
       }
     },
-    [selectedWorkspace]
+    [selectedWorkspace],
   );
 
   const getFilteredInboxTabs = useCallback(
     (incognitoMode: boolean) => {
       if (!inboxData?.tabs) return [];
       return inboxData.tabs.filter((t: TabData) =>
-        incognitoMode ? t.isIncognito : !t.isIncognito
+        incognitoMode ? t.isIncognito : !t.isIncognito,
       );
     },
-    [inboxData]
+    [inboxData],
   );
 
   const sortedWindows = useMemo(() => {
@@ -168,7 +168,7 @@ export const Dashboard = () => {
     windows.forEach((w) => scanTabs(w.tabs));
 
     const existingNames = new Set(
-      aiSettings.userCategories.map((c) => c.name.toLowerCase())
+      aiSettings.userCategories.map((c) => c.name.toLowerCase()),
     );
 
     return Array.from(uniqueAiCats)
@@ -182,12 +182,12 @@ export const Dashboard = () => {
 
   const allAvailableCategories = useMemo(
     () => [...aiSettings.userCategories, ...aiGeneratedCategories],
-    [aiSettings.userCategories, aiGeneratedCategories]
+    [aiSettings.userCategories, aiGeneratedCategories],
   );
 
   const totalTabsInSpace = useMemo(
     () => windows.reduce((acc, win) => acc + (win.tabs?.length || 0), 0),
-    [windows]
+    [windows],
   );
 
   // Update Cache logic for flickering prevention
@@ -225,7 +225,7 @@ export const Dashboard = () => {
 
   const refreshChromeWindows = useCallback(() => {
     chrome.windows.getAll({ populate: false }, (wins) =>
-      setChromeWindows(wins)
+      setChromeWindows(wins),
     );
   }, []);
 
@@ -242,9 +242,9 @@ export const Dashboard = () => {
         user.uid,
         "workspaces_data",
         selectedWorkspace.id,
-        "windows"
+        "windows",
       ),
-      orderBy("createdAt", "asc")
+      orderBy("createdAt", "asc"),
     );
     return onSnapshot(q, (snap) => {
       const w = snap.docs.map((d) => ({
@@ -263,13 +263,13 @@ export const Dashboard = () => {
       chrome.storage.local.get("nexus_active_windows", (data) => {
         if (data?.nexus_active_windows) {
           setActiveMappings(
-            data.nexus_active_windows as [number, WinMapping][]
+            data.nexus_active_windows as [number, WinMapping][],
           );
         }
       });
 
       chrome.runtime.sendMessage({ type: "GET_RESTORING_STATUS" }, (res) =>
-        setRestorationStatus(res || null)
+        setRestorationStatus(res || null),
       );
       refreshChromeWindows();
     }
@@ -277,14 +277,14 @@ export const Dashboard = () => {
     const messageListener = (msg: DashboardMessage) => {
       if (msg.type === "RESTORATION_STATUS_CHANGE")
         setRestorationStatus(
-          typeof msg.payload === "string" ? msg.payload : null
+          typeof msg.payload === "string" ? msg.payload : null,
         );
       if (msg.type === "PHYSICAL_WINDOWS_CHANGED") refreshChromeWindows();
     };
 
     const storageListener = (
       changes: { [key: string]: chrome.storage.StorageChange },
-      area: string
+      area: string,
     ) => {
       if (area === "local" && changes.nexus_active_windows) {
         const newMappings = (changes.nexus_active_windows.newValue || []) as [
@@ -346,7 +346,7 @@ export const Dashboard = () => {
       setWindows([]);
       setSelectedWorkspace(item);
     },
-    [selectedWorkspace]
+    [selectedWorkspace],
   );
 
   const handleCopySpace = async () => {
@@ -365,28 +365,28 @@ export const Dashboard = () => {
     setSelectedUrls((prev) =>
       prev.includes(idToSelect)
         ? prev.filter((u) => u !== idToSelect)
-        : [...prev, idToSelect]
+        : [...prev, idToSelect],
     );
   }, []);
 
   const isViewingCurrent = activeMappings.some(
     ([id, m]) =>
-      id === currentWindowId && m.internalWindowId === selectedWindowId
+      id === currentWindowId && m.internalWindowId === selectedWindowId,
   );
 
   if (!user)
     return (
-      <div className="h-screen flex items-center justify-center bg-slate-900">
+      <div className="flex h-screen items-center justify-center bg-slate-900">
         <LoginForm />
       </div>
     );
 
   return (
-    <div className="flex h-screen bg-slate-900 text-slate-200 overflow-hidden font-sans relative">
+    <div className="relative flex h-screen overflow-hidden bg-slate-900 font-sans text-slate-200">
       {restorationStatus && (
-        <div className="absolute inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center flex-col gap-4">
-          <Loader2 size={64} className="text-blue-500 animate-spin" />
-          <div className="text-2xl font-bold text-white animate-pulse">
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-slate-900/60 backdrop-blur-sm">
+          <Loader2 size={64} className="animate-spin text-blue-500" />
+          <div className="animate-pulse text-2xl font-bold text-white">
             {restorationStatus}
           </div>
         </div>
@@ -415,9 +415,9 @@ export const Dashboard = () => {
         isLoading={items.length === 0}
       />
 
-      <main className="flex-1 flex flex-col bg-slate-900 relative">
+      <main className="relative flex flex-1 flex-col bg-slate-900">
         {isProcessingMove && (
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
             <Loader2 className="animate-spin text-blue-500" size={48} />
           </div>
         )}
@@ -461,7 +461,7 @@ export const Dashboard = () => {
             />
           </>
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-slate-600 gap-4">
+          <div className="flex h-full flex-col items-center justify-center gap-4 text-slate-600">
             <Monitor size={64} className="opacity-20" />
             <p className="text-xl font-medium">Vælg et space</p>
           </div>

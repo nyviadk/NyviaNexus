@@ -62,10 +62,10 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   inboxData,
 }) => {
   return (
-    <header className="p-8 pb-4 flex justify-between items-end border-b border-slate-800 bg-slate-800/30">
+    <header className="flex items-end justify-between border-b border-slate-800 bg-slate-800/30 p-8 pb-4">
       <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <h2 className="text-4xl font-bold text-white tracking-tight flex items-center gap-3">
+          <h2 className="flex items-center gap-3 text-4xl font-bold tracking-tight text-white">
             {viewMode === "incognito" ? (
               <>
                 <VenetianMask size={36} className="text-purple-500" />
@@ -78,8 +78,8 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             )}
           </h2>
           {isViewingCurrent && viewMode === "workspace" && (
-            <span className="text-[10px] bg-blue-600/20 text-blue-400 px-2.5 py-1 rounded-full border border-blue-500/20 font-bold uppercase tracking-widest">
-              <Monitor size={12} className="inline mr-1" /> Dette Vindue
+            <span className="rounded-full border border-blue-500/20 bg-blue-600/20 px-2.5 py-1 text-[10px] font-bold tracking-widest text-blue-400 uppercase">
+              <Monitor size={12} className="mr-1 inline" /> Dette Vindue
             </span>
           )}
         </div>
@@ -97,16 +97,16 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         )}
       </div>
 
-      <div className="flex gap-3 mb-1">
+      <div className="mb-1 flex gap-3">
         {viewMode === "workspace" && (
           <>
             <button
               onClick={handleCopySpace}
               disabled={totalTabsInSpace === 0}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition border ${
+              className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-bold transition ${
                 totalTabsInSpace === 0
-                  ? "border-slate-800 text-slate-600 bg-slate-800 cursor-not-allowed"
-                  : "bg-slate-800 border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white cursor-pointer"
+                  ? "cursor-not-allowed border-slate-800 bg-slate-800 text-slate-600"
+                  : "cursor-pointer border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500 hover:text-white"
               }`}
               title="Kopier alle tabs i dette space"
             >
@@ -130,13 +130,13 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                   windowId: null,
                 })
               }
-              className="flex items-center gap-2 bg-slate-800 border border-slate-700 hover:border-purple-500 text-purple-400 hover:text-purple-300 hover:bg-purple-900/20 px-4 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
+              className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm font-bold text-purple-400 transition hover:border-purple-500 hover:bg-purple-900/20 hover:text-purple-300"
               title="Indsæt links i nyt vindue"
             >
               <ClipboardPaste size={18} />
               <span>Indsæt</span>
             </button>
-            <div className="w-px h-8 bg-slate-700 mx-1"></div>
+            <div className="mx-1 h-8 w-px bg-slate-700"></div>
           </>
         )}
 
@@ -150,7 +150,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             const allU = list.map((t: TabData) => t.uid);
             setSelectedUrls(selectedUrls.length === allU.length ? [] : allU);
           }}
-          className={`p-2.5 bg-slate-800 border rounded-xl transition cursor-pointer ${
+          className={`cursor-pointer rounded-xl border bg-slate-800 p-2.5 transition ${
             selectedUrls.length > 0
               ? "border-blue-500 text-blue-400"
               : "border-slate-700 hover:text-blue-400"
@@ -179,19 +179,19 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 });
                 if (viewMode === "inbox" || viewMode === "incognito") {
                   const f = (inboxData?.tabs || []).filter(
-                    (t: TabData) => !selectedUrls.includes(t.uid)
+                    (t: TabData) => !selectedUrls.includes(t.uid),
                   );
                   await updateDoc(
                     doc(db, "users", uid, "inbox_data", "global"),
                     {
                       tabs: f,
-                    }
+                    },
                   );
                 } else if (selectedWorkspace && selectedWindowId) {
                   const w = windows.find((win) => win.id === selectedWindowId);
                   if (w) {
                     const f = w.tabs.filter(
-                      (t: TabData) => !selectedUrls.includes(t.uid)
+                      (t: TabData) => !selectedUrls.includes(t.uid),
                     );
                     await updateDoc(
                       doc(
@@ -201,16 +201,16 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                         "workspaces_data",
                         selectedWorkspace.id,
                         "windows",
-                        selectedWindowId
+                        selectedWindowId,
                       ),
-                      { tabs: f }
+                      { tabs: f },
                     );
                   }
                 }
                 setSelectedUrls([]);
               }
             }}
-            className="flex items-center gap-2 bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
+            className="flex cursor-pointer items-center gap-2 rounded-xl bg-red-600/20 px-4 py-2.5 text-sm font-bold text-red-400 transition hover:bg-red-600 hover:text-white"
           >
             <Trash2 size={20} /> Slet ({selectedUrls.length})
           </button>
@@ -226,10 +226,10 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 const snap = await getDoc(ref);
                 const allTabs = snap.data()?.tabs || [];
                 const tabsToDelete = allTabs.filter(
-                  (t: TabData) => !t.isIncognito
+                  (t: TabData) => !t.isIncognito,
                 );
                 const tabsToKeep = allTabs.filter(
-                  (t: TabData) => t.isIncognito
+                  (t: TabData) => t.isIncognito,
                 );
 
                 chrome.runtime.sendMessage({
@@ -243,7 +243,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 await updateDoc(ref, { tabs: tabsToKeep });
               }
             }}
-            className="flex items-center gap-2 bg-orange-600/20 text-orange-400 hover:bg-orange-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
+            className="flex cursor-pointer items-center gap-2 rounded-xl bg-orange-600/20 px-4 py-2.5 text-sm font-bold text-orange-400 transition hover:bg-orange-600 hover:text-white"
           >
             <Eraser size={20} /> Ryd Inbox
           </button>
@@ -259,10 +259,10 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 const snap = await getDoc(ref);
                 const allTabs = snap.data()?.tabs || [];
                 const tabsToDelete = allTabs.filter(
-                  (t: TabData) => t.isIncognito
+                  (t: TabData) => t.isIncognito,
                 );
                 const tabsToKeep = allTabs.filter(
-                  (t: TabData) => !t.isIncognito
+                  (t: TabData) => !t.isIncognito,
                 );
 
                 chrome.runtime.sendMessage({
@@ -276,7 +276,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 await updateDoc(ref, { tabs: tabsToKeep });
               }
             }}
-            className="flex items-center gap-2 bg-purple-600/20 text-purple-400 hover:bg-purple-600 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
+            className="flex cursor-pointer items-center gap-2 rounded-xl bg-purple-600/20 px-4 py-2.5 text-sm font-bold text-purple-400 transition hover:bg-purple-600 hover:text-white"
           >
             <Eraser size={20} /> Ryd Incognito
           </button>
@@ -295,10 +295,10 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
               })
             }
             disabled={windows.length === 0}
-            className={`px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg transition cursor-pointer ${
+            className={`cursor-pointer rounded-xl px-6 py-2.5 text-sm font-bold shadow-lg transition ${
               windows.length === 0
-                ? "bg-slate-800 text-slate-500 cursor-not-allowed shadow-none"
-                : "bg-blue-600 hover:bg-blue-500 shadow-blue-600/20 text-white active:scale-95"
+                ? "cursor-not-allowed bg-slate-800 text-slate-500 shadow-none"
+                : "bg-blue-600 text-white shadow-blue-600/20 hover:bg-blue-500 active:scale-95"
             }`}
           >
             Åbn Space

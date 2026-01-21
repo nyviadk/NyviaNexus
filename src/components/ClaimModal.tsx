@@ -69,7 +69,7 @@ export const ClaimModal = ({
           setLoading(false);
           onSuccess();
           onClose();
-        }
+        },
       );
     } catch (e) {
       console.error("Fejl ved claim window:", e);
@@ -78,9 +78,9 @@ export const ClaimModal = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/80 flex items-center justify-center p-4 z-50 backdrop-blur-sm text-slate-200 animate-in fade-in duration-200">
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-2xl p-6 shadow-2xl scale-100 animate-in zoom-in-95 duration-200">
-        <div className="flex justify-between items-center mb-6">
+    <div className="animate-in fade-in fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-4 text-slate-200 backdrop-blur-sm duration-200">
+      <div className="animate-in zoom-in-95 w-full max-w-sm scale-100 rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl duration-200">
+        <div className="mb-6 flex items-center justify-between">
           <div>
             <h3 className="text-lg font-bold text-white">Gem som Space</h3>
             <p className="text-xs text-slate-400">
@@ -89,7 +89,7 @@ export const ClaimModal = ({
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white transition rounded-lg p-1 hover:bg-slate-800"
+            className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white"
           >
             <X size={20} />
           </button>
@@ -97,12 +97,12 @@ export const ClaimModal = ({
 
         <div className="space-y-4">
           <div className="space-y-1">
-            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+            <label className="text-[10px] font-bold tracking-wider text-slate-500 uppercase">
               Navn
             </label>
             <input
               autoFocus
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 outline-none focus:ring-2 ring-blue-500/50 text-white placeholder:text-slate-600 transition-all"
+              className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-white ring-blue-500/50 transition-all outline-none placeholder:text-slate-600 focus:ring-2"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="F.eks. Projekt X..."
@@ -111,12 +111,12 @@ export const ClaimModal = ({
           </div>
 
           <div className="space-y-1">
-            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+            <label className="text-[10px] font-bold tracking-wider text-slate-500 uppercase">
               Placering
             </label>
             <div className="relative">
               <select
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 outline-none appearance-none focus:ring-2 ring-blue-500/50 text-sm cursor-pointer"
+                className="w-full cursor-pointer appearance-none rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm ring-blue-500/50 outline-none focus:ring-2"
                 value={parentId}
                 onChange={(e) => setParentId(e.target.value)}
               >
@@ -133,7 +133,7 @@ export const ClaimModal = ({
           <button
             disabled={loading || !name.trim()}
             onClick={handleClaim}
-            className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed p-2.5 rounded-xl font-bold transition-all flex items-center justify-center gap-2 mt-2"
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 p-2.5 font-bold transition-all hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500"
           >
             {loading ? (
               <>

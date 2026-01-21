@@ -31,7 +31,7 @@ export const CategoryMenu = ({
 
   const updateCategory = async (
     newCategory: string | null,
-    locked: boolean
+    locked: boolean,
   ) => {
     onClose();
     const currentUser = auth.currentUser;
@@ -72,7 +72,7 @@ export const CategoryMenu = ({
         "workspaces_data",
         workspaceId,
         "windows",
-        winId || "unknown"
+        winId || "unknown",
       );
       const snap = await getDoc(ref);
       if (snap.exists()) {
@@ -105,34 +105,34 @@ export const CategoryMenu = ({
     <div
       ref={menuRef}
       style={{ top: topPos, left: position.x }}
-      className={`fixed z-100 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-2 w-56 animate-in fade-in zoom-in-95 duration-100 ${
+      className={`animate-in fade-in zoom-in-95 fixed z-100 w-56 rounded-xl border border-slate-600 bg-slate-800 p-2 shadow-2xl duration-100 ${
         isNearBottom ? "origin-bottom-left" : "origin-top-left"
       }`}
     >
-      <div className="text-[10px] uppercase font-bold text-slate-500 px-2 py-1 mb-1">
+      <div className="mb-1 px-2 py-1 text-[10px] font-bold text-slate-500 uppercase">
         Vælg Kategori
       </div>
-      <div className="max-h-64 overflow-y-auto space-y-1 mb-2 custom-scrollbar">
+      <div className="custom-scrollbar mb-2 max-h-64 space-y-1 overflow-y-auto">
         {categories.map((cat: UserCategory) => (
           <button
             key={cat.id}
             onClick={() => updateCategory(cat.name, true)}
-            className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-700 text-slate-200 text-sm group cursor-pointer"
+            className="group flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-slate-200 hover:bg-slate-700"
           >
             <div
-              className="w-2.5 h-2.5 rounded-full shadow-sm shrink-0"
+              className="h-2.5 w-2.5 shrink-0 rounded-full shadow-sm"
               style={{ backgroundColor: cat.color }}
             />
             <span className="truncate">{cat.name}</span>
             {cat.id.startsWith("ai-") && (
-              <span className="ml-auto text-[9px] text-slate-500 uppercase tracking-tighter opacity-50 group-hover:opacity-100">
+              <span className="ml-auto text-[9px] tracking-tighter text-slate-500 uppercase opacity-50 group-hover:opacity-100">
                 AI
               </span>
             )}
           </button>
         ))}
         {categories.length === 0 && (
-          <div className="text-xs text-slate-500 px-2 italic">
+          <div className="px-2 text-xs text-slate-500 italic">
             Ingen kategorier fundet
           </div>
         )}
@@ -140,7 +140,7 @@ export const CategoryMenu = ({
       <div className="border-t border-slate-700 pt-1">
         <button
           onClick={() => updateCategory(null, false)}
-          className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-blue-400 text-xs font-medium cursor-pointer"
+          className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-slate-400 hover:bg-slate-700 hover:text-blue-400"
         >
           <Unlock size={14} /> Lås op / Reset AI
         </button>

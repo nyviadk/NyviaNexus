@@ -280,10 +280,10 @@ export const SidebarItem = ({
   }
 
   return (
-    <div className="relative select-none transition-all duration-200">
+    <div className="relative transition-all duration-200 select-none">
       <div
         className={`${containerClasses} ${
-          isSyncing ? "opacity-50 pointer-events-none" : ""
+          isSyncing ? "pointer-events-none opacity-50" : ""
         }`}
         onDragEnter={onDragEnter}
         onDragOver={(e) => {
@@ -335,12 +335,12 @@ export const SidebarItem = ({
           isOpen ? (
             <ChevronDown
               size={18}
-              className="text-slate-400 transition-transform cursor-pointer"
+              className="cursor-pointer text-slate-400 transition-transform"
             />
           ) : (
             <ChevronRight
               size={18}
-              className="text-slate-400 transition-transform cursor-pointer"
+              className="cursor-pointer text-slate-400 transition-transform"
             />
           )
         ) : (
@@ -362,14 +362,14 @@ export const SidebarItem = ({
                     (isDragOver && isInvalidItemDrop)
                   ? "text-red-400"
                   : "text-amber-400"
-            } fill-current transition-colors shrink-0`}
+            } shrink-0 fill-current transition-colors`}
           />
         )}
 
         <span
           className={`flex-1 truncate text-sm font-medium ${
             isSyncing
-              ? "italic text-slate-400"
+              ? "text-slate-400 italic"
               : "text-slate-200 group-hover:text-white"
           }`}
         >
@@ -377,7 +377,7 @@ export const SidebarItem = ({
         </span>
 
         {!isSyncing && (
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800/80 backdrop-blur-sm rounded-lg px-1 shadow-sm border border-slate-700/50">
+          <div className="flex gap-1 rounded-lg border border-slate-700/50 bg-slate-800/80 px-1 opacity-0 shadow-sm backdrop-blur-sm transition-opacity group-hover:opacity-100">
             {isFolder && (
               <>
                 <button
@@ -387,7 +387,7 @@ export const SidebarItem = ({
                     onAddChild?.(item.id, "folder");
                   }}
                   title="Ny mappe"
-                  className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-blue-300 cursor-pointer"
+                  className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-blue-300"
                 >
                   <FolderPlus size={18} />
                 </button>
@@ -398,7 +398,7 @@ export const SidebarItem = ({
                     onAddChild?.(item.id, "workspace");
                   }}
                   title="Nyt space"
-                  className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-blue-300 cursor-pointer"
+                  className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-blue-300"
                 >
                   <Plus size={18} />
                 </button>
@@ -407,14 +407,14 @@ export const SidebarItem = ({
             <button
               onClick={handleRename}
               title="Omdøb"
-              className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-blue-300 cursor-pointer"
+              className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-blue-300"
             >
               <Edit3 size={18} />
             </button>
             <button
               onClick={handleDelete}
               title="Slet"
-              className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-red-400 cursor-pointer"
+              className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-red-400"
             >
               <Trash2 size={18} />
             </button>
@@ -430,10 +430,10 @@ export const SidebarItem = ({
               return (
                 <div key={child.id} className="relative pl-4">
                   <div
-                    className="absolute left-0 top-0 w-px bg-slate-400"
+                    className="absolute top-0 left-0 w-px bg-slate-400"
                     style={{ height: isLastChild ? "20px" : "100%" }}
                   />
-                  <div className="absolute left-0 top-5 w-4 h-px bg-slate-400" />
+                  <div className="absolute top-5 left-0 h-px w-4 bg-slate-400" />
                   <SidebarItem
                     item={child}
                     allItems={allItems}
@@ -450,10 +450,10 @@ export const SidebarItem = ({
               );
             })
           ) : (
-            <div className="relative pl-4 pt-1">
-              <div className="absolute left-0 top-0 w-px h-3.5 bg-slate-600" />
-              <div className="absolute left-0 top-3.5 w-3 h-px bg-slate-600" />
-              <div className="text-[10px] text-slate-500 pl-2 italic font-light tracking-wide select-none">
+            <div className="relative pt-1 pl-4">
+              <div className="absolute top-0 left-0 h-3.5 w-px bg-slate-600" />
+              <div className="absolute top-3.5 left-0 h-px w-3 bg-slate-600" />
+              <div className="pl-2 text-[10px] font-light tracking-wide text-slate-500 italic select-none">
                 Tom
               </div>
             </div>

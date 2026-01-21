@@ -65,13 +65,13 @@ export const CreateItemModal = ({
         // Luk hvis man klikker på backdrop (udenfor selve dialogen)
         if (e.target === dialogRef.current) handleClose();
       }}
-      className="bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm open:animate-in open:fade-in open:zoom-in-95 m-auto"
+      className="open:animate-in open:fade-in open:zoom-in-95 m-auto bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm"
     >
-      <div className="bg-slate-800 border border-slate-600 w-full max-w-sm rounded-2xl p-6 shadow-2xl">
-        <div className="flex justify-between items-center mb-6">
+      <div className="w-full max-w-sm rounded-2xl border border-slate-600 bg-slate-800 p-6 shadow-2xl">
+        <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3 text-white">
             <div
-              className={`p-2 rounded-lg ${
+              className={`rounded-lg p-2 ${
                 type === "folder"
                   ? "bg-amber-500/20 text-amber-400"
                   : "bg-blue-500/20 text-blue-400"
@@ -83,14 +83,14 @@ export const CreateItemModal = ({
                 <Monitor size={20} />
               )}
             </div>
-            <h3 className="text-lg font-bold uppercase tracking-wide">
+            <h3 className="text-lg font-bold tracking-wide uppercase">
               Ny {type === "folder" ? "Mappe" : "Space"}
             </h3>
           </div>
           <button
             type="button"
             onClick={handleClose}
-            className="text-slate-400 hover:text-white transition-colors p-1 hover:bg-slate-700 rounded-lg outline-none focus:ring-2 ring-blue-500"
+            className="rounded-lg p-1 text-slate-400 ring-blue-500 transition-colors outline-none hover:bg-slate-700 hover:text-white focus:ring-2"
           >
             <X size={20} />
           </button>
@@ -105,7 +105,7 @@ export const CreateItemModal = ({
               placeholder={`Navn på ${
                 type === "folder" ? "mappe" : "space"
               }...`}
-              className="w-full bg-slate-900/50 border border-slate-600 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 ring-blue-500/50 text-white placeholder-slate-500 transition-all"
+              className="w-full rounded-xl border border-slate-600 bg-slate-900/50 px-4 py-3 text-sm text-white placeholder-slate-500 ring-blue-500/50 transition-all outline-none focus:ring-2"
             />
           </div>
 
@@ -113,14 +113,14 @@ export const CreateItemModal = ({
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white text-sm font-medium transition-colors outline-none focus:ring-2 ring-slate-500"
+              className="flex-1 rounded-xl border border-slate-600 px-4 py-2.5 text-sm font-medium text-slate-300 ring-slate-500 transition-colors outline-none hover:bg-slate-700 hover:text-white focus:ring-2"
             >
               Annuller
             </button>
             <button
               type="submit"
               disabled={loading || !name.trim()}
-              className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/20 transition-all active:scale-95 flex items-center justify-center gap-2 outline-none focus:ring-2 ring-blue-400"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-500/20 ring-blue-400 transition-all outline-none hover:bg-blue-500 focus:ring-2 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading && <Loader2 size={16} className="animate-spin" />}
               Opret

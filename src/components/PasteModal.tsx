@@ -74,7 +74,7 @@ export const PasteModal = ({
     return windows.findIndex((w) => {
       const isEmpty = !w.tabs || w.tabs.length === 0;
       const isPhysicallyOpen = activeMappings.some(
-        ([_, mapping]) => mapping.internalWindowId === w.id
+        ([_, mapping]) => mapping.internalWindowId === w.id,
       );
       return isEmpty && !isPhysicallyOpen;
     });
@@ -229,7 +229,7 @@ export const PasteModal = ({
           "workspaces_data",
           workspaceId,
           "windows",
-          windowId
+          windowId,
         );
 
         await updateDoc(windowRef, {
@@ -251,7 +251,7 @@ export const PasteModal = ({
             uid,
             "workspaces_data",
             workspaceId,
-            "windows"
+            "windows",
           );
           const snap = await getDocs(windowsRef);
 
@@ -265,7 +265,7 @@ export const PasteModal = ({
             // Tjek: Er vinduet fysisk åbent?
             // Vi mapper activeMappings for at se om Internal ID'et findes
             const isPhysicallyOpen = activeMappings.some(
-              ([_, mapping]) => mapping.internalWindowId === wId
+              ([_, mapping]) => mapping.internalWindowId === wId,
             );
 
             if (isEmpty && !isPhysicallyOpen) {
@@ -279,7 +279,7 @@ export const PasteModal = ({
               const dData = d.data();
               const isEmpty = !dData.tabs || dData.tabs.length === 0;
               const isOpen = activeMappings.some(
-                ([_, mapping]) => mapping.internalWindowId === d.id
+                ([_, mapping]) => mapping.internalWindowId === d.id,
               );
               return isEmpty && !isOpen;
             });
@@ -302,7 +302,7 @@ export const PasteModal = ({
               "workspaces_data",
               workspaceId,
               "windows",
-              reusedWindowId
+              reusedWindowId,
             );
 
             const baseTitle = windowName || "Importeret Vindue";
@@ -323,7 +323,7 @@ export const PasteModal = ({
               "workspaces_data",
               workspaceId,
               "windows",
-              newWinId
+              newWinId,
             );
 
             const baseTitle = windowName || "Importeret Vindue";
@@ -359,16 +359,16 @@ export const PasteModal = ({
       onCancel={onClose}
       onMouseDown={handleBackdropMouseDown}
       onMouseUp={handleBackdropMouseUp}
-      className="bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm open:animate-in open:fade-in open:zoom-in-95 m-auto"
+      className="open:animate-in open:fade-in open:zoom-in-95 m-auto bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm"
     >
       <div
-        className="bg-slate-800 border border-slate-600 w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+        className="flex max-h-[85vh] w-xl flex-col overflow-hidden rounded-2xl border border-slate-600 bg-slate-800 shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-4 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
+        <div className="flex items-center justify-between border-b border-slate-700 bg-slate-900/50 p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-purple-600/20 rounded-lg text-purple-400">
+            <div className="rounded-lg bg-purple-600/20 p-2 text-purple-400">
               {isCreatingNew ? (
                 previewStats.length > 1 ? (
                   <Layers size={20} />
@@ -401,14 +401,14 @@ export const PasteModal = ({
           </div>
           <button
             onClick={onClose}
-            className="text-slate-500 hover:text-white transition cursor-pointer"
+            className="cursor-pointer text-slate-500 transition hover:text-white"
           >
             <X size={20} />
           </button>
         </div>
 
         {/* Body */}
-        <div className="p-4 flex-1 flex flex-col gap-4 overflow-y-auto">
+        <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
           <textarea
             autoFocus
             value={text}
@@ -418,7 +418,7 @@ export const PasteModal = ({
                 ? "Indsæt links her...\n\n###\n\nIndsæt links til næste vindue her..."
                 : "Indsæt liste af links her..."
             }
-            className="flex-1 min-h-64 bg-slate-900/50 border border-slate-700 rounded-xl p-4 text-sm font-mono text-slate-300 outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 resize-none placeholder:text-slate-600 custom-scrollbar leading-relaxed"
+            className="custom-scrollbar min-h-64 flex-1 resize-none rounded-xl border border-slate-700 bg-slate-900/50 p-4 font-mono text-sm leading-relaxed text-slate-300 outline-none placeholder:text-slate-600 focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50"
           />
 
           {/* Controls Bar */}
@@ -427,10 +427,10 @@ export const PasteModal = ({
             {hasDuplicates && (
               <div
                 onClick={() => setUniqueOnly(!uniqueOnly)}
-                className={`flex-1 flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all select-none ${
+                className={`flex flex-1 cursor-pointer items-center justify-between rounded-lg border p-3 transition-all select-none ${
                   uniqueOnly
-                    ? "bg-blue-900/20 border-blue-500/50"
-                    : "bg-slate-900 border-slate-700/50 hover:border-slate-600"
+                    ? "border-blue-500/50 bg-blue-900/20"
+                    : "border-slate-700/50 bg-slate-900 hover:border-slate-600"
                 }`}
               >
                 <div className="flex flex-col">
@@ -463,10 +463,10 @@ export const PasteModal = ({
             {isCreatingNew && availableReuseIndex !== -1 && (
               <div
                 onClick={() => setUseEmptyWindow(!useEmptyWindow)}
-                className={`flex-1 flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all select-none ${
+                className={`flex flex-1 cursor-pointer items-center justify-between rounded-lg border p-3 transition-all select-none ${
                   useEmptyWindow
-                    ? "bg-emerald-900/20 border-emerald-500/50"
-                    : "bg-slate-900 border-slate-700/50 hover:border-slate-600"
+                    ? "border-emerald-500/50 bg-emerald-900/20"
+                    : "border-slate-700/50 bg-slate-900 hover:border-slate-600"
                 }`}
               >
                 <div className="flex flex-col">
@@ -489,7 +489,7 @@ export const PasteModal = ({
                   {useEmptyWindow ? (
                     <Maximize size={24} />
                   ) : (
-                    <div className="w-6 h-6 rounded-full border-2 border-slate-600"></div>
+                    <div className="h-6 w-6 rounded-full border-2 border-slate-600"></div>
                   )}
                 </div>
               </div>
@@ -498,18 +498,18 @@ export const PasteModal = ({
         </div>
 
         {/* Footer */}
-        <div className="p-4 bg-slate-900/50 border-t border-slate-700 flex justify-between gap-2 ">
+        <div className="flex justify-between gap-2 border-t border-slate-700 bg-slate-900/50 p-4">
           {/* Stats Display */}
-          <div className="flex-1 flex flex-col bg-slate-900 rounded-lg border border-slate-700/50 min-h-12.5 max-h-48 overflow-y-auto custom-scrollbar">
+          <div className="custom-scrollbar flex max-h-48 min-h-12.5 flex-1 flex-col overflow-y-auto rounded-lg border border-slate-700/50 bg-slate-900">
             {previewStats.length === 0 ? (
               // EMPTY STATE - Centreret indhold
-              <div className="flex items-center justify-center gap-2 text-slate-500 h-full p-3">
+              <div className="flex h-full items-center justify-center gap-2 p-3 text-slate-500">
                 <LinkIcon size={18} />
                 <span className="text-sm font-bold">0 links fundet</span>
               </div>
             ) : previewStats.length === 1 && !isCreatingNew ? (
               // SINGLE / LEGACY VIEW - Centreret indhold
-              <div className="flex items-center justify-center gap-2 text-green-400 h-full p-3">
+              <div className="flex h-full items-center justify-center gap-2 p-3 text-green-400">
                 <LinkIcon size={18} />
                 <span className="text-sm font-bold">
                   {previewStats[0].count}{" "}
@@ -518,28 +518,28 @@ export const PasteModal = ({
               </div>
             ) : (
               // LIST VIEW (Aligned Grid) - Normalt flow med padding
-              <div className="py-2 px-1 flex flex-col w-full">
+              <div className="flex w-full flex-col px-1 py-2">
                 {previewStats.map((stat) => (
                   <div
                     key={stat.index}
-                    className="flex items-center text-sm w-full px-3 py-1 hover:bg-slate-800/50 rounded transition-colors"
+                    className="flex w-full items-center rounded px-3 py-1 text-sm transition-colors hover:bg-slate-800/50"
                   >
                     {/* Left: Count & Icon (Fixed width for alignment) */}
-                    <div className="w-24 flex items-center justify-end gap-2 text-green-400 font-bold">
+                    <div className="flex w-24 items-center justify-end gap-2 font-bold text-green-400">
                       <span>{stat.count}</span>
-                      <span className="font-normal text-green-400/80 text-xs uppercase tracking-wide">
+                      <span className="text-xs font-normal tracking-wide text-green-400/80 uppercase">
                         {stat.count === 1 ? "link" : "links"}
                       </span>
                       <LinkIcon size={14} className="ml-1 opacity-70" />
                     </div>
 
                     {/* Middle: Separator */}
-                    <div className="text-slate-600 mx-3 font-light text-lg">
+                    <div className="mx-3 text-lg font-light text-slate-600">
                       |
                     </div>
 
                     {/* Right: Window Name (DYNAMIC) */}
-                    <div className="flex-1 text-purple-400 font-medium flex items-center gap-2 truncate">
+                    <div className="flex flex-1 items-center gap-2 truncate font-medium text-purple-400">
                       <Layers size={14} className="opacity-70" />
                       <span className="truncate">{stat.dynamicTitle}</span>
                     </div>
@@ -549,20 +549,20 @@ export const PasteModal = ({
             )}
           </div>
 
-          <div className="flex justify-end gap-3 items-center">
+          <div className="flex items-center justify-end gap-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-slate-400 hover:text-white text-sm font-medium transition cursor-pointer"
+              className="cursor-pointer px-4 py-2 text-sm font-medium text-slate-400 transition hover:text-white"
             >
               Annuller
             </button>
             <button
               onClick={handleSave}
               disabled={totalLinks === 0 || isSaving}
-              className={`px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition shadow-lg cursor-pointer h-fit ${
+              className={`flex h-fit cursor-pointer items-center gap-2 rounded-xl px-6 py-2 text-sm font-bold shadow-lg transition ${
                 totalLinks > 0 && !isSaving
-                  ? "bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/20 active:scale-95"
-                  : "bg-slate-700 text-slate-500 cursor-not-allowed"
+                  ? "bg-purple-600 text-white shadow-purple-900/20 hover:bg-purple-500 active:scale-95"
+                  : "cursor-not-allowed bg-slate-700 text-slate-500"
               }`}
             >
               {isSaving ? (

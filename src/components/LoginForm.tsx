@@ -24,7 +24,7 @@ export const LoginForm = () => {
       const userCredential = await signInWithEmailAndPassword(
         auth,
         email,
-        password
+        password,
       );
       const uid = userCredential.user.uid;
 
@@ -62,28 +62,28 @@ export const LoginForm = () => {
   };
 
   return (
-    <div className="p-6 w-80 flex flex-col gap-4 bg-slate-900 text-white h-125 justify-center shadow-2xl rounded-2xl border border-slate-800">
-      <h1 className="text-2xl font-black text-blue-400 tracking-tighter">
+    <div className="flex h-125 w-80 flex-col justify-center gap-4 rounded-2xl border border-slate-800 bg-slate-900 p-6 text-white shadow-2xl">
+      <h1 className="text-2xl font-black tracking-tighter text-blue-400">
         NyviaNexus
       </h1>
       <form onSubmit={handleLogin} className="flex flex-col gap-3">
         <input
           type="email"
           placeholder="Email"
-          className="bg-slate-800 p-2 rounded border border-slate-700 outline-none focus:border-blue-500"
+          className="rounded border border-slate-700 bg-slate-800 p-2 outline-none focus:border-blue-500"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
         <input
           type="password"
           placeholder="Password"
-          className="bg-slate-800 p-2 rounded border border-slate-700 outline-none focus:border-blue-500"
+          className="rounded border border-slate-700 bg-slate-800 p-2 outline-none focus:border-blue-500"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
         <button
           disabled={loading}
-          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 p-2 rounded font-bold transition active:scale-95 flex justify-center"
+          className="flex justify-center rounded bg-blue-600 p-2 font-bold transition hover:bg-blue-500 active:scale-95 disabled:opacity-50"
         >
           {loading ? <Loader2 className="animate-spin" size={20} /> : "Log ind"}
         </button>

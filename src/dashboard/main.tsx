@@ -6,5 +6,5 @@ import "../index.css";
 ReactDOM.createRoot(document.getElementById("dashboard-root")!).render(
   <React.StrictMode>
     <Dashboard />
-  </React.StrictMode>
+  </React.StrictMode>,
 );

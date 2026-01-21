@@ -32,12 +32,12 @@ export const WindowActions = ({
   };
 
   return (
-    <div className="flex items-center gap-1 bg-slate-900/50 rounded-lg p-0.5 border border-slate-700/50">
+    <div className="flex items-center gap-1 rounded-lg border border-slate-700/50 bg-slate-900/50 p-0.5">
       {/* COPY BUTTON */}
       <button
         onClick={handleCopy}
         title="Kopier alle links til udklipsholder"
-        className="p-1.5 rounded-md hover:bg-slate-700 text-slate-400 hover:text-blue-400 transition group relative"
+        className="group relative rounded-md p-1.5 text-slate-400 transition hover:bg-slate-700 hover:text-blue-400"
       >
         {hasCopied ? (
           <Check size={14} className="text-green-500" />
@@ -46,17 +46,17 @@ export const WindowActions = ({
         )}
       </button>
 
-      <div className="w-px h-3 bg-slate-700 mx-0.5"></div>
+      <div className="mx-0.5 h-3 w-px bg-slate-700"></div>
 
       {/* PASTE BUTTON */}
-      <div className="relative group/paste">
+      <div className="group/paste relative">
         <button
           onClick={handlePasteClick}
           disabled={isWindowOpen}
-          className={`p-1.5 rounded-md transition ${
+          className={`rounded-md p-1.5 transition ${
             isWindowOpen
-              ? "text-slate-600 cursor-not-allowed bg-slate-800/50"
-              : "text-slate-400 hover:text-purple-400 hover:bg-slate-700"
+              ? "cursor-not-allowed bg-slate-800/50 text-slate-600"
+              : "text-slate-400 hover:bg-slate-700 hover:text-purple-400"
           }`}
         >
           <ClipboardPaste size={14} />
@@ -64,7 +64,7 @@ export const WindowActions = ({
 
         {/* Tooltip for disabled state */}
         {isWindowOpen && (
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 border border-slate-700 text-[10px] text-slate-300 rounded whitespace-nowrap opacity-0 group-hover/paste:opacity-100 pointer-events-none transition z-50 shadow-xl">
+          <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[10px] whitespace-nowrap text-slate-300 opacity-0 shadow-xl transition group-hover/paste:opacity-100">
             <div className="flex items-center gap-1.5">
               <MonitorX size={10} className="text-red-400" />
               Luk vinduet for at indsætte

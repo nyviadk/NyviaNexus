@@ -40,12 +40,12 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
       },
       () => {
         setIsCreating(false);
-      }
+      },
     );
   };
 
   return (
-    <div className="flex gap-4 items-center flex-wrap">
+    <div className="flex flex-wrap items-center gap-4">
       {sortedWindows.map((win, idx) => {
         const isDropTarget = dropTargetWinId === win.id;
         const isSourceWindow = selectedWindowId === win.id;
@@ -76,7 +76,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
         return (
           <div
             key={win.id}
-            className="flex flex-col gap-1 items-center transition-all duration-200"
+            className="flex flex-col items-center gap-1 transition-all duration-200"
             onDragOver={(e) => {
               e.preventDefault();
               if (dropTargetWinId !== win.id) {
@@ -102,9 +102,9 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
               onClick={() =>
                 setSelectedWindowId(selectedWindowId === win.id ? null : win.id)
               }
-              className={`relative group px-4 py-3 rounded-xl border transition-all flex items-center gap-3 cursor-pointer ${bgClass} ${borderClass} ${shadowClass}`}
+              className={`group relative flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-all ${bgClass} ${borderClass} ${shadowClass}`}
             >
-              <div className="flex flex-col pointer-events-none">
+              <div className="pointer-events-none flex flex-col">
                 <span
                   className={`text-xs font-bold ${
                     isDropTarget && !isSourceWindow
@@ -114,7 +114,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                 >
                   Vindue {idx + 1}
                 </span>
-                <span className="text-[10px] text-slate-500 mt-1">
+                <span className="mt-1 text-[10px] text-slate-500">
                   {win.tabs?.length || 0} tabs
                 </span>
               </div>
@@ -134,7 +134,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                       },
                     });
                   }}
-                  className="p-1.5 hover:bg-blue-500/20 rounded-lg text-slate-400 hover:text-blue-400 cursor-pointer transition-colors"
+                  className="cursor-pointer rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-blue-500/20 hover:text-blue-400"
                   title="Åbn dette vindue"
                 >
                   <ExternalLink size={18} />
@@ -152,7 +152,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                         },
                       });
                   }}
-                  className="p-1.5 hover:bg-red-500/20 rounded-lg text-slate-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                  className="cursor-pointer rounded-lg p-1.5 text-slate-400 opacity-0 transition-all group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-400"
                   title="Slet vindue"
                 >
                   <Trash2 size={18} />
@@ -187,13 +187,13 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
         }}
         onClick={() => handleCreateNewWindow()}
         disabled={isCreating}
-        className={`h-14 w-14 flex items-center justify-center rounded-xl border border-dashed transition-all duration-200 ${
+        className={`flex h-14 w-14 items-center justify-center rounded-xl border border-dashed transition-all duration-200 ${
           isPlusOver
-            ? "border-emerald-500 bg-emerald-500/10 text-emerald-400 scale-110 shadow-xl shadow-emerald-900/20"
+            ? "scale-110 border-emerald-500 bg-emerald-500/10 text-emerald-400 shadow-xl shadow-emerald-900/20"
             : "border-slate-700 text-slate-500 hover:border-blue-500 hover:text-blue-400"
         } ${
           isCreating
-            ? "opacity-50 cursor-wait"
+            ? "cursor-wait opacity-50"
             : "cursor-pointer active:scale-95"
         }`}
         title="Tilføj nyt vindue (eller træk en fane herhen)"
