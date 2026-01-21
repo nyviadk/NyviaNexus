@@ -9,6 +9,7 @@ import {
   orderBy,
   query,
   setDoc,
+  where,
 } from "firebase/firestore";
 import {
   ArrowRightLeft,
@@ -53,6 +54,14 @@ interface UserSettingsData {
   savedTargets?: (string | SavedTarget)[];
 }
 
+interface ContactItem {
+  uid: string;
+  name: string;
+  isAllowed: boolean;
+  isSaved: boolean;
+  viewEnabled: boolean;
+}
+
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const RemoteAccessSettings = () => {
@@ -75,7 +84,12 @@ export const RemoteAccessSettings = () => {
   const [remoteIncognito, setRemoteIncognito] = useState<TabData[]>([]);
 
   const [fetchStatus, setFetchStatus] = useState<
-    "idle" | "loading" | "error_perm" | "error_empty" | "success"
+    | "idle"
+    | "loading"
+    | "error_perm"
+    | "error_empty"
+    | "success"
+    | "partial_error"
   >("idle");
 
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
@@ -110,17 +124,8 @@ export const RemoteAccessSettings = () => {
   }, []);
 
   // --- MERGED CONTACT LIST ---
-  const contacts = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        uid: string;
-        name: string;
-        isAllowed: boolean;
-        isSaved: boolean;
-        viewEnabled: boolean;
-      }
-    >();
+  const contacts = useMemo<ContactItem[]>(() => {
+    const map = new Map<string, ContactItem>();
 
     savedTargets.forEach((t) => {
       map.set(t.uid, {
@@ -191,8 +196,6 @@ export const RemoteAccessSettings = () => {
         viewEnabled: false,
       };
 
-      // Vi behøver teknisk set ikke filter her da knappen er disabled ved duplicates,
-      // men for sikkerheds skyld:
       const currentFiltered = savedTargets.filter((t) => t.uid !== uidToAdd);
 
       await setDoc(
@@ -269,7 +272,7 @@ export const RemoteAccessSettings = () => {
     }
   };
 
-  // --- FETCH LOGIC ---
+  // --- FETCH LOGIC (FIXED: Uses 'items' for space list) ---
 
   const fetchRemoteData = async (targetUid: string) => {
     setActiveExpandedUid(targetUid);
@@ -281,51 +284,75 @@ export const RemoteAccessSettings = () => {
     await wait(800);
 
     try {
-      // 1. Fetch Spaces
-      const spacesRef = collection(db, "users", targetUid, "workspaces_data");
-      const spacesSnap = await getDocs(spacesRef);
+      // Vi henter nu Spaces fra 'items' collectionen og filtrerer på type == 'workspace'.
+      const itemsQuery = query(
+        collection(db, "users", targetUid, "items"),
+        where("type", "==", "workspace"),
+      );
 
-      const spaces = spacesSnap.docs.map((d) => ({
-        id: d.id,
-        name: d.data().name || "Navnløst Space",
-      }));
+      // Vi bruger Promise.allSettled for at køre requests parallelt.
+      const [spacesResult, inboxResult] = await Promise.allSettled([
+        getDocs(itemsQuery),
+        getDoc(doc(db, "users", targetUid, "inbox_data", "global")),
+      ]);
 
-      // 2. Fetch Inbox & Incognito
-      const inboxRef = doc(db, "users", targetUid, "inbox_data", "global");
-      const inboxSnap = await getDoc(inboxRef);
+      let hasPermissionError = false;
+      let newSpaces: RemoteSpaceSummary[] = [];
+      let newInbox: TabData[] = [];
+      let newIncognito: TabData[] = [];
 
-      let inboxList: TabData[] = [];
-      let incognitoList: TabData[] = [];
-
-      if (inboxSnap.exists()) {
-        const allTabs = (inboxSnap.data().tabs || []) as TabData[];
-        inboxList = allTabs.filter((t) => !t.isIncognito);
-        incognitoList = allTabs.filter((t) => t.isIncognito);
+      // 1. Handle Spaces Result (from items collection)
+      if (spacesResult.status === "fulfilled") {
+        newSpaces = spacesResult.value.docs.map((d) => ({
+          id: d.id, // Bruger dokumentets ID (f.eks. ws_1768...)
+          name: d.data().name || "Navnløst Space",
+        }));
+      } else {
+        console.error(
+          "Failed to fetch spaces from items:",
+          spacesResult.reason,
+        );
+        const err = spacesResult.reason as any;
+        if (err.code === "permission-denied") hasPermissionError = true;
       }
 
-      setRemoteSpaces(spaces);
-      setRemoteInbox(inboxList);
-      setRemoteIncognito(incognitoList);
+      // 2. Handle Inbox Result
+      if (inboxResult.status === "fulfilled") {
+        const snap = inboxResult.value;
+        if (snap.exists()) {
+          const allTabs = (snap.data().tabs || []) as TabData[];
+          newInbox = allTabs.filter((t) => !t.isIncognito);
+          newIncognito = allTabs.filter((t) => t.isIncognito);
+        }
+      } else {
+        console.error("Failed to fetch inbox:", inboxResult.reason);
+        const err = inboxResult.reason as any;
+        if (err.code === "permission-denied") hasPermissionError = true;
+      }
 
+      setRemoteSpaces(newSpaces);
+      setRemoteInbox(newInbox);
+      setRemoteIncognito(newIncognito);
+
+      // 3. Determine Final Status
       if (
-        spaces.length === 0 &&
-        inboxList.length === 0 &&
-        incognitoList.length === 0
+        hasPermissionError &&
+        newSpaces.length === 0 &&
+        newInbox.length === 0
+      ) {
+        setFetchStatus("error_perm");
+      } else if (
+        newSpaces.length === 0 &&
+        newInbox.length === 0 &&
+        newIncognito.length === 0
       ) {
         setFetchStatus("error_empty");
       } else {
         setFetchStatus("success");
       }
-    } catch (err: any) {
-      console.error("Fetch error code:", err.code);
-      if (
-        err.code === "permission-denied" ||
-        (err.message && err.message.includes("permission"))
-      ) {
-        setFetchStatus("error_perm");
-      } else {
-        setFetchStatus("error_empty");
-      }
+    } catch (err: unknown) {
+      console.error("Critical fetch error:", err);
+      setFetchStatus("error_empty");
     }
   };
 
@@ -349,6 +376,8 @@ export const RemoteAccessSettings = () => {
     await wait(500);
 
     try {
+      // NOTE: Vi henter stadig selve dataen fra workspaces_data/{spaceId}/windows
+      // Dette er korrekt ifølge din datastruktur.
       const winsRef = collection(
         db,
         "users",
@@ -357,11 +386,12 @@ export const RemoteAccessSettings = () => {
         spaceId,
         "windows",
       );
+
       const q = query(winsRef, orderBy("createdAt", "asc"));
       const snapshot = await getDocs(q);
 
       if (snapshot.empty) {
-        alert("Space er tomt.");
+        alert("Space er tomt eller kunne ikke læses.");
         setCopyStatus(null);
         return;
       }
@@ -378,13 +408,16 @@ export const RemoteAccessSettings = () => {
       await wait(1500);
       setCopyStatus(null);
     } catch (err) {
-      console.error(err);
+      console.error("Copy Space Error:", err);
       setCopyStatus(null);
+      alert(
+        "Kunne ikke kopiere space. Mangler muligvis rettigheder eller index.",
+      );
     }
   };
 
   // --- ROW CLICK HANDLER ---
-  const handleToggleRow = (contact: any) => {
+  const handleToggleRow = (contact: ContactItem) => {
     if (processingId === contact.uid) return;
 
     if (activeExpandedUid === contact.uid) {
@@ -629,11 +662,11 @@ export const RemoteAccessSettings = () => {
                   {fetchStatus === "success" && (
                     <div className="flex flex-col gap-6">
                       {/* 1. SPACES */}
-                      {remoteSpaces.length > 0 && (
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2 px-1 text-xs font-bold tracking-wider text-slate-400 uppercase">
-                            <Layers size={14} /> Spaces ({remoteSpaces.length})
-                          </div>
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 px-1 text-xs font-bold tracking-wider text-slate-400 uppercase">
+                          <Layers size={14} /> Spaces ({remoteSpaces.length})
+                        </div>
+                        {remoteSpaces.length > 0 ? (
                           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                             {remoteSpaces.map((space) => (
                               <div
@@ -663,8 +696,13 @@ export const RemoteAccessSettings = () => {
                               </div>
                             ))}
                           </div>
-                        </div>
-                      )}
+                        ) : (
+                          <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-800 bg-slate-900/30 p-4 text-xs text-slate-500">
+                            <Layers size={14} className="opacity-50" />
+                            <span>Ingen offentlige spaces fundet.</span>
+                          </div>
+                        )}
+                      </div>
 
                       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                         {/* 2. INBOX TABS */}
@@ -759,7 +797,7 @@ export const RemoteAccessSettings = () => {
                       <div className="mt-2 flex justify-center border-t border-slate-800/50 pt-4">
                         <div className="flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900 px-3 py-1.5 text-[10px] text-slate-500">
                           <Share2 size={10} className="text-purple-500" />
-                          Live data fra{" "}
+                          Data-snapshot fra{" "}
                           <span className="font-bold text-slate-300">
                             {contact.name}
                           </span>
