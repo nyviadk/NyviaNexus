@@ -265,6 +265,11 @@ async function reindexWorkspaceWindows(workspaceId: string, uid: string) {
 async function validateAndCleanupState() {
   console.log("🧹 Running Startup Cleanup, Hydration & Discovery...");
 
+  // FIX: Reset critical flags for at undgå "stuck state" efter crash/reload
+  activeRestorations = 0;
+  restorationStatus = "";
+  lockedWindowIds.clear();
+
   // Auth check nødvendigt for database oprydning
   const uid = auth.currentUser?.uid;
 
@@ -384,9 +389,7 @@ async function validateAndCleanupState() {
             // Type guard for Firestore error code
             const firestoreError = error as { code?: string };
             if (firestoreError.code === "not-found") {
-              console.warn(
-                `⚠️ Cleanup: Document already deleted for window ${mapping.internalWindowId}. Ignoring.`,
-              );
+              // Ignore already deleted
             } else {
               console.error("Cleanup Firestore error:", error);
             }
@@ -1456,25 +1459,35 @@ chrome.runtime.onMessage.addListener(
       }
 
       case "OPEN_WORKSPACE": {
-        if (openingWorkspaces.has(message.payload.workspaceId)) {
+        const { workspaceId, windows, name } = message.payload;
+
+        // Anti-spam check: Returnerer straks hvis vi allerede er i gang
+        if (openingWorkspaces.has(workspaceId)) {
           sendResponse({ success: true });
           return false;
         }
-        openingWorkspaces.add(message.payload.workspaceId);
-        ensureStateHydrated().then(() => {
-          handleOpenWorkspace(
-            message.payload.workspaceId,
-            message.payload.windows,
-            message.payload.name,
-          ).finally(() => {
-            setTimeout(
-              () => openingWorkspaces.delete(message.payload.workspaceId),
-              2000,
-            );
+
+        openingWorkspaces.add(workspaceId);
+
+        // Vi wrapper hele logikken i en async IIFE (Immediately Invoked Function Expression)
+        // for at kunne bruge try/finally på låse-mekanismen.
+        (async () => {
+          try {
+            await ensureStateHydrated();
+            await handleOpenWorkspace(workspaceId, windows, name);
             sendResponse({ success: true });
-          });
-        });
-        return true;
+          } catch (e) {
+            console.error("Open Workspace Failed:", e);
+            sendResponse({ success: false });
+          } finally {
+            // VIGTIGT: Fjerner altid låsen, også ved fejl/crash
+            setTimeout(() => {
+              openingWorkspaces.delete(workspaceId);
+            }, 2000);
+          }
+        })();
+
+        return true; // Indikerer at sendResponse kaldes asynkront
       }
 
       case "OPEN_SPECIFIC_WINDOW": {
@@ -1635,11 +1648,19 @@ async function handleOpenWorkspace(
     return;
   }
 
-  // 2. LOOP: Vi bruger det SORTEREDE array til at åbne vinduerne
-  for (let i = 0; i < sorted.length; i++) {
-    updateRestorationStatus(`Klargør vindue ${i + 1} af ${sorted.length}...`);
-    // Vi sender i + 1 med som det korrekte index
-    await handleOpenSpecificWindow(workspaceId, sorted[i], name, i + 1);
+  // Wrapper loopet i try/finally for at sikre status tekst bliver fjernet,
+  // men vigtigst: At eventuelle fejl ikke stopper hele processen uventet.
+  try {
+    // 2. LOOP: Vi bruger det SORTEREDE array til at åbne vinduerne
+    for (let i = 0; i < sorted.length; i++) {
+      updateRestorationStatus(`Klargør vindue ${i + 1} af ${sorted.length}...`);
+      // Vi sender i + 1 med som det korrekte index
+      await handleOpenSpecificWindow(workspaceId, sorted[i], name, i + 1);
+    }
+  } catch (err) {
+    console.error("Error opening workspace:", err);
+  } finally {
+    updateRestorationStatus("");
   }
 }
 
@@ -1664,12 +1685,19 @@ async function handleOpenSpecificWindow(
         updateRestorationStatus("");
         return;
       } catch (e) {
+        // HVIS DET FEJLER: Vinduet er dødt/spøgelse.
+        // Vi sletter det fra map og fortsætter ned til at OPRETTE et nyt.
+        console.warn(
+          "Ghost window detected during open. Self-healing initiated:",
+          chromeId,
+        );
         activeWindows.delete(chromeId);
         await saveActiveWindowsToStorage();
       }
     }
   }
 
+  // 2. CREATION LOGIC (Nås kun hvis vinduet ikke fandtes eller var et spøgelse)
   activeRestorations++;
   try {
     const urls = (winData.tabs || [])
@@ -1685,37 +1713,44 @@ async function handleOpenSpecificWindow(
       const winId = newWin.id;
       lockedWindowIds.add(winId);
       updateRestorationStatus("Initialiserer...");
-      const tabs = await chrome.tabs.query({ windowId: winId });
-      if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
 
-      if (winData.tabs && winData.tabs.length > 0) {
-        let tabIndex = 1;
-        for (const tData of winData.tabs) {
-          if (!tData.url || isDash(tData.url)) continue;
-          if (tabs[tabIndex]) {
-            tabTracker.set(tabs[tabIndex].id!, {
-              uid: tData.uid,
-              url: tData.url,
-            });
-            tabIndex++;
+      // Try block to ensure we always unlock and decrement restoration
+      try {
+        const tabs = await chrome.tabs.query({ windowId: winId });
+        if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
+
+        if (winData.tabs && winData.tabs.length > 0) {
+          let tabIndex = 1;
+          for (const tData of winData.tabs) {
+            if (!tData.url || isDash(tData.url)) continue;
+            if (tabs[tabIndex]) {
+              tabTracker.set(tabs[tabIndex].id!, {
+                uid: tData.uid,
+                url: tData.url,
+              });
+              tabIndex++;
+            }
           }
+          saveTrackerToStorage();
         }
-        saveTrackerToStorage();
+        const mapping = {
+          workspaceId,
+          internalWindowId: winData.id,
+          workspaceName: name,
+          index: index, // Dette index bruges nu kun som fallback
+        };
+        activeWindows.set(winId, mapping);
+        await saveActiveWindowsToStorage();
+        if (urls.length > 0) {
+          await waitForWindowToLoad(winId);
+        }
+        await saveToFirestore(winId, false, true);
+      } finally {
+        lockedWindowIds.delete(winId);
       }
-      const mapping = {
-        workspaceId,
-        internalWindowId: winData.id,
-        workspaceName: name,
-        index: index, // Dette index bruges nu kun som fallback
-      };
-      activeWindows.set(winId, mapping);
-      await saveActiveWindowsToStorage();
-      if (urls.length > 0) {
-        await waitForWindowToLoad(winId);
-      }
-      lockedWindowIds.delete(winId);
-      await saveToFirestore(winId, false, true);
     }
+  } catch (err) {
+    console.error("Critical error opening window:", err);
   } finally {
     activeRestorations--;
     if (activeRestorations === 0) updateRestorationStatus("");
@@ -1793,73 +1828,77 @@ async function handleCreateNewWindowInWorkspace(
 
       // 2. Lås vinduet og registrer mapping øjeblikkeligt (vigtigt for race conditions)
       lockedWindowIds.add(winId);
-      activeWindows.set(winId, {
-        workspaceId,
-        internalWindowId: internalId,
-        workspaceName: name,
-        index: 99, // Midlertidig
-      });
 
-      const tabs = await chrome.tabs.query({ windowId: winId });
-
-      // Pin Dashboard
-      if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
-
-      // 3. Håndter den flyttede fane (Atomic Move)
-      if (initialTab && tabs[1]?.id) {
-        // Map UID til den nye fysiske fane
-        tabTracker.set(tabs[1].id, {
-          uid: initialTab.uid,
-          url: initialTab.url,
+      try {
+        activeWindows.set(winId, {
+          workspaceId,
+          internalWindowId: internalId,
+          workspaceName: name,
+          index: 99, // Midlertidig
         });
-        saveTrackerToStorage();
 
-        // Luk den gamle fysiske fane (hvis den er åben i et andet vindue)
-        if (initialTab.id) {
-          chrome.tabs.remove(initialTab.id).catch(() => {});
-          tabTracker.delete(initialTab.id);
+        const tabs = await chrome.tabs.query({ windowId: winId });
+
+        // Pin Dashboard
+        if (tabs[0]?.id) await chrome.tabs.update(tabs[0].id, { pinned: true });
+
+        // 3. Håndter den flyttede fane (Atomic Move)
+        if (initialTab && tabs[1]?.id) {
+          // Map UID til den nye fysiske fane
+          tabTracker.set(tabs[1].id, {
+            uid: initialTab.uid,
+            url: initialTab.url,
+          });
           saveTrackerToStorage();
+
+          // Luk den gamle fysiske fane (hvis den er åben i et andet vindue)
+          if (initialTab.id) {
+            chrome.tabs.remove(initialTab.id).catch(() => {});
+            tabTracker.delete(initialTab.id);
+            saveTrackerToStorage();
+          }
+
+          // Rens Firestore source
+          await removeTabFromFirestoreSource(
+            uid,
+            initialTab.uid,
+            initialTab.sourceWorkspaceId,
+          );
         }
 
-        // Rens Firestore source
-        await removeTabFromFirestoreSource(
-          uid,
-          initialTab.uid,
-          initialTab.sourceWorkspaceId,
+        // 4. Gem endelig tilstand
+        await setDoc(
+          doc(
+            db,
+            "users",
+            uid,
+            "workspaces_data",
+            workspaceId,
+            "windows",
+            internalId,
+          ),
+          {
+            id: internalId,
+            tabs: initialTab ? [initialTab] : [],
+            isActive: true,
+            lastActive: serverTimestamp(),
+            createdAt: serverTimestamp(),
+          },
         );
+
+        // --- CRITICAL CALL: RE-INDEX EFTER OPRETTELSE ---
+        // Dette sikrer at det nye vindue får det korrekte næste nummer (f.eks. 3 i stedet for 4 hvis 2 blev slettet)
+        await reindexWorkspaceWindows(workspaceId, uid);
+        // ------------------------------------------------
+      } finally {
+        lockedWindowIds.delete(winId);
       }
-
-      // 4. Gem endelig tilstand
-      await setDoc(
-        doc(
-          db,
-          "users",
-          uid,
-          "workspaces_data",
-          workspaceId,
-          "windows",
-          internalId,
-        ),
-        {
-          id: internalId,
-          tabs: initialTab ? [initialTab] : [],
-          isActive: true,
-          lastActive: serverTimestamp(),
-          createdAt: serverTimestamp(),
-        },
-      );
-
-      // --- CRITICAL CALL: RE-INDEX EFTER OPRETTELSE ---
-      // Dette sikrer at det nye vindue får det korrekte næste nummer (f.eks. 3 i stedet for 4 hvis 2 blev slettet)
-      await reindexWorkspaceWindows(workspaceId, uid);
-      // ------------------------------------------------
-
-      lockedWindowIds.delete(winId);
     }
   } catch (err) {
     console.error("Create window failed:", err);
   } finally {
     activeRestorations--;
+    // Her kalder vi updateStatus("") da denne funktion ofte kaldes alene
     if (activeRestorations === 0) updateRestorationStatus("");
   }
 }
