@@ -70,8 +70,12 @@ export const Dashboard = () => {
   >(null);
   const [modalParentId, setModalParentId] = useState<string>("root");
 
-  // State til Notes Modal
-  const [showNotesModal, setShowNotesModal] = useState(false);
+  // Vi styrer nu notes modal uafhængigt af selectedWorkspace
+  // Dette gør at vi kan åbne noter for et space uden at skifte view til det
+  const [notesModalTarget, setNotesModalTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
   const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
   const [archiveItems, setArchiveItems] = useState<ArchiveItem[]>([]);
@@ -342,12 +346,46 @@ export const Dashboard = () => {
     };
   }, [user, refreshChromeWindows]);
 
-  // ... (URL Params & Auto-select effects unchanged) ...
+  const handleWorkspaceClick = useCallback(
+    (item: NexusItem) => {
+      if (selectedWorkspace?.id === item.id) return;
+      setViewMode("workspace");
+      setSelectedWindowId(null);
+      setWindows([]);
+      setArchiveItems([]);
+      setNotesModalTarget(null); // Luk eventuelle noter
+      setSelectedWorkspace(item);
+    },
+    [selectedWorkspace],
+  );
+
+  // --- URL PARAMS & DEEP LINKING LOGIC (OPDATERET) ---
   useEffect(() => {
     if (items.length > 0 && !hasLoadedUrlParams.current) {
       const params = new URLSearchParams(window.location.search);
+
       const wsId = params.get("workspaceId");
       const winId = params.get("windowId");
+      const noteSpaceId = params.get("noteSpace");
+
+      // 1. Håndter Deep Link til Noter
+      if (noteSpaceId) {
+        const noteWs = items.find((i) => i.id === noteSpaceId);
+        if (noteWs) {
+          // Åbn noter uafhængigt af hvad vi ellers viser
+          setNotesModalTarget({ id: noteWs.id, name: noteWs.name });
+
+          // RYD URL STRAKS
+          const newUrl = new URL(window.location.href);
+          newUrl.searchParams.delete("noteSpace");
+          // Vi fjerner også workspaceId/windowId for at give en ren URL, som du bad om
+          newUrl.searchParams.delete("workspaceId");
+          newUrl.searchParams.delete("windowId");
+          window.history.replaceState({}, "", newUrl.toString());
+        }
+      }
+
+      // 2. Håndter normal navigation (hvis ikke vi bare skal vise en note overlay)
       if (wsId) {
         const targetWs = items.find((i) => i.id === wsId);
         if (targetWs && selectedWorkspace?.id !== targetWs.id) {
@@ -355,10 +393,12 @@ export const Dashboard = () => {
           if (winId) setSelectedWindowId(winId);
         }
       }
+
       hasLoadedUrlParams.current = true;
     }
   }, [items]);
 
+  // Denne effekt sikrer at vi vælger et standard vindue hvis intet er valgt
   useEffect(() => {
     if (
       selectedWorkspace &&
@@ -367,26 +407,15 @@ export const Dashboard = () => {
       !selectedWindowId
     ) {
       if (!hasLoadedUrlParams.current) return;
+
       const params = new URLSearchParams(window.location.search);
       const preselect = params.get("windowId");
+
       if (preselect && sortedWindows.some((w) => w.id === preselect))
         setSelectedWindowId(preselect);
       else if (sortedWindows[0]?.id) setSelectedWindowId(sortedWindows[0].id);
     }
   }, [sortedWindows, selectedWorkspace, viewMode, selectedWindowId]);
-
-  const handleWorkspaceClick = useCallback(
-    (item: NexusItem) => {
-      if (selectedWorkspace?.id === item.id) return;
-      setViewMode("workspace");
-      setSelectedWindowId(null);
-      setWindows([]);
-      setArchiveItems([]);
-      setShowNotesModal(false); // Luk modal hvis man skifter space
-      setSelectedWorkspace(item);
-    },
-    [selectedWorkspace],
-  );
 
   const handleCopySpace = async () => {
     if (!selectedWorkspace) return;
@@ -512,7 +541,12 @@ export const Dashboard = () => {
                   workspaceId={selectedWorkspace.id}
                   items={archiveItems}
                   activeMappings={activeMappings}
-                  onOpenNotes={() => setShowNotesModal(true)}
+                  onOpenNotes={() =>
+                    setNotesModalTarget({
+                      id: selectedWorkspace.id,
+                      name: selectedWorkspace.name,
+                    })
+                  }
                 />
               )}
             </div>
@@ -526,11 +560,12 @@ export const Dashboard = () => {
       </main>
 
       {/* --- MODALS --- */}
-      {showNotesModal && selectedWorkspace && (
+      {/* Viser NotesModal uafhængigt af hvilket space man ser på i dashboardet */}
+      {notesModalTarget && (
         <NotesModal
-          workspaceId={selectedWorkspace.id}
-          workspaceName={selectedWorkspace.name}
-          onClose={() => setShowNotesModal(false)}
+          workspaceId={notesModalTarget.id}
+          workspaceName={notesModalTarget.name}
+          onClose={() => setNotesModalTarget(null)}
         />
       )}
 

@@ -1,12 +1,11 @@
 import { useDebounce } from "@uidotdev/usehooks";
 import { formatDistanceToNow } from "date-fns";
 import { da } from "date-fns/locale";
-import { Check, Loader2, Plus, Trash2, X } from "lucide-react";
+import { Check, Link, Loader2, Plus, Trash2, X } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { NexusService } from "../../services/nexusService";
 import { Note } from "../../types";
 
-// --- HELPERS ---
 const formatTimeAgo = (timestamp: number) => {
   try {
     return formatDistanceToNow(timestamp, { addSuffix: true, locale: da });
@@ -20,8 +19,11 @@ interface NoteEditorProps {
   note: Note;
   workspaceId: string;
   onClose: () => void;
-  // Ny prop til at opdatere listen "optimistisk" med det samme
   onLocalUpdate: (id: string, updates: Partial<Note>) => void;
+  onCopyLink: () => void;
+  linkCopyStatus: boolean;
+  // Ny prop: Vi skal vide om dataen kommer fra cache eller server
+  isPending: boolean;
 }
 
 const NoteEditor: React.FC<NoteEditorProps> = ({
@@ -29,107 +31,166 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   workspaceId,
   onClose,
   onLocalUpdate,
+  onCopyLink,
+  linkCopyStatus,
+  isPending,
 }) => {
+  // Session ID til logning
+  const sessionId = useRef(
+    `sess_${Math.random().toString(36).substr(2, 5)}`,
+  ).current;
+
+  // Local State
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
-  const [saveStatus, setSaveStatus] = useState<"Gemt" | "Gemmer...">("Gemt");
+  const [status, setStatus] = useState<"saved" | "saving" | "typing">("saved");
 
-  const titleRef = useRef(title);
-  const contentRef = useRef(content);
-
-  // Vi skal bruge en ref til onLocalUpdate for at undgå useEffect dependency cycles
-  const onLocalUpdateRef = useRef(onLocalUpdate);
-  useEffect(() => {
-    onLocalUpdateRef.current = onLocalUpdate;
-  }, [onLocalUpdate]);
-
-  useEffect(() => {
-    titleRef.current = title;
-    contentRef.current = content;
-  }, [title, content]);
-
+  // Debounce (1000ms)
   const debouncedTitle = useDebounce(title, 1000);
   const debouncedContent = useDebounce(content, 1000);
 
-  // 1. UI Feedback & Optimistic Update (Instant Sidebar Update)
-  useEffect(() => {
-    // Fortæl forælderen om ændringen med det samme (uden debounce)
-    // Dette gør at sidebaren opdateres mens man skriver
-    onLocalUpdateRef.current(note.id, { title, content });
+  // Sync Ref: Husker det sidste "rene" data vi modtog/gemte.
+  const lastKnownSyncedData = useRef({
+    title: note.title,
+    content: note.content,
+  });
 
-    if (title !== debouncedTitle || content !== debouncedContent) {
-      setSaveStatus("Gemmer...");
-    }
-  }, [title, content, debouncedTitle, debouncedContent, note.id]);
-
-  // 2. Debounce Save to Firestore
+  // 1. INCOMING SYNC LOGIC
   useEffect(() => {
-    if (title === debouncedTitle && content === debouncedContent) {
-      if (saveStatus === "Gemmer...") setSaveStatus("Gemt");
+    // A. Ignorer "Pending" writes (vores egne lokale ekkoer).
+    // Vi ved godt hvad vi skrev, og vi venter på Server-bekræftelsen i stedet.
+    if (isPending) {
+      // console.log(`[EDITOR] Ignorerer pending write (lokalt ekko)`);
       return;
     }
-    saveToFirestore(debouncedTitle, debouncedContent);
+
+    // B. Tjek om data er synkroniseret (Ens)
+    // Hvis note.title == title, så har serveren nu præcis det samme som os.
+    // Det betyder vi er "Saved".
+    const isTitleSynced = note.title === title;
+    const isContentSynced = note.content === content;
+
+    if (isTitleSynced && isContentSynced) {
+      if (status === "saving") {
+        // Serveren har bekræftet vores gemte data!
+        // console.log(`[EDITOR] Server ACK modtaget -> Saved.`);
+        setStatus("saved");
+        lastKnownSyncedData.current = {
+          title: note.title,
+          content: note.content,
+        };
+      }
+      return; // Intet mere at gøre
+    }
+
+    // C. Data er anderledes -> Det er en fremmed ændring (Remote Update)
+    // ELLER det er en race condition hvor vi har tastet videre.
+    // Vi vælger "Last Writer Wins" fra serveren for at sikre konsistens.
+    console.log(
+      `[EDITOR ${sessionId}] 📥 Modtog fremmed ændring. Overskriver UI.`,
+    );
+
+    setTitle(note.title);
+    setContent(note.content);
+
+    // Opdater sync ref, så vi ikke trigger et "Save" loop tilbage
+    lastKnownSyncedData.current = { title: note.title, content: note.content };
+
+    setStatus("saved");
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note, isPending]); // Reagerer på ny note data eller pending status
+
+  // 2. INPUT HANDLING
+  const handleTitleChange = (val: string) => {
+    setTitle(val);
+    setStatus("typing");
+    onLocalUpdate(note.id, { title: val, content });
+  };
+
+  const handleContentChange = (val: string) => {
+    setContent(val);
+    setStatus("typing");
+    onLocalUpdate(note.id, { title, content: val });
+  };
+
+  // 3. OUTGOING SAVE (Debounced)
+  useEffect(() => {
+    // Hvis vi er i gang med at modtage data (og lige har opdateret lastKnownSyncedData),
+    // så vil debounced værdier matche lastKnownSyncedData, og denne kører ikke.
+
+    // Tjek: Har vi ændringer ift. det vi sidst vidste var syncet?
+    const hasChanges =
+      debouncedTitle !== lastKnownSyncedData.current.title ||
+      debouncedContent !== lastKnownSyncedData.current.content;
+
+    if (hasChanges) {
+      setStatus("saving");
+      console.log(`[EDITOR ${sessionId}] 🔥 Sender ændringer...`);
+
+      // Optimistisk: Vi opdaterer vores "Known Synced" med det samme,
+      // så vi ikke gemmer det samme 2 gange.
+      lastKnownSyncedData.current = {
+        title: debouncedTitle,
+        content: debouncedContent,
+      };
+
+      NexusService.saveNote(workspaceId, {
+        ...note,
+        title: debouncedTitle || "Uden titel",
+        content: debouncedContent,
+        updatedAt: Date.now(),
+        lastEditorId: sessionId,
+      }).catch(() => {
+        setStatus("saved"); // Fejlhåndtering (simpelt)
+      });
+    }
   }, [debouncedTitle, debouncedContent]);
 
-  // 3. Unmount Save (Sikr at sidste ændringer kommer med hvis man lukker hurtigt)
+  // 4. UNMOUNT SAVE
+  const stateRef = useRef({ title, content });
+  useEffect(() => {
+    stateRef.current = { title, content };
+  }, [title, content]);
+
   useEffect(() => {
     return () => {
-      const currentTitle = titleRef.current;
-      const currentContent = contentRef.current;
+      const { title: curT, content: curC } = stateRef.current;
+      const lastSync = lastKnownSyncedData.current;
 
-      // Tjek mod den oprindelige note prop for at se om der er reelle ændringer
-      if (currentTitle !== note.title || currentContent !== note.content) {
+      // Gem kun hvis der er en faktisk forskel
+      if (curT !== lastSync.title || curC !== lastSync.content) {
+        console.log(`[EDITOR] 💾 Unmount save`);
         NexusService.saveNote(workspaceId, {
           ...note,
-          title: currentTitle || "Uden titel",
-          content: currentContent,
+          title: curT || "Uden titel",
+          content: curC,
           updatedAt: Date.now(),
+          lastEditorId: sessionId,
         });
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const saveToFirestore = async (t: string, c: string) => {
-    await NexusService.saveNote(workspaceId, {
-      ...note,
-      title: t || "Uden titel",
-      content: c,
-      updatedAt: Date.now(),
-    });
-    setSaveStatus("Gemt");
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Tab") {
-      e.preventDefault();
-      const target = e.target as HTMLTextAreaElement;
-      const start = target.selectionStart;
-      const end = target.selectionEnd;
-      const indent = "  ";
-      const newContent =
-        content.substring(0, start) + indent + content.substring(end);
-      setContent(newContent);
-      setTimeout(() => {
-        target.selectionStart = target.selectionEnd = start + indent.length;
-      }, 0);
-    }
-  };
-
   return (
     <div className="animate-in fade-in relative flex flex-1 flex-col bg-slate-800 p-6 duration-200">
-      {/* Header Area: Status + Close Button */}
       <div className="absolute top-4 right-4 flex items-center gap-4">
+        {/* STATUS */}
         <div
           className={`flex items-center gap-1.5 text-xs font-bold tracking-wide uppercase transition-colors ${
-            saveStatus === "Gemt" ? "text-green-400" : "text-blue-400"
+            status === "saved" ? "text-green-400" : "text-blue-400"
           }`}
         >
-          {saveStatus === "Gemmer..." ? (
+          {status === "saving" ? (
             <>
               <Loader2 size={12} className="animate-spin" />
               <span>Gemmer...</span>
+            </>
+          ) : status === "typing" ? (
+            <>
+              <div className="h-2 w-2 animate-pulse rounded-full bg-blue-400" />
+              <span>Skriver...</span>
             </>
           ) : (
             <>
@@ -139,41 +200,47 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
           )}
         </div>
 
+        <div className="mx-2 h-4 w-px bg-slate-600" />
+
+        <button
+          onClick={onCopyLink}
+          className="flex items-center gap-1 text-slate-400 hover:text-blue-400"
+        >
+          {linkCopyStatus ? (
+            <span className="text-xs text-green-400">Kopieret</span>
+          ) : (
+            <Link size={18} />
+          )}
+        </button>
         <button
           onClick={onClose}
-          className="cursor-pointer text-slate-500 hover:text-slate-300"
+          className="ml-2 text-slate-500 hover:text-slate-300"
         >
           <X size={24} />
         </button>
       </div>
 
-      {/* Titel Input */}
       <input
         type="text"
         value={title}
-        onChange={(e) => setTitle(e.target.value)}
+        onChange={(e) => handleTitleChange(e.target.value)}
         placeholder="Overskrift..."
         className="mt-6 mb-4 w-full bg-transparent text-3xl font-bold text-slate-100 placeholder-slate-600 outline-none"
       />
 
-      {/* Editor Textarea */}
       <textarea
         value={content}
-        onChange={(e) => setContent(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="Skriv dine tanker her..."
+        onChange={(e) => handleContentChange(e.target.value)}
+        placeholder="Skriv..."
         className="custom-scrollbar w-full flex-1 resize-none bg-transparent font-mono text-base leading-relaxed text-slate-300 placeholder-slate-700 outline-none"
         spellCheck={false}
         autoFocus
-        onFocus={(e) => {
-          e.target.setSelectionRange(0, 0);
-        }}
       />
     </div>
   );
 };
 
-// --- MAIN COMPONENT: NOTES MODAL ---
+// --- MAIN MODAL ---
 interface NotesModalProps {
   workspaceId: string;
   workspaceName: string;
@@ -186,40 +253,32 @@ export const NotesModal: React.FC<NotesModalProps> = ({
   onClose,
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const mouseDownTarget = useRef<EventTarget | null>(null);
-
   const [notes, setNotes] = useState<Note[]>([]);
+  // Vi gemmer også 'fromLocal' (pending status) for notes listen
+  // Men da listen er et array, og pending status er per snapshot,
+  // er det lidt tricky. Vi løser det ved at Note objektet er 'rent',
+  // men vi sender en 'isPending' flag ned til den aktive Editor.
+  const [isSnapshotPending, setIsSnapshotPending] = useState(false);
+
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+  const [linkCopyStatus, setLinkCopyStatus] = useState(false);
   const isFirstLoad = useRef(true);
 
-  // Init Dialog
   useEffect(() => {
-    if (dialogRef.current && !dialogRef.current.open) {
+    if (dialogRef.current && !dialogRef.current.open)
       dialogRef.current.showModal();
-    }
   }, []);
 
-  // --- SAFE CLICK OUTSIDE LOGIC ---
-  const handleBackdropMouseDown = (e: React.MouseEvent) => {
-    mouseDownTarget.current = e.target;
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (e.target === dialogRef.current) onClose();
   };
 
-  const handleBackdropMouseUp = (e: React.MouseEvent) => {
-    if (
-      e.target === dialogRef.current &&
-      mouseDownTarget.current === dialogRef.current
-    ) {
-      onClose();
-    }
-    mouseDownTarget.current = null;
-  };
-
-  // Load Noter (Realtime fra Firestore)
   useEffect(() => {
     const unsubscribe = NexusService.subscribeToNotes(
       workspaceId,
-      (updatedNotes) => {
+      (updatedNotes, fromLocal) => {
         setNotes(updatedNotes);
+        setIsSnapshotPending(fromLocal); // Gem pending status fra snapshot
 
         if (isFirstLoad.current) {
           isFirstLoad.current = false;
@@ -233,7 +292,6 @@ export const NotesModal: React.FC<NotesModalProps> = ({
             setActiveNoteId(exists ? exists.id : updatedNotes[0].id);
           }
         } else {
-          // Håndter hvis den aktive note bliver slettet udefra
           if (
             activeNoteId &&
             !updatedNotes.find((n) => n.id === activeNoteId)
@@ -248,24 +306,14 @@ export const NotesModal: React.FC<NotesModalProps> = ({
     return () => unsubscribe();
   }, [workspaceId]);
 
-  // Persist active ID selection
   useEffect(() => {
-    if (activeNoteId) {
+    if (activeNoteId)
       localStorage.setItem(`lastActiveNote_${workspaceId}`, activeNoteId);
-    }
   }, [activeNoteId, workspaceId]);
 
-  // --- HANDLERS ---
-
-  // Denne funktion håndterer "Instant Update" fra Editor til Sidebar
   const handleLocalUpdate = (id: string, updates: Partial<Note>) => {
-    setNotes((prevNotes) =>
-      prevNotes.map((n) => {
-        if (n.id === id) {
-          return { ...n, ...updates, updatedAt: Date.now() };
-        }
-        return n;
-      }),
+    setNotes((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, ...updates } : n)),
     );
   };
 
@@ -276,8 +324,8 @@ export const NotesModal: React.FC<NotesModalProps> = ({
       content: "",
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      lastEditorId: "",
     };
-    // Vi sætter den lokalt først for hastighed
     setNotes((prev) => [newNote, ...prev]);
     setActiveNoteId(newNote.id);
     await NexusService.saveNote(workspaceId, newNote);
@@ -285,18 +333,24 @@ export const NotesModal: React.FC<NotesModalProps> = ({
 
   const handleDeleteNote = async (e: React.MouseEvent, noteId: string) => {
     e.stopPropagation();
-    if (confirm("Er du sikker på, at du vil slette denne note?")) {
+    if (confirm("Slet note?")) {
       if (activeNoteId === noteId) {
         const remaining = notes.filter((n) => n.id !== noteId);
         setActiveNoteId(remaining.length > 0 ? remaining[0].id : null);
       }
-      // Optimistic delete
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
       await NexusService.deleteNote(workspaceId, noteId);
-
-      // Hvis listen nu er tom, opret en ny
-      if (notes.length <= 1) handleCreateNote();
     }
+  };
+
+  const handleCopyLink = () => {
+    const url = new URL(window.location.href);
+    url.search = "";
+    url.searchParams.set("noteSpace", workspaceId);
+    navigator.clipboard.writeText(url.toString()).then(() => {
+      setLinkCopyStatus(true);
+      setTimeout(() => setLinkCopyStatus(false), 2000);
+    });
   };
 
   const activeNote = notes.find((n) => n.id === activeNoteId);
@@ -305,33 +359,22 @@ export const NotesModal: React.FC<NotesModalProps> = ({
     <dialog
       ref={dialogRef}
       onCancel={onClose}
-      onMouseDown={handleBackdropMouseDown}
-      onMouseUp={handleBackdropMouseUp}
+      onClick={handleBackdropClick}
       className="open:animate-in open:fade-in open:zoom-in-95 m-auto flex h-[80vh] w-[80vw] overflow-hidden rounded-xl border border-slate-500 bg-slate-700 p-0 text-slate-200 shadow-2xl backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm focus:outline-none"
     >
-      <div
-        className="flex h-full w-full"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {/* --- SIDEBAR --- */}
+      <div className="flex h-full w-full" onClick={(e) => e.stopPropagation()}>
         <div className="flex w-64 flex-col border-r border-slate-600 bg-slate-800/50">
           <div className="flex items-center justify-between border-b border-slate-600 p-4">
-            <span
-              className="truncate pr-2 font-semibold text-slate-200"
-              title={workspaceName}
-            >
+            <span className="truncate pr-2 font-semibold text-slate-200">
               {workspaceName}
             </span>
-
             <button
               onClick={handleCreateNote}
-              className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded bg-blue-600 text-white transition-colors hover:bg-blue-500"
-              title="Ny Note"
+              className="flex h-7 w-7 items-center justify-center rounded bg-blue-600 text-white hover:bg-blue-500"
             >
               <Plus size={16} />
             </button>
           </div>
-
           <div className="custom-scrollbar flex-1 overflow-y-auto p-2">
             {notes.map((note) => (
               <div
@@ -349,11 +392,9 @@ export const NotesModal: React.FC<NotesModalProps> = ({
                 <div className="mt-1 text-[10px] text-slate-500">
                   {formatTimeAgo(note.updatedAt)}
                 </div>
-
                 <button
                   onClick={(e) => handleDeleteNote(e, note.id)}
-                  className="absolute top-2 right-2 cursor-pointer opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-400"
-                  title="Slet note"
+                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 hover:text-red-400"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -362,14 +403,16 @@ export const NotesModal: React.FC<NotesModalProps> = ({
           </div>
         </div>
 
-        {/* --- EDITOR --- */}
         {activeNote ? (
           <NoteEditor
             key={activeNote.id}
             note={activeNote}
+            isPending={isSnapshotPending} // Vi sender statussen ned!
             workspaceId={workspaceId}
             onClose={onClose}
             onLocalUpdate={handleLocalUpdate}
+            onCopyLink={handleCopyLink}
+            linkCopyStatus={linkCopyStatus}
           />
         ) : (
           <div className="flex flex-1 items-center justify-center bg-slate-800 text-slate-500">

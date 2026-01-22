@@ -63,4 +63,5 @@ export interface Note {
   content: string; // Gemmer linjeskift som \n
   createdAt: number;
   updatedAt: number; // Bruges til sortering (nyeste øverst)
+  lastEditorId?: string; // NY: Hvem redigerede sidst?
 }

@@ -345,19 +345,41 @@ export const NexusService = {
 
   // --- NOTES METHODS ---
 
-  subscribeToNotes(workspaceId: string, onUpdate: (notes: Note[]) => void) {
+  // 1. SUBSCRIBE (LOGGING OPTIMIZED)
+  subscribeToNotes(
+    workspaceId: string,
+    onUpdate: (notes: Note[], fromLocal: boolean) => void,
+  ) {
     const uid = getUid();
     const q = query(
       collection(db, "users", uid, "workspaces_data", workspaceId, "notes"),
       orderBy("createdAt", "desc"),
     );
 
-    return onSnapshot(q, (snapshot) => {
-      const notes = snapshot.docs.map((d) => d.data() as Note);
-      onUpdate(notes);
-    });
+    console.log(
+      `📡 [NexusService] Connecting to notes listener... (WS: ${workspaceId})`,
+    );
+
+    return onSnapshot(
+      q,
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        const notes = snapshot.docs.map((d) => d.data() as Note);
+        const fromLocal = snapshot.metadata.hasPendingWrites;
+
+        console.log(
+          `📥 [NexusService] Notes Snapshot: ${notes.length} items. Source: ${fromLocal ? "Local (Pending)" : "Server"}`,
+        );
+
+        onUpdate(notes, fromLocal);
+      },
+      (error) => {
+        console.error("🔥 [NexusService] SNAPSHOT ERROR:", error);
+      },
+    );
   },
 
+  // 2. SAVE (LOGGING OPTIMIZED)
   async saveNote(workspaceId: string, note: Note) {
     const uid = getUid();
     const noteRef = doc(
@@ -370,11 +392,16 @@ export const NexusService = {
       note.id,
     );
 
+    // Log for debugging
+    console.log(`💾 [NexusService] Saving note ${note.id}...`);
+
     await setDoc(noteRef, note, { merge: true });
+    console.log(`✅ [NexusService] Note saved.`);
   },
 
   async deleteNote(workspaceId: string, noteId: string) {
     const uid = getUid();
+    console.log(`🗑️ [NexusService] Deleting note: ${noteId}`);
     const noteRef = doc(
       db,
       "users",
