@@ -1,7 +1,7 @@
 import { useDebounce } from "@uidotdev/usehooks";
 import { formatDistanceToNow } from "date-fns";
 import { da } from "date-fns/locale";
-import { Check, Link, Loader2, Plus, Trash2, X } from "lucide-react";
+import { Check, Link, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { NexusService } from "../../services/nexusService";
 import { Note } from "../../types";
@@ -22,7 +22,6 @@ interface NoteEditorProps {
   onLocalUpdate: (id: string, updates: Partial<Note>) => void;
   onCopyLink: () => void;
   linkCopyStatus: boolean;
-  // Ny prop: Vi skal vide om dataen kommer fra cache eller server
   isPending: boolean;
 }
 
@@ -35,7 +34,6 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   linkCopyStatus,
   isPending,
 }) => {
-  // Session ID til logning
   const sessionId = useRef(
     `sess_${Math.random().toString(36).substr(2, 5)}`,
   ).current;
@@ -43,13 +41,14 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   // Local State
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
-  const [status, setStatus] = useState<"saved" | "saving" | "typing">("saved");
+  // Tilføjet "syncing" status for visuel feedback
+  const [status, setStatus] = useState<
+    "saved" | "saving" | "typing" | "syncing"
+  >("saved");
 
-  // Debounce (1000ms)
   const debouncedTitle = useDebounce(title, 1000);
   const debouncedContent = useDebounce(content, 1000);
 
-  // Sync Ref: Husker det sidste "rene" data vi modtog/gemte.
   const lastKnownSyncedData = useRef({
     title: note.title,
     content: note.content,
@@ -58,48 +57,46 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   // 1. INCOMING SYNC LOGIC
   useEffect(() => {
     // A. Ignorer "Pending" writes (vores egne lokale ekkoer).
-    // Vi ved godt hvad vi skrev, og vi venter på Server-bekræftelsen i stedet.
-    if (isPending) {
-      // console.log(`[EDITOR] Ignorerer pending write (lokalt ekko)`);
-      return;
-    }
+    if (isPending) return;
 
     // B. Tjek om data er synkroniseret (Ens)
-    // Hvis note.title == title, så har serveren nu præcis det samme som os.
-    // Det betyder vi er "Saved".
     const isTitleSynced = note.title === title;
     const isContentSynced = note.content === content;
 
     if (isTitleSynced && isContentSynced) {
+      // Hvis vi troede vi gemte, og data nu er ens -> Server ACK.
       if (status === "saving") {
-        // Serveren har bekræftet vores gemte data!
-        // console.log(`[EDITOR] Server ACK modtaget -> Saved.`);
         setStatus("saved");
         lastKnownSyncedData.current = {
           title: note.title,
           content: note.content,
         };
       }
-      return; // Intet mere at gøre
+      return;
     }
 
-    // C. Data er anderledes -> Det er en fremmed ændring (Remote Update)
-    // ELLER det er en race condition hvor vi har tastet videre.
-    // Vi vælger "Last Writer Wins" fra serveren for at sikre konsistens.
+    // C. Data er anderledes -> Fremmed ændring (Remote Update)
     console.log(
-      `[EDITOR ${sessionId}] 📥 Modtog fremmed ændring. Overskriver UI.`,
+      `[EDITOR ${sessionId}] 📥 Modtog fremmed ændring. Opdaterer UI.`,
     );
 
+    // Opdater data STRAKS (Vigtigt for logikken)
     setTitle(note.title);
     setContent(note.content);
-
-    // Opdater sync ref, så vi ikke trigger et "Save" loop tilbage
     lastKnownSyncedData.current = { title: note.title, content: note.content };
 
-    setStatus("saved");
+    // VISUELT: Vis "Modtager..." i .5 sekunder
+    setStatus("syncing");
+
+    const timer = setTimeout(() => {
+      // Skift kun tilbage til 'saved', hvis brugeren ikke er begyndt at taste i mellemtiden
+      setStatus((prev) => (prev === "syncing" ? "saved" : prev));
+    }, 500);
+
+    return () => clearTimeout(timer);
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [note, isPending]); // Reagerer på ny note data eller pending status
+  }, [note, isPending]);
 
   // 2. INPUT HANDLING
   const handleTitleChange = (val: string) => {
@@ -116,20 +113,19 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
 
   // 3. OUTGOING SAVE (Debounced)
   useEffect(() => {
-    // Hvis vi er i gang med at modtage data (og lige har opdateret lastKnownSyncedData),
-    // så vil debounced værdier matche lastKnownSyncedData, og denne kører ikke.
-
     // Tjek: Har vi ændringer ift. det vi sidst vidste var syncet?
     const hasChanges =
       debouncedTitle !== lastKnownSyncedData.current.title ||
       debouncedContent !== lastKnownSyncedData.current.content;
 
+    // Hvis vi er i "syncing" tilstand (fremmed data kom lige ind), så lad være at gemme straks,
+    // medmindre debouncen faktisk har fanget nye bruger-tastetryk.
+    // Men pga. lastKnownSyncedData opdateringen ovenfor, burde hasChanges være false hvis vi bare modtog.
+
     if (hasChanges) {
       setStatus("saving");
       console.log(`[EDITOR ${sessionId}] 🔥 Sender ændringer...`);
 
-      // Optimistisk: Vi opdaterer vores "Known Synced" med det samme,
-      // så vi ikke gemmer det samme 2 gange.
       lastKnownSyncedData.current = {
         title: debouncedTitle,
         content: debouncedContent,
@@ -142,7 +138,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         updatedAt: Date.now(),
         lastEditorId: sessionId,
       }).catch(() => {
-        setStatus("saved"); // Fejlhåndtering (simpelt)
+        setStatus("saved");
       });
     }
   }, [debouncedTitle, debouncedContent]);
@@ -158,7 +154,6 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
       const { title: curT, content: curC } = stateRef.current;
       const lastSync = lastKnownSyncedData.current;
 
-      // Gem kun hvis der er en faktisk forskel
       if (curT !== lastSync.title || curC !== lastSync.content) {
         console.log(`[EDITOR] 💾 Unmount save`);
         NexusService.saveNote(workspaceId, {
@@ -176,13 +171,22 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   return (
     <div className="animate-in fade-in relative flex flex-1 flex-col bg-slate-800 p-6 duration-200">
       <div className="absolute top-4 right-4 flex items-center gap-4">
-        {/* STATUS */}
+        {/* STATUS VISNING */}
         <div
           className={`flex items-center gap-1.5 text-xs font-bold tracking-wide uppercase transition-colors ${
-            status === "saved" ? "text-green-400" : "text-blue-400"
+            status === "saved"
+              ? "text-green-400"
+              : status === "syncing"
+                ? "text-amber-400" // Gul farve til syncing
+                : "text-blue-400"
           }`}
         >
-          {status === "saving" ? (
+          {status === "syncing" ? (
+            <>
+              <RefreshCw size={12} className="animate-spin" />
+              <span>Modtager...</span>
+            </>
+          ) : status === "saving" ? (
             <>
               <Loader2 size={12} className="animate-spin" />
               <span>Gemmer...</span>
@@ -204,7 +208,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
 
         <button
           onClick={onCopyLink}
-          className="flex items-center gap-1 text-slate-400 hover:text-blue-400"
+          className="flex cursor-pointer items-center gap-1 text-slate-400 hover:text-blue-400"
         >
           {linkCopyStatus ? (
             <span className="text-xs text-green-400">Kopieret</span>
@@ -240,7 +244,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   );
 };
 
-// --- MAIN MODAL ---
+// --- MAIN MODAL (Uændret, men medtaget for fuld fil) ---
 interface NotesModalProps {
   workspaceId: string;
   workspaceName: string;
@@ -254,12 +258,7 @@ export const NotesModal: React.FC<NotesModalProps> = ({
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [notes, setNotes] = useState<Note[]>([]);
-  // Vi gemmer også 'fromLocal' (pending status) for notes listen
-  // Men da listen er et array, og pending status er per snapshot,
-  // er det lidt tricky. Vi løser det ved at Note objektet er 'rent',
-  // men vi sender en 'isPending' flag ned til den aktive Editor.
   const [isSnapshotPending, setIsSnapshotPending] = useState(false);
-
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [linkCopyStatus, setLinkCopyStatus] = useState(false);
   const isFirstLoad = useRef(true);
@@ -278,7 +277,7 @@ export const NotesModal: React.FC<NotesModalProps> = ({
       workspaceId,
       (updatedNotes, fromLocal) => {
         setNotes(updatedNotes);
-        setIsSnapshotPending(fromLocal); // Gem pending status fra snapshot
+        setIsSnapshotPending(fromLocal);
 
         if (isFirstLoad.current) {
           isFirstLoad.current = false;
@@ -407,7 +406,7 @@ export const NotesModal: React.FC<NotesModalProps> = ({
           <NoteEditor
             key={activeNote.id}
             note={activeNote}
-            isPending={isSnapshotPending} // Vi sender statussen ned!
+            isPending={isSnapshotPending}
             workspaceId={workspaceId}
             onClose={onClose}
             onLocalUpdate={handleLocalUpdate}
