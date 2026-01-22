@@ -52,12 +52,19 @@ export const SettingsModal = ({
     if (dialogRef.current && !dialogRef.current.open) {
       dialogRef.current.showModal();
     }
+    // Hent API key og settings ved mount
+    let isMounted = true;
+
     AiService.getApiKey().then((key) => {
-      if (key) setApiKey(key);
+      if (key && isMounted) setApiKey(key);
     });
     AiService.getSettings().then((settings) => {
-      setAiSettings(settings);
+      if (isMounted) setAiSettings(settings);
     });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleSaveApiKey = async () => {
@@ -133,11 +140,40 @@ export const SettingsModal = ({
 
   const removeProfile = async (id: string) => {
     if (!id || !auth.currentUser) return;
-    if (profiles.length <= 1) return alert("Mindst én profil påkrævet.");
-    if (confirm("Slet profil?")) {
-      await deleteDoc(doc(db, "users", auth.currentUser.uid, "profiles", id));
-      if (activeProfile === id)
-        setActiveProfile(profiles.find((p: Profile) => p.id !== id)?.id || "");
+
+    // Check om det er den sidste profil
+    if (profiles.length <= 1) {
+      alert("Mindst én profil påkrævet.");
+      return;
+    }
+
+    // Find profilen for at få navnet
+    const profileToDelete = profiles.find((p) => p.id === id);
+    if (!profileToDelete) return;
+
+    // Bed brugeren skrive navnet for at bekræfte
+    const userInput = window.prompt(
+      `SIKKERHEDSTJEK: Dette sletter profilen og alle tilhørende data permanent.\n\nSkriv "${profileToDelete.name}" for at bekræfte sletning.`,
+    );
+
+    if (userInput === profileToDelete.name) {
+      try {
+        await deleteDoc(doc(db, "users", auth.currentUser.uid, "profiles", id));
+
+        // Hvis vi slettede den aktive profil, skift til en anden
+        if (activeProfile === id) {
+          const nextProfile = profiles.find((p: Profile) => p.id !== id);
+          if (nextProfile) {
+            setActiveProfile(nextProfile.id);
+          }
+        }
+      } catch (error) {
+        console.error("Error deleting profile:", error);
+        alert("Der opstod en fejl under sletning af profilen.");
+      }
+    } else if (userInput !== null) {
+      // Brugeren trykkede ikke Annuller, men skrev forkert
+      alert("Navnet stemte ikke overens. Profilen blev IKKE slettet.");
     }
   };
 

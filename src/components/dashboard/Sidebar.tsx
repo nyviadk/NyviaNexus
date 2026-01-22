@@ -1,12 +1,9 @@
-import React, {
-  useRef,
-  useState,
-  useMemo,
-  useCallback,
-  useEffect,
-} from "react";
+import { WinMapping } from "@/background/main";
+import { DraggedTabPayload, InboxData } from "@/dashboard/types";
+import { doc, writeBatch } from "firebase/firestore";
 import {
   Activity,
+  AlertTriangle,
   ArrowUpCircle,
   FolderPlus,
   Inbox as InboxIcon,
@@ -19,16 +16,20 @@ import {
   Share2,
   VenetianMask,
   XCircle,
-  AlertTriangle,
 } from "lucide-react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { auth, db } from "../../lib/firebase";
-import { doc, writeBatch } from "firebase/firestore";
-import { SidebarItem } from "../SidebarItem";
+import { AiHealthStatus } from "../../services/aiService";
 import { NexusService } from "../../services/nexusService";
 import { NexusItem, Profile, TabData } from "../../types";
-import { DraggedTabPayload, InboxData } from "@/dashboard/types";
-import { AiHealthStatus } from "../../services/aiService";
-import { WinMapping } from "@/background/main";
+import { SidebarItem } from "../SidebarItem";
+import { CustomProfileSelector } from "./CustomProfileSelector";
 
 interface SidebarProps {
   profiles: Profile[];
@@ -139,6 +140,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const isAlreadyAtRoot = draggedItem?.parentId === "root";
 
+  const handleProfileChange = useCallback(
+    (profileId: string) => {
+      setActiveProfile(profileId);
+      setSelectedWorkspace(null);
+      setViewMode("workspace");
+    },
+    [setActiveProfile, setSelectedWorkspace, setViewMode],
+  );
+
   return (
     <aside className="relative z-20 flex w-96 shrink-0 flex-col overflow-hidden border-r border-slate-700/50 bg-linear-to-b from-slate-900 via-slate-800/60 to-slate-900 shadow-2xl">
       <div className="flex items-center gap-3 border-b border-slate-700/30 bg-slate-900/10 p-6 text-xl font-black tracking-tighter text-white uppercase backdrop-blur-sm">
@@ -182,10 +192,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                 if (mapping.index !== undefined) {
                   if (isCurrent) {
-                    console.log(
-                      `🪟 Sidebar (Current Win ${cWin.id}):`,
-                      mapping,
-                    );
                   }
                   if (mapping.index === 99) {
                     subLabel = "Opretter...";
@@ -290,21 +296,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         <div className="flex items-center gap-2">
-          <select
-            value={activeProfile}
-            onChange={(e) => {
-              setActiveProfile(e.target.value);
-              setSelectedWorkspace(null);
-              setViewMode("workspace");
-            }}
-            className="flex-1 cursor-pointer rounded-xl border border-slate-600 bg-slate-800/50 p-2 text-sm text-white transition-colors outline-none hover:border-slate-500 focus:ring-2 focus:ring-blue-500/20"
-          >
-            {profiles.map((p: Profile) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          {/* Implementering af Memoized Selector */}
+          <CustomProfileSelector
+            profiles={profiles}
+            activeProfile={activeProfile}
+            onSelect={handleProfileChange}
+          />
+
           <button
             onClick={() => setModalType("settings")}
             className="cursor-pointer rounded-xl border border-slate-600 bg-slate-800/50 p-2 text-slate-400 transition-colors hover:border-slate-500 hover:text-blue-400"
