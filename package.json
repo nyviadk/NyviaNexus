@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@uidotdev/usehooks": "^2.4.1",
+    "date-fns": "^4.1.0",
     "firebase": "^12.7.0",
     "lucide-react": "^0.562.0",
     "react": "^19.1.0",

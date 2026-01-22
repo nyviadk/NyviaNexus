@@ -15,6 +15,7 @@ import { PasteModal } from "../components/PasteModal";
 import { ArchiveSidebar } from "../components/dashboard/ArchiveSidebar";
 import { CategoryMenu } from "../components/dashboard/CategoryMenu";
 import { DashboardHeader } from "../components/dashboard/DashboardHeader";
+import { NotesModal } from "../components/dashboard/NotesModal"; // Import af NotesModal
 import { ReasoningModal } from "../components/dashboard/ReasoningModal";
 import { RemoteAccessModal } from "../components/dashboard/RemoteAccessModal";
 import { SettingsModal } from "../components/dashboard/SettingsModal";
@@ -69,12 +70,14 @@ export const Dashboard = () => {
   >(null);
   const [modalParentId, setModalParentId] = useState<string>("root");
 
+  // State til Notes Modal
+  const [showNotesModal, setShowNotesModal] = useState(false);
+
   const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
   const [archiveItems, setArchiveItems] = useState<ArchiveItem[]>([]);
 
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
 
-  // FIX: Type definition her er vigtig for at matche activeMappings i ArchiveSidebar
   const [activeMappings, setActiveMappings] = useState<[number, WinMapping][]>(
     [],
   );
@@ -379,6 +382,7 @@ export const Dashboard = () => {
       setSelectedWindowId(null);
       setWindows([]);
       setArchiveItems([]);
+      setShowNotesModal(false); // Luk modal hvis man skifter space
       setSelectedWorkspace(item);
     },
     [selectedWorkspace],
@@ -507,7 +511,8 @@ export const Dashboard = () => {
                 <ArchiveSidebar
                   workspaceId={selectedWorkspace.id}
                   items={archiveItems}
-                  activeMappings={activeMappings} // Sender nu activeMappings med
+                  activeMappings={activeMappings}
+                  onOpenNotes={() => setShowNotesModal(true)} // Callback for modal
                 />
               )}
             </div>
@@ -519,6 +524,14 @@ export const Dashboard = () => {
           </div>
         )}
       </main>
+
+      {/* --- MODALS --- */}
+      {showNotesModal && selectedWorkspace && (
+        <NotesModal
+          workspaceId={selectedWorkspace.id}
+          onClose={() => setShowNotesModal(false)}
+        />
+      )}
 
       {(modalType === "folder" || modalType === "workspace") && (
         <CreateItemModal

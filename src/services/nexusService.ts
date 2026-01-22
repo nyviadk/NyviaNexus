@@ -3,16 +3,20 @@ import {
   arrayRemove,
   arrayUnion,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
+  orderBy,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { ArchiveItem, NexusItem, TabData } from "../types";
+import { ArchiveItem, NexusItem, Note, TabData } from "../types";
 
 // Hjælpefunktion til at hente nuværende bruger ID sikkert
 const getUid = () => {
@@ -48,7 +52,7 @@ export const NexusService = {
       if (currentItem?.type === "workspace") {
         workspacesToClose.push(id);
 
-        // Slet windows-subcollection
+        // A. Slet windows-subcollection
         const winSnap = await getDocs(
           collection(db, "users", uid, "workspaces_data", id, "windows"),
         );
@@ -58,12 +62,20 @@ export const NexusService = {
           );
         });
 
-        // Slet også archive_data subcollection for workspacet, så vi ikke efterlader "orphan" data
-        // Bemærk: En batch kan max have 500 operationer. Hvis arkivet er enormt, bør dette håndteres separat,
-        // men for en simpel liste er det fint at tage dokumentet med.
+        // B. Slet archive_data subcollection
         batch.delete(
           doc(db, "users", uid, "workspaces_data", id, "archive_data", "list"),
         );
+
+        // C. Slet notes subcollection (Hent dem først, da man ikke kan slette en collection direkte)
+        const notesSnap = await getDocs(
+          collection(db, "users", uid, "workspaces_data", id, "notes"),
+        );
+        notesSnap.docs.forEach((noteDoc) => {
+          batch.delete(
+            doc(db, "users", uid, "workspaces_data", id, "notes", noteDoc.id),
+          );
+        });
       }
 
       // Slet selve itemet fra users/{uid}/items
@@ -329,5 +341,49 @@ export const NexusService = {
     return await updateDoc(docRef, {
       items: arrayRemove(item),
     });
+  },
+
+  // --- NOTES METHODS ---
+
+  subscribeToNotes(workspaceId: string, onUpdate: (notes: Note[]) => void) {
+    const uid = getUid();
+    const q = query(
+      collection(db, "users", uid, "workspaces_data", workspaceId, "notes"),
+      orderBy("createdAt", "desc"),
+    );
+
+    return onSnapshot(q, (snapshot) => {
+      const notes = snapshot.docs.map((d) => d.data() as Note);
+      onUpdate(notes);
+    });
+  },
+
+  async saveNote(workspaceId: string, note: Note) {
+    const uid = getUid();
+    const noteRef = doc(
+      db,
+      "users",
+      uid,
+      "workspaces_data",
+      workspaceId,
+      "notes",
+      note.id,
+    );
+
+    await setDoc(noteRef, note, { merge: true });
+  },
+
+  async deleteNote(workspaceId: string, noteId: string) {
+    const uid = getUid();
+    const noteRef = doc(
+      db,
+      "users",
+      uid,
+      "workspaces_data",
+      workspaceId,
+      "notes",
+      noteId,
+    );
+    await deleteDoc(noteRef);
   },
 };

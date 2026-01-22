@@ -48,10 +48,19 @@ export interface AiSettings {
   userCategories: UserCategory[];
 }
 
-// --- NY TYPE TIL ARKIV FUNKTIONEN ---
+// --- ARKIV FUNKTION ---
 export interface ArchiveItem {
   id: string;
   url: string;
   title?: string;
   createdAt: number;
+}
+
+// --- NOTES SYSTEM ---
+export interface Note {
+  id: string;
+  title: string;
+  content: string; // Gemmer linjeskift som \n
+  createdAt: number;
+  updatedAt: number; // Bruges til sortering (nyeste øverst)
 }

@@ -1,32 +1,38 @@
 import { WinMapping } from "@/background/main";
 import { ArchiveItem } from "@/types";
-import { Archive, Link as LinkIcon, Plus, Trash2 } from "lucide-react";
+import {
+  Archive,
+  Link as LinkIcon,
+  NotebookPen,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import React, { useState } from "react";
 import { NexusService } from "../../services/nexusService";
 
 interface ArchiveSidebarProps {
   workspaceId: string;
   items: ArchiveItem[];
-  activeMappings: [number, WinMapping][]; // Vi skal bruge denne til at finde fysiske vinduer
+  activeMappings: [number, WinMapping][];
+  onOpenNotes: () => void; // Ny prop til at åbne modalen
 }
 
 export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   workspaceId,
   items,
   activeMappings,
+  onOpenNotes,
 }) => {
   const [inputValue, setInputValue] = useState("");
   const [isAdding, setIsAdding] = useState(false);
 
   const getFaviconUrl = (url: string) => {
     try {
-      // Konstruer URL til Chromes interne favicon endpoint
       const u = new URL(chrome.runtime.getURL("/_favicon/"));
-      u.searchParams.set("pageUrl", url); // URL'en vi vil have ikon for
-      u.searchParams.set("size", "32"); // Ønsket størrelse (32px er godt til retina)
+      u.searchParams.set("pageUrl", url);
+      u.searchParams.set("size", "32");
       return u.toString();
     } catch (e) {
-      // Fallback hvis URL er ugyldig
       return "";
     }
   };
@@ -47,38 +53,31 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   };
 
   const handleItemClick = async (url: string) => {
-    // 1. Find alle fysiske vindues-ID'er der hører til dette workspace
     const workspaceWindowIds = activeMappings
       .filter(([_, mapping]) => mapping.workspaceId === workspaceId)
       .map(([physId]) => physId);
 
     if (workspaceWindowIds.length === 0) {
-      // Ingen åbne vinduer i dette space? Åbn i nuværende.
       await chrome.tabs.create({ url, active: true });
       return;
     }
 
-    // 2. Tjek om URL'en findes i et af disse vinduer
-    // Vi henter tabs for alle relevante vinduer
     let found = false;
 
     for (const winId of workspaceWindowIds) {
       const tabs = await chrome.tabs.query({ windowId: winId });
-      // Løst match på URL
       const match = tabs.find(
         (t) => t.url && (t.url.includes(url) || url.includes(t.url)),
       );
 
       if (match && match.id) {
-        // BINGO: Fokusér vindue og fane
         await chrome.windows.update(winId, { focused: true });
         await chrome.tabs.update(match.id, { active: true });
         found = true;
-        break; // Stop efter første match
+        break;
       }
     }
 
-    // 3. Hvis ikke fundet i spacets vinduer -> Opret ny
     if (!found) {
       await chrome.tabs.create({ url, active: true });
     }
@@ -104,6 +103,15 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
             {items.length}
           </span>
         </div>
+
+        {/* Noter Knap */}
+        <button
+          onClick={onOpenNotes}
+          className="flex cursor-pointer items-center gap-1.5 rounded-md bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-slate-700 hover:text-white"
+        >
+          <NotebookPen size={14} />
+          <span>Åbn noter</span>
+        </button>
       </div>
 
       {/* Input Area */}
