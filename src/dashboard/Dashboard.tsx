@@ -15,7 +15,7 @@ import { PasteModal } from "../components/PasteModal";
 import { ArchiveSidebar } from "../components/dashboard/ArchiveSidebar";
 import { CategoryMenu } from "../components/dashboard/CategoryMenu";
 import { DashboardHeader } from "../components/dashboard/DashboardHeader";
-import { NotesModal } from "../components/dashboard/NotesModal"; // Import af NotesModal
+import { NotesModal } from "../components/dashboard/NotesModal";
 import { ReasoningModal } from "../components/dashboard/ReasoningModal";
 import { RemoteAccessModal } from "../components/dashboard/RemoteAccessModal";
 import { SettingsModal } from "../components/dashboard/SettingsModal";
@@ -512,7 +512,7 @@ export const Dashboard = () => {
                   workspaceId={selectedWorkspace.id}
                   items={archiveItems}
                   activeMappings={activeMappings}
-                  onOpenNotes={() => setShowNotesModal(true)} // Callback for modal
+                  onOpenNotes={() => setShowNotesModal(true)}
                 />
               )}
             </div>
@@ -529,6 +529,7 @@ export const Dashboard = () => {
       {showNotesModal && selectedWorkspace && (
         <NotesModal
           workspaceId={selectedWorkspace.id}
+          workspaceName={selectedWorkspace.name}
           onClose={() => setShowNotesModal(false)}
         />
       )}

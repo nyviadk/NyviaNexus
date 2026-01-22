@@ -163,11 +163,13 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
 // --- MAIN COMPONENT: NOTES MODAL ---
 interface NotesModalProps {
   workspaceId: string;
+  workspaceName: string;
   onClose: () => void;
 }
 
 export const NotesModal: React.FC<NotesModalProps> = ({
   workspaceId,
+  workspaceName,
   onClose,
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -259,10 +261,16 @@ export const NotesModal: React.FC<NotesModalProps> = ({
         {/* --- SIDEBAR --- */}
         <div className="flex w-64 flex-col border-r border-slate-600 bg-slate-800/50">
           <div className="flex items-center justify-between border-b border-slate-600 p-4">
-            <span className="font-semibold text-slate-200">Mine noter</span>
+            <span
+              className="truncate pr-2 font-semibold text-slate-200"
+              title={workspaceName}
+            >
+              {workspaceName}
+            </span>
+
             <button
               onClick={handleCreateNote}
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded bg-blue-600 text-white transition-colors hover:bg-blue-500"
+              className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded bg-blue-600 text-white transition-colors hover:bg-blue-500"
               title="Ny Note"
             >
               <Plus size={16} />
