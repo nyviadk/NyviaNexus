@@ -93,6 +93,8 @@ export const SidebarItem = ({
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
+
+    // Vi tjekker kun lokale fysiske vinduer (går lynhurtigt)
     let hasActiveWindows = false;
     try {
       const storage = await chrome.storage.local.get("nexus_active_windows");
@@ -117,18 +119,45 @@ export const SidebarItem = ({
       console.warn("Kunne ikke tjekke aktive vinduer:", err);
     }
 
-    let message = `Slet "${item.name}"?`;
+    // --- BYG BESKEDEN ---
+    let message = `Du er ved at slette "${item.name}".\n\n`;
+
     if (hasActiveWindows) {
-      message = `⚠️ ADVARSEL: "${item.name}" har åbne vinduer!\n\nHvis du sletter dette space, vil de tilhørende vinduer blive lukket øjeblikkeligt.\n\nEr du sikker på, du vil fortsætte?`;
+      message += `⚠️ ADVARSEL: Dette space er åbent i browseren og vil blive lukket!\n`;
     }
 
-    if (confirm(message)) {
+    if (item.type === "workspace") {
+      // Standard advarsel for alle workspaces - nemmere og mere sikkert
+      message += `⚠️ BEMÆRK: Dette sletter også alt i Arkiv og Noter permanent.\n`;
+    }
+
+    if (item.type === "folder" && childItems.length > 0) {
+      message += `⚠️ Denne mappe indeholder ${childItems.length} under-elementer som også vil blive slettet.\n`;
+    }
+
+    message += `\nSkriv navnet "${item.name}" herunder for at bekræfte:`;
+
+    // --- PROMPT ---
+    const userInput = prompt(message);
+
+    if (userInput === item.name) {
+      // Korrekt navn -> Slet
       setIsSyncing(true);
-      await NexusService.deleteItem(item, allItems);
-      await new Promise((r) => setTimeout(r, 500));
-      setIsSyncing(false);
-      onRefresh();
-      if (onDeleteSuccess) onDeleteSuccess(item.id);
+      try {
+        await NexusService.deleteItem(item, allItems);
+        // Lille delay så brugeren når at se loading spinner (UX)
+        await new Promise((r) => setTimeout(r, 500));
+
+        onRefresh();
+        if (onDeleteSuccess) onDeleteSuccess(item.id);
+      } catch (error) {
+        console.error("Delete failed", error);
+        alert("Der skete en fejl under sletning.");
+      } finally {
+        setIsSyncing(false);
+      }
+    } else if (userInput !== null) {
+      alert("Navnet matchede ikke. Sletning annulleret.");
     }
   };
 

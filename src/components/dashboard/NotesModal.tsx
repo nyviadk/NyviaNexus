@@ -20,12 +20,15 @@ interface NoteEditorProps {
   note: Note;
   workspaceId: string;
   onClose: () => void;
+  // Ny prop til at opdatere listen "optimistisk" med det samme
+  onLocalUpdate: (id: string, updates: Partial<Note>) => void;
 }
 
 const NoteEditor: React.FC<NoteEditorProps> = ({
   note,
   workspaceId,
   onClose,
+  onLocalUpdate,
 }) => {
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
@@ -33,6 +36,12 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
 
   const titleRef = useRef(title);
   const contentRef = useRef(content);
+
+  // Vi skal bruge en ref til onLocalUpdate for at undgå useEffect dependency cycles
+  const onLocalUpdateRef = useRef(onLocalUpdate);
+  useEffect(() => {
+    onLocalUpdateRef.current = onLocalUpdate;
+  }, [onLocalUpdate]);
 
   useEffect(() => {
     titleRef.current = title;
@@ -42,14 +51,18 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   const debouncedTitle = useDebounce(title, 1000);
   const debouncedContent = useDebounce(content, 1000);
 
-  // 1. UI Feedback
+  // 1. UI Feedback & Optimistic Update (Instant Sidebar Update)
   useEffect(() => {
+    // Fortæl forælderen om ændringen med det samme (uden debounce)
+    // Dette gør at sidebaren opdateres mens man skriver
+    onLocalUpdateRef.current(note.id, { title, content });
+
     if (title !== debouncedTitle || content !== debouncedContent) {
       setSaveStatus("Gemmer...");
     }
-  }, [title, content, debouncedTitle, debouncedContent]);
+  }, [title, content, debouncedTitle, debouncedContent, note.id]);
 
-  // 2. Debounce Save
+  // 2. Debounce Save to Firestore
   useEffect(() => {
     if (title === debouncedTitle && content === debouncedContent) {
       if (saveStatus === "Gemmer...") setSaveStatus("Gemt");
@@ -59,12 +72,13 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedTitle, debouncedContent]);
 
-  // 3. Unmount Save
+  // 3. Unmount Save (Sikr at sidste ændringer kommer med hvis man lukker hurtigt)
   useEffect(() => {
     return () => {
       const currentTitle = titleRef.current;
       const currentContent = contentRef.current;
 
+      // Tjek mod den oprindelige note prop for at se om der er reelle ændringer
       if (currentTitle !== note.title || currentContent !== note.content) {
         NexusService.saveNote(workspaceId, {
           ...note,
@@ -152,7 +166,6 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         spellCheck={false}
         autoFocus
         onFocus={(e) => {
-          // Sætter cursoren til starten (0,0) når feltet får fokus
           e.target.setSelectionRange(0, 0);
         }}
       />
@@ -173,18 +186,35 @@ export const NotesModal: React.FC<NotesModalProps> = ({
   onClose,
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const mouseDownTarget = useRef<EventTarget | null>(null);
+
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const isFirstLoad = useRef(true);
 
-  // Init
+  // Init Dialog
   useEffect(() => {
     if (dialogRef.current && !dialogRef.current.open) {
       dialogRef.current.showModal();
     }
   }, []);
 
-  // Load Noter
+  // --- SAFE CLICK OUTSIDE LOGIC ---
+  const handleBackdropMouseDown = (e: React.MouseEvent) => {
+    mouseDownTarget.current = e.target;
+  };
+
+  const handleBackdropMouseUp = (e: React.MouseEvent) => {
+    if (
+      e.target === dialogRef.current &&
+      mouseDownTarget.current === dialogRef.current
+    ) {
+      onClose();
+    }
+    mouseDownTarget.current = null;
+  };
+
+  // Load Noter (Realtime fra Firestore)
   useEffect(() => {
     const unsubscribe = NexusService.subscribeToNotes(
       workspaceId,
@@ -203,6 +233,7 @@ export const NotesModal: React.FC<NotesModalProps> = ({
             setActiveNoteId(exists ? exists.id : updatedNotes[0].id);
           }
         } else {
+          // Håndter hvis den aktive note bliver slettet udefra
           if (
             activeNoteId &&
             !updatedNotes.find((n) => n.id === activeNoteId)
@@ -224,6 +255,20 @@ export const NotesModal: React.FC<NotesModalProps> = ({
     }
   }, [activeNoteId, workspaceId]);
 
+  // --- HANDLERS ---
+
+  // Denne funktion håndterer "Instant Update" fra Editor til Sidebar
+  const handleLocalUpdate = (id: string, updates: Partial<Note>) => {
+    setNotes((prevNotes) =>
+      prevNotes.map((n) => {
+        if (n.id === id) {
+          return { ...n, ...updates, updatedAt: Date.now() };
+        }
+        return n;
+      }),
+    );
+  };
+
   const handleCreateNote = async () => {
     const newNote: Note = {
       id: crypto.randomUUID(),
@@ -232,6 +277,8 @@ export const NotesModal: React.FC<NotesModalProps> = ({
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
+    // Vi sætter den lokalt først for hastighed
+    setNotes((prev) => [newNote, ...prev]);
     setActiveNoteId(newNote.id);
     await NexusService.saveNote(workspaceId, newNote);
   };
@@ -243,7 +290,11 @@ export const NotesModal: React.FC<NotesModalProps> = ({
         const remaining = notes.filter((n) => n.id !== noteId);
         setActiveNoteId(remaining.length > 0 ? remaining[0].id : null);
       }
+      // Optimistic delete
+      setNotes((prev) => prev.filter((n) => n.id !== noteId));
       await NexusService.deleteNote(workspaceId, noteId);
+
+      // Hvis listen nu er tom, opret en ny
       if (notes.length <= 1) handleCreateNote();
     }
   };
@@ -254,10 +305,14 @@ export const NotesModal: React.FC<NotesModalProps> = ({
     <dialog
       ref={dialogRef}
       onCancel={onClose}
-      onClick={(e) => e.target === dialogRef.current && onClose()}
+      onMouseDown={handleBackdropMouseDown}
+      onMouseUp={handleBackdropMouseUp}
       className="open:animate-in open:fade-in open:zoom-in-95 m-auto flex h-[80vh] w-[80vw] overflow-hidden rounded-xl border border-slate-500 bg-slate-700 p-0 text-slate-200 shadow-2xl backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm focus:outline-none"
     >
-      <div className="flex h-full w-full">
+      <div
+        className="flex h-full w-full"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         {/* --- SIDEBAR --- */}
         <div className="flex w-64 flex-col border-r border-slate-600 bg-slate-800/50">
           <div className="flex items-center justify-between border-b border-slate-600 p-4">
@@ -314,10 +369,11 @@ export const NotesModal: React.FC<NotesModalProps> = ({
             note={activeNote}
             workspaceId={workspaceId}
             onClose={onClose}
+            onLocalUpdate={handleLocalUpdate}
           />
         ) : (
           <div className="flex flex-1 items-center justify-center bg-slate-800 text-slate-500">
-            Indlæser...
+            {notes.length === 0 ? "Opret en ny note..." : "Indlæser..."}
           </div>
         )}
       </div>
