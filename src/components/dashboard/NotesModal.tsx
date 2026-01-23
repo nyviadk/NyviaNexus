@@ -209,25 +209,22 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         className="mt-6 mb-4 w-full bg-transparent text-3xl font-bold text-slate-100 placeholder-slate-600 outline-none"
       />
 
-      {/* REACT SIMPLE CODE EDITOR */}
       <div className="relative flex-1 overflow-hidden">
         <Editor
-          autoFocus
           value={content}
           onValueChange={handleContentChange}
           highlight={(code) => code}
           padding={0}
-          // VIGTIGE ÆNDRINGER HER:
-          insertSpaces={false} // Brug ægte TAB karakter (\t) i stedet for mellemrum
-          tabSize={1} // Indsæt 1 tab-tegn per tryk
-          ignoreTabKey={false} // Lad brugeren bruge Tab-tasten
+          insertSpaces={false}
+          tabSize={1}
+          ignoreTabKey={false}
           className="h-full w-full text-base leading-relaxed text-slate-300"
           style={{
             fontFamily: "inherit",
             fontSize: "1rem",
             backgroundColor: "transparent",
             minHeight: "100%",
-            tabSize: 8, // CSS: Her gør vi tabben BRED visuelt (8 mellemrums bredde)
+            tabSize: 8,
           }}
           textareaClassName="focus:outline-none"
         />
@@ -236,7 +233,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   );
 };
 
-// --- MAIN MODAL (Uændret) ---
+// --- MAIN MODAL ---
 interface NotesModalProps {
   workspaceId: string;
   workspaceName: string;
@@ -249,6 +246,10 @@ export const NotesModal: React.FC<NotesModalProps> = ({
   onClose,
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
+
+  // NYT: Refs til at styre drag/click logikken
+  const mouseDownTarget = useRef<EventTarget | null>(null);
+
   const [notes, setNotes] = useState<Note[]>([]);
   const [isSnapshotPending, setIsSnapshotPending] = useState(false);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
@@ -260,9 +261,22 @@ export const NotesModal: React.FC<NotesModalProps> = ({
       dialogRef.current.showModal();
   }, []);
 
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === dialogRef.current) onClose();
+  // --- NY LUKKE LOGIK START ---
+  const handleBackdropMouseDown = (e: React.MouseEvent) => {
+    mouseDownTarget.current = e.target;
   };
+
+  const handleBackdropMouseUp = (e: React.MouseEvent) => {
+    // Luk kun hvis start og slut var på selve dialogen (backdroppet)
+    if (
+      e.target === dialogRef.current &&
+      mouseDownTarget.current === dialogRef.current
+    ) {
+      onClose();
+    }
+    mouseDownTarget.current = null;
+  };
+  // --- NY LUKKE LOGIK SLUT ---
 
   useEffect(() => {
     const unsubscribe = NexusService.subscribeToNotes(
@@ -350,7 +364,9 @@ export const NotesModal: React.FC<NotesModalProps> = ({
     <dialog
       ref={dialogRef}
       onCancel={onClose}
-      onClick={handleBackdropClick}
+      // Bruger MouseDown/Up i stedet for Click for at håndtere drag
+      onMouseDown={handleBackdropMouseDown}
+      onMouseUp={handleBackdropMouseUp}
       className="open:animate-in open:fade-in open:zoom-in-95 m-auto flex h-[80vh] w-[80vw] overflow-hidden rounded-xl border border-slate-500 bg-slate-700 p-0 text-slate-200 shadow-2xl backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm focus:outline-none"
     >
       <div className="flex h-full w-full" onClick={(e) => e.stopPropagation()}>
