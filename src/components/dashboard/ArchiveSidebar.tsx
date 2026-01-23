@@ -9,7 +9,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { NexusService } from "../../services/nexusService";
 
 interface ArchiveSidebarProps {
@@ -30,6 +30,26 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   const [inputValue, setInputValue] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [filter, setFilter] = useState<FilterType>("readLater");
+
+  const hasInitialized = useRef(false);
+
+  // --- SMART DEFAULT LOGIC ---
+  useEffect(() => {
+    // Kør kun når data er landet, og kun første gang
+    if (items.length > 0 && !hasInitialized.current) {
+      const hasReadLater = items.some((i) => i.readLater);
+      // Hvis læseliste er tom, men vi har data -> Skift til links
+      if (!hasReadLater) setFilter("links");
+
+      hasInitialized.current = true;
+    }
+  }, [items]);
+
+  // Nulstil init-flag hvis vi skifter workspace helt
+  useEffect(() => {
+    hasInitialized.current = false;
+    setFilter("readLater");
+  }, [workspaceId]);
 
   const getFaviconUrl = (url: string) => {
     try {
@@ -132,13 +152,13 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
           </button>
         </div>
 
-        {/* Filter Tabs - Nu ensartede blå */}
+        {/* Filter Tabs */}
         <div className="flex px-4 pb-0">
           <button
             onClick={() => setFilter("readLater")}
             className={`flex-1 cursor-pointer border-b-2 pb-2 text-xs font-medium transition-colors ${
               filter === "readLater"
-                ? "border-blue-500 text-blue-500" // Ændret fra amber til blue
+                ? "border-blue-500 text-blue-500"
                 : "border-transparent text-slate-500 hover:text-slate-300"
             }`}
           >
@@ -222,7 +242,6 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                   />
                 </div>
                 <div className="flex min-w-0 flex-1 flex-col">
-                  {/* Fjernet betinget farve - nu altid slate/white */}
                   <span className="truncate text-xs font-medium text-slate-300 group-hover:text-white">
                     {item.title || item.url}
                   </span>
@@ -237,7 +256,6 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                 <button
                   onClick={(e) => handleToggleReadLater(e, item)}
                   title={item.readLater ? "Markér som læst" : "Læs senere"}
-                  // Fjernet amber farve - nu neutral grå
                   className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-slate-400 hover:bg-slate-700 hover:text-slate-300"
                 >
                   {item.readLater ? (
