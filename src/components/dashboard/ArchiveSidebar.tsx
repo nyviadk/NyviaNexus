@@ -130,7 +130,7 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
           <button
             type="submit"
             disabled={!inputValue.trim() || isAdding}
-            className="absolute right-1.5 flex h-6 w-6 items-center justify-center rounded bg-slate-700 text-slate-300 hover:bg-blue-600 hover:text-white disabled:opacity-50"
+            className="absolute right-1.5 flex h-6 w-6 cursor-pointer items-center justify-center rounded bg-slate-700 text-slate-300 hover:bg-blue-600 hover:text-white disabled:opacity-50"
           >
             <Plus size={14} />
           </button>

@@ -270,14 +270,15 @@ export const Dashboard = () => {
     });
   }, [user, selectedWorkspace]);
 
-  // Archive Sync (Updated to handle Inbox/Global)
+  // Archive Sync (Updated to handle Inbox/Global AND Incognito)
   useEffect(() => {
     if (!user) return;
 
     // Bestem korrekt path baseret på viewMode
     let docRef;
 
-    if (viewMode === "inbox") {
+    // Både Inbox og Incognito deler den globale mappe
+    if (viewMode === "inbox" || viewMode === "incognito") {
       docRef = doc(
         db,
         "users",
@@ -460,10 +461,24 @@ export const Dashboard = () => {
       id === currentWindowId && m.internalWindowId === selectedWindowId,
   );
 
+  // Vis arkiv i Workspace, Inbox OG Incognito
   const shouldShowArchive =
-    (viewMode === "workspace" && selectedWorkspace) || viewMode === "inbox";
+    (viewMode === "workspace" && selectedWorkspace) ||
+    viewMode === "inbox" ||
+    viewMode === "incognito";
+
+  // Inbox og Incognito deler "global" ID
   const currentArchiveWorkspaceId =
-    viewMode === "inbox" ? "global" : selectedWorkspace?.id || "";
+    viewMode === "inbox" || viewMode === "incognito"
+      ? "global"
+      : selectedWorkspace?.id || "";
+
+  // Helper til at give modalen et pænt navn
+  const getNoteModalTitle = () => {
+    if (viewMode === "workspace") return selectedWorkspace?.name || "Workspace";
+    if (viewMode === "incognito") return "Incognito (Global)";
+    return "Inbox (Global)";
+  };
 
   if (!user)
     return (
@@ -567,10 +582,7 @@ export const Dashboard = () => {
                   onOpenNotes={() =>
                     setNotesModalTarget({
                       id: currentArchiveWorkspaceId,
-                      name:
-                        viewMode === "inbox"
-                          ? "Inbox"
-                          : selectedWorkspace?.name || "Workspace",
+                      name: getNoteModalTitle(),
                     })
                   }
                 />
