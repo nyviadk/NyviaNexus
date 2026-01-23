@@ -146,8 +146,8 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   }, []);
 
   return (
-    <div className="animate-in fade-in relative flex flex-1 flex-col bg-slate-800 p-6 duration-200">
-      <div className="absolute top-4 right-4 flex items-center gap-4">
+    <div className="animate-in fade-in relative flex flex-1 flex-col overflow-hidden bg-slate-800 p-6 duration-200">
+      <div className="absolute top-4 right-4 z-10 flex items-center gap-4">
         {/* STATUS */}
         <div
           className={`flex items-center gap-1.5 text-xs font-bold tracking-wide uppercase transition-colors ${
@@ -201,29 +201,33 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         </button>
       </div>
 
+      {/* Header Input */}
       <input
         type="text"
         value={title}
         onChange={(e) => handleTitleChange(e.target.value)}
         placeholder="Overskrift..."
-        className="mt-6 mb-4 w-full bg-transparent text-3xl font-bold text-slate-100 placeholder-slate-600 outline-none"
+        className="mt-6 mb-4 w-full shrink-0 bg-transparent text-3xl font-bold text-slate-100 placeholder-slate-600 outline-none"
       />
 
-      <div className="relative flex-1 overflow-hidden">
+      {/* EDITOR CONTAINER - Denne div styrer scrollbaren */}
+      <div className="custom-scrollbar relative -mx-6 flex-1 overflow-y-auto px-6">
         <Editor
           value={content}
           onValueChange={handleContentChange}
           highlight={(code) => code}
-          padding={0}
+          // VIGTIGT: Vi bruger padding prop her for at sikre tekst og cursor flugter
+          padding={10}
           insertSpaces={false}
           tabSize={1}
           ignoreTabKey={false}
-          className="h-full w-full text-base leading-relaxed text-slate-300"
+          className="min-h-full" // Sikrer at den fylder mindst hele højden
           style={{
-            fontFamily: "inherit",
-            fontSize: "1rem",
+            fontFamily: '"Fira Code", monospace', // Monospace font er vigtig for cursor alignment
+            fontSize: 16,
+            lineHeight: 1.5, // Eksplicit line-height
             backgroundColor: "transparent",
-            minHeight: "100%",
+            color: "#cbd5e1", // text-slate-300
             tabSize: 8,
           }}
           textareaClassName="focus:outline-none"
@@ -233,7 +237,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   );
 };
 
-// --- MAIN MODAL ---
+// --- MAIN MODAL (Uændret) ---
 interface NotesModalProps {
   workspaceId: string;
   workspaceName: string;
@@ -247,7 +251,6 @@ export const NotesModal: React.FC<NotesModalProps> = ({
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
-  // NYT: Refs til at styre drag/click logikken
   const mouseDownTarget = useRef<EventTarget | null>(null);
 
   const [notes, setNotes] = useState<Note[]>([]);
@@ -261,13 +264,11 @@ export const NotesModal: React.FC<NotesModalProps> = ({
       dialogRef.current.showModal();
   }, []);
 
-  // --- NY LUKKE LOGIK START ---
   const handleBackdropMouseDown = (e: React.MouseEvent) => {
     mouseDownTarget.current = e.target;
   };
 
   const handleBackdropMouseUp = (e: React.MouseEvent) => {
-    // Luk kun hvis start og slut var på selve dialogen (backdroppet)
     if (
       e.target === dialogRef.current &&
       mouseDownTarget.current === dialogRef.current
@@ -276,7 +277,6 @@ export const NotesModal: React.FC<NotesModalProps> = ({
     }
     mouseDownTarget.current = null;
   };
-  // --- NY LUKKE LOGIK SLUT ---
 
   useEffect(() => {
     const unsubscribe = NexusService.subscribeToNotes(
@@ -364,7 +364,6 @@ export const NotesModal: React.FC<NotesModalProps> = ({
     <dialog
       ref={dialogRef}
       onCancel={onClose}
-      // Bruger MouseDown/Up i stedet for Click for at håndtere drag
       onMouseDown={handleBackdropMouseDown}
       onMouseUp={handleBackdropMouseUp}
       className="open:animate-in open:fade-in open:zoom-in-95 m-auto flex h-[80vh] w-[80vw] overflow-hidden rounded-xl border border-slate-500 bg-slate-700 p-0 text-slate-200 shadow-2xl backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm focus:outline-none"
