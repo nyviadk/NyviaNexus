@@ -13,12 +13,11 @@ import {
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { ArchiveItem, Note } from "../types";
-// RETTET IMPORT STI:
 import { WinMapping } from "./main";
 
 // Konstanter for formatering
 const BOX_BORDER = "------------------------------"; // 30 stk
-const BOX_DIVIDER = "-----"; // 5 stk (Ændret fra 10)
+const BOX_DIVIDER = "-----"; // 5 stk
 
 const workspaceNameCache: Record<string, string> = {};
 
@@ -101,7 +100,7 @@ const updateMenuTitles = async (windowId: number) => {
       title: `Read It Later (${name})`,
     });
   } catch (e) {
-    // Ignorer
+    // Ignorer fejl ved opstart
   }
 };
 
@@ -144,7 +143,7 @@ const resolveWorkspaceId = async (windowId: number): Promise<string> => {
   });
 };
 
-// --- FEATURE 1: SEND TO NOTES (SMART MERGE FORMAT) ---
+// --- FEATURE 1: SEND TO NOTES (SMART MERGE & DEDUPE) ---
 const handleSendToNotes = async (
   uid: string,
   workspaceId: string,
@@ -169,31 +168,30 @@ const handleSendToNotes = async (
     const snap = await getDocs(q);
 
     if (!snap.empty) {
-      // --- EKSISTERENDE NOTE (Tjek for merge) ---
+      // --- EKSISTERENDE NOTE ---
       const noteDoc = snap.docs[0];
       const currentContent = noteDoc.data().content || "";
 
-      // Vi leder efter footeren. Formatet er: Kilde:\nURL\nBOX_BORDER
-      // Vi bruger trim() for at undgå problemer med whitespace
-      const expectedFooter = `Kilde:\n${sourceUrl}\n${BOX_BORDER}`;
+      // DEDUPLIKERING: Tjek om citatet allerede findes præcist
+      if (currentContent.includes(quote)) {
+        console.log("Nexus: Citat findes allerede i noten. Ignorerer.");
+        return;
+      }
 
+      const expectedFooter = `Kilde:\n${sourceUrl}\n${BOX_BORDER}`;
       let updatedContent = "";
 
       if (currentContent.trim().endsWith(expectedFooter)) {
-        // MATCH: Vi fjerner footeren, indsætter divider + nyt citat + footer igen
+        // MATCH: Merge ind i eksisterende blok
         const body = currentContent
           .slice(0, currentContent.lastIndexOf(expectedFooter))
           .trimEnd();
-
-        // 5 streger divider
         updatedContent = `${body}\n\n${BOX_DIVIDER}\n\n${quote}\n\n${expectedFooter}`;
-
         console.log(`Nexus: Merged content into existing block.`);
       } else {
-        // NO MATCH: Ny boks tilføjes
+        // NO MATCH: Ny boks
         const newBlock = `${BOX_BORDER}\n${quote}\n\nKilde:\n${sourceUrl}\n${BOX_BORDER}`;
         updatedContent = `${currentContent}\n\n\n${newBlock}`;
-
         console.log(`Nexus: Appended new block to note.`);
       }
 
@@ -204,7 +202,6 @@ const handleSendToNotes = async (
     } else {
       // --- NY NOTE ---
       const newNoteId = crypto.randomUUID();
-
       const content = `${BOX_BORDER}\n${quote}\n\nKilde:\n${sourceUrl}\n${BOX_BORDER}`;
 
       const newNote: Note = {
@@ -236,7 +233,7 @@ const handleSendToNotes = async (
   }
 };
 
-// --- FEATURE 2: READ IT LATER ---
+// --- FEATURE 2: READ IT LATER (DEDUPE LOGIC) ---
 const handleReadItLater = async (
   uid: string,
   workspaceId: string,
@@ -247,14 +244,6 @@ const handleReadItLater = async (
   const targetTitle = info.linkUrl ? targetUrl : tab.title;
 
   if (!targetUrl) return;
-
-  const newItem: ArchiveItem = {
-    id: crypto.randomUUID(),
-    url: targetUrl,
-    title: targetTitle || targetUrl,
-    createdAt: Date.now(),
-    readLater: true,
-  };
 
   const listRef =
     workspaceId === "global"
@@ -269,6 +258,50 @@ const handleReadItLater = async (
           "list",
         );
 
-  await setDoc(listRef, { items: arrayUnion(newItem) }, { merge: true });
-  console.log(`Nexus: Tilføjet til Læseliste`);
+  try {
+    const docSnap = await getDoc(listRef);
+    let items: ArchiveItem[] = [];
+
+    if (docSnap.exists()) {
+      items = (docSnap.data().items || []) as ArchiveItem[];
+    }
+
+    // Tjek om URL allerede findes
+    const existingIndex = items.findIndex((i) => i.url === targetUrl);
+
+    if (existingIndex !== -1) {
+      // URL findes allerede
+      const existingItem = items[existingIndex];
+
+      if (existingItem.readLater) {
+        // Allerede Read Later -> Gør ingenting
+        console.log("Nexus: Link er allerede på Læseliste.");
+        return;
+      } else {
+        // Findes i arkiv, men ikke Read Later -> Opdater til Read Later
+        existingItem.readLater = true;
+        // Vi opdaterer timestamp så den ryger i toppen
+        existingItem.createdAt = Date.now();
+
+        await updateDoc(listRef, { items });
+        console.log("Nexus: Link flyttet til Læseliste.");
+        return;
+      }
+    }
+
+    // Hvis ikke fundet -> Tilføj ny
+    const newItem: ArchiveItem = {
+      id: crypto.randomUUID(),
+      url: targetUrl,
+      title: targetTitle || targetUrl,
+      createdAt: Date.now(),
+      readLater: true,
+    };
+
+    // Vi bruger setDoc med merge for at være sikker på dokumentet oprettes hvis det mangler
+    await setDoc(listRef, { items: arrayUnion(newItem) }, { merge: true });
+    console.log(`Nexus: Tilføjet til Læseliste`);
+  } catch (e) {
+    console.error("Fejl ved Read It Later:", e);
+  }
 };
