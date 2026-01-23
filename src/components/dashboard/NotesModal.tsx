@@ -3,6 +3,7 @@ import { formatDistanceToNow } from "date-fns";
 import { da } from "date-fns/locale";
 import { Check, Link, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
+import Editor from "react-simple-code-editor";
 import { NexusService } from "../../services/nexusService";
 import { Note } from "../../types";
 
@@ -38,10 +39,8 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
     `sess_${Math.random().toString(36).substr(2, 5)}`,
   ).current;
 
-  // Local State
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
-  // Tilføjet "syncing" status for visuel feedback
   const [status, setStatus] = useState<
     "saved" | "saving" | "typing" | "syncing"
   >("saved");
@@ -56,15 +55,12 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
 
   // 1. INCOMING SYNC LOGIC
   useEffect(() => {
-    // A. Ignorer "Pending" writes (vores egne lokale ekkoer).
     if (isPending) return;
 
-    // B. Tjek om data er synkroniseret (Ens)
     const isTitleSynced = note.title === title;
     const isContentSynced = note.content === content;
 
     if (isTitleSynced && isContentSynced) {
-      // Hvis vi troede vi gemte, og data nu er ens -> Server ACK.
       if (status === "saving") {
         setStatus("saved");
         lastKnownSyncedData.current = {
@@ -75,27 +71,17 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
       return;
     }
 
-    // C. Data er anderledes -> Fremmed ændring (Remote Update)
-    console.log(
-      `[EDITOR ${sessionId}] 📥 Modtog fremmed ændring. Opdaterer UI.`,
-    );
-
-    // Opdater data STRAKS (Vigtigt for logikken)
+    console.log(`[EDITOR] 📥 Remote Update`);
     setTitle(note.title);
     setContent(note.content);
     lastKnownSyncedData.current = { title: note.title, content: note.content };
-
-    // VISUELT: Vis "Modtager..." i .5 sekunder
     setStatus("syncing");
 
     const timer = setTimeout(() => {
-      // Skift kun tilbage til 'saved', hvis brugeren ikke er begyndt at taste i mellemtiden
       setStatus((prev) => (prev === "syncing" ? "saved" : prev));
     }, 500);
 
     return () => clearTimeout(timer);
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note, isPending]);
 
   // 2. INPUT HANDLING
@@ -111,21 +97,14 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
     onLocalUpdate(note.id, { title, content: val });
   };
 
-  // 3. OUTGOING SAVE (Debounced)
+  // 3. OUTGOING SAVE
   useEffect(() => {
-    // Tjek: Har vi ændringer ift. det vi sidst vidste var syncet?
     const hasChanges =
       debouncedTitle !== lastKnownSyncedData.current.title ||
       debouncedContent !== lastKnownSyncedData.current.content;
 
-    // Hvis vi er i "syncing" tilstand (fremmed data kom lige ind), så lad være at gemme straks,
-    // medmindre debouncen faktisk har fanget nye bruger-tastetryk.
-    // Men pga. lastKnownSyncedData opdateringen ovenfor, burde hasChanges være false hvis vi bare modtog.
-
     if (hasChanges) {
       setStatus("saving");
-      console.log(`[EDITOR ${sessionId}] 🔥 Sender ændringer...`);
-
       lastKnownSyncedData.current = {
         title: debouncedTitle,
         content: debouncedContent,
@@ -155,7 +134,6 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
       const lastSync = lastKnownSyncedData.current;
 
       if (curT !== lastSync.title || curC !== lastSync.content) {
-        console.log(`[EDITOR] 💾 Unmount save`);
         NexusService.saveNote(workspaceId, {
           ...note,
           title: curT || "Uden titel",
@@ -165,19 +143,18 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         });
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <div className="animate-in fade-in relative flex flex-1 flex-col bg-slate-800 p-6 duration-200">
       <div className="absolute top-4 right-4 flex items-center gap-4">
-        {/* STATUS VISNING */}
+        {/* STATUS */}
         <div
           className={`flex items-center gap-1.5 text-xs font-bold tracking-wide uppercase transition-colors ${
             status === "saved"
               ? "text-green-400"
               : status === "syncing"
-                ? "text-amber-400" // Gul farve til syncing
+                ? "text-amber-400"
                 : "text-blue-400"
           }`}
         >
@@ -232,19 +209,34 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         className="mt-6 mb-4 w-full bg-transparent text-3xl font-bold text-slate-100 placeholder-slate-600 outline-none"
       />
 
-      <textarea
-        value={content}
-        onChange={(e) => handleContentChange(e.target.value)}
-        placeholder="Skriv..."
-        className="custom-scrollbar w-full flex-1 resize-none bg-transparent font-mono text-base leading-relaxed text-slate-300 placeholder-slate-700 outline-none"
-        spellCheck={false}
-        autoFocus
-      />
+      {/* REACT SIMPLE CODE EDITOR */}
+      <div className="relative flex-1 overflow-hidden">
+        <Editor
+          autoFocus
+          value={content}
+          onValueChange={handleContentChange}
+          highlight={(code) => code}
+          padding={0}
+          // VIGTIGE ÆNDRINGER HER:
+          insertSpaces={false} // Brug ægte TAB karakter (\t) i stedet for mellemrum
+          tabSize={1} // Indsæt 1 tab-tegn per tryk
+          ignoreTabKey={false} // Lad brugeren bruge Tab-tasten
+          className="h-full w-full text-base leading-relaxed text-slate-300"
+          style={{
+            fontFamily: "inherit",
+            fontSize: "1rem",
+            backgroundColor: "transparent",
+            minHeight: "100%",
+            tabSize: 8, // CSS: Her gør vi tabben BRED visuelt (8 mellemrums bredde)
+          }}
+          textareaClassName="focus:outline-none"
+        />
+      </div>
     </div>
   );
 };
 
-// --- MAIN MODAL (Uændret, men medtaget for fuld fil) ---
+// --- MAIN MODAL (Uændret) ---
 interface NotesModalProps {
   workspaceId: string;
   workspaceName: string;

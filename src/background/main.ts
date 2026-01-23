@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { AiService } from "../services/aiService";
+import { initializeContextMenus } from "./contextMenus";
 
 // --- TYPES & INTERFACES ---
 
@@ -180,6 +181,9 @@ function updateRestorationStatus(status: string) {
   restorationStatus = status;
   broadcast("RESTORATION_STATUS_CHANGE", status);
 }
+
+// Send to notes / archive logic
+initializeContextMenus();
 
 /**
  * Konverterer sikkert Firestore Timestamp (eller lignende objekter fra cache) til millisekunder.

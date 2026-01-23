@@ -330,7 +330,12 @@ export const NexusService = {
   },
 
   // --- ARCHIVE METHODS ---
-  async addArchiveItem(workspaceId: string, url: string) {
+  async addArchiveItem(
+    workspaceId: string,
+    url: string,
+    readLater: boolean = false,
+    title?: string,
+  ) {
     const uid = getUid();
     // Normaliser URL
     let cleanUrl = url.trim();
@@ -342,7 +347,8 @@ export const NexusService = {
       id: crypto.randomUUID(),
       url: cleanUrl,
       createdAt: Date.now(),
-      title: cleanUrl,
+      title: title || cleanUrl,
+      readLater: readLater,
     };
 
     const docRef = getArchiveListRef(uid, workspaceId);
@@ -355,6 +361,37 @@ export const NexusService = {
       },
       { merge: true },
     );
+  },
+
+  // OPPDATER ARCHIVE ITEM (Bruges til toggle read later)
+  async updateArchiveItem(
+    workspaceId: string,
+    itemId: string,
+    updates: Partial<ArchiveItem>,
+  ) {
+    const uid = getUid();
+    const docRef = getArchiveListRef(uid, workspaceId);
+
+    try {
+      const snap = await getDoc(docRef);
+      if (!snap.exists()) return;
+
+      const data = snap.data();
+      const items = (data.items || []) as ArchiveItem[];
+
+      // Find og opdater item i arrayet
+      const updatedItems = items.map((item) => {
+        if (item.id === itemId) {
+          return { ...item, ...updates };
+        }
+        return item;
+      });
+
+      // Gem hele listen igen
+      await updateDoc(docRef, { items: updatedItems });
+    } catch (err) {
+      console.error("Failed to update archive item:", err);
+    }
   },
 
   async removeArchiveItem(workspaceId: string, item: ArchiveItem) {

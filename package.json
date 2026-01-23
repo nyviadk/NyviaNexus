@@ -14,7 +14,8 @@
     "firebase": "^12.7.0",
     "lucide-react": "^0.562.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-simple-code-editor": "^0.14.1"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.3",

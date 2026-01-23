@@ -54,6 +54,7 @@ export interface ArchiveItem {
   url: string;
   title?: string;
   createdAt: number;
+  readLater?: boolean;
 }
 
 // --- NOTES SYSTEM ---

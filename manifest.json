@@ -18,7 +18,8 @@
     "scripting",
     "tabGroups",
     "favicon",
-    "alarms"
+    "alarms",
+    "contextMenus"
   ],
   "incognito": "spanning",
   "host_permissions": ["<all_urls>"]
