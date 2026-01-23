@@ -29,6 +29,44 @@ const getUid = () => {
   return auth.currentUser.uid;
 };
 
+// Hjælpefunktioner til at bestemme paths baseret på context (Global vs Workspace)
+const getArchiveListRef = (uid: string, workspaceId: string) => {
+  if (workspaceId === "global") {
+    return doc(
+      db,
+      "users",
+      uid,
+      "inbox_data",
+      "global",
+      "archive_data",
+      "list",
+    );
+  }
+  return doc(
+    db,
+    "users",
+    uid,
+    "workspaces_data",
+    workspaceId,
+    "archive_data",
+    "list",
+  );
+};
+
+const getNotesCollectionRef = (uid: string, workspaceId: string) => {
+  if (workspaceId === "global") {
+    return collection(db, "users", uid, "inbox_data", "global", "notes");
+  }
+  return collection(db, "users", uid, "workspaces_data", workspaceId, "notes");
+};
+
+const getNoteDocRef = (uid: string, workspaceId: string, noteId: string) => {
+  if (workspaceId === "global") {
+    return doc(db, "users", uid, "inbox_data", "global", "notes", noteId);
+  }
+  return doc(db, "users", uid, "workspaces_data", workspaceId, "notes", noteId);
+};
+
 export const NexusService = {
   async deleteItem(item: NexusItem, allItems: NexusItem[]) {
     const uid = getUid();
@@ -307,17 +345,9 @@ export const NexusService = {
       title: cleanUrl,
     };
 
-    const docRef = doc(
-      db,
-      "users",
-      uid,
-      "workspaces_data",
-      workspaceId,
-      "archive_data",
-      "list",
-    );
+    const docRef = getArchiveListRef(uid, workspaceId);
 
-    // Brug set med merge for at være sikker på dokumentet findes
+    // Brug set med merge for at være sikker på dokumentet findes (især for inbox)
     return await setDoc(
       docRef,
       {
@@ -329,15 +359,7 @@ export const NexusService = {
 
   async removeArchiveItem(workspaceId: string, item: ArchiveItem) {
     const uid = getUid();
-    const docRef = doc(
-      db,
-      "users",
-      uid,
-      "workspaces_data",
-      workspaceId,
-      "archive_data",
-      "list",
-    );
+    const docRef = getArchiveListRef(uid, workspaceId);
     return await updateDoc(docRef, {
       items: arrayRemove(item),
     });
@@ -352,7 +374,7 @@ export const NexusService = {
   ) {
     const uid = getUid();
     const q = query(
-      collection(db, "users", uid, "workspaces_data", workspaceId, "notes"),
+      getNotesCollectionRef(uid, workspaceId),
       orderBy("createdAt", "desc"),
     );
 
@@ -382,18 +404,12 @@ export const NexusService = {
   // 2. SAVE (LOGGING OPTIMIZED)
   async saveNote(workspaceId: string, note: Note) {
     const uid = getUid();
-    const noteRef = doc(
-      db,
-      "users",
-      uid,
-      "workspaces_data",
-      workspaceId,
-      "notes",
-      note.id,
-    );
+    const noteRef = getNoteDocRef(uid, workspaceId, note.id);
 
     // Log for debugging
-    console.log(`💾 [NexusService] Saving note ${note.id}...`);
+    console.log(
+      `💾 [NexusService] Saving note ${note.id} to ${workspaceId}...`,
+    );
 
     await setDoc(noteRef, note, { merge: true });
     console.log(`✅ [NexusService] Note saved.`);
@@ -401,16 +417,10 @@ export const NexusService = {
 
   async deleteNote(workspaceId: string, noteId: string) {
     const uid = getUid();
-    console.log(`🗑️ [NexusService] Deleting note: ${noteId}`);
-    const noteRef = doc(
-      db,
-      "users",
-      uid,
-      "workspaces_data",
-      workspaceId,
-      "notes",
-      noteId,
+    console.log(
+      `🗑️ [NexusService] Deleting note: ${noteId} from ${workspaceId}`,
     );
+    const noteRef = getNoteDocRef(uid, workspaceId, noteId);
     await deleteDoc(noteRef);
   },
 };

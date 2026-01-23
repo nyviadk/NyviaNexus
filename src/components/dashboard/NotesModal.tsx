@@ -218,7 +218,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         </button>
         <button
           onClick={onClose}
-          className="ml-2 text-slate-500 hover:text-slate-300"
+          className="cursor-pointer text-slate-500 hover:text-slate-300"
         >
           <X size={24} />
         </button>
@@ -369,7 +369,7 @@ export const NotesModal: React.FC<NotesModalProps> = ({
             </span>
             <button
               onClick={handleCreateNote}
-              className="flex h-7 w-7 items-center justify-center rounded bg-blue-600 text-white hover:bg-blue-500"
+              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded bg-blue-600 text-white hover:bg-blue-500"
             >
               <Plus size={16} />
             </button>
@@ -393,7 +393,7 @@ export const NotesModal: React.FC<NotesModalProps> = ({
                 </div>
                 <button
                   onClick={(e) => handleDeleteNote(e, note.id)}
-                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 hover:text-red-400"
+                  className="absolute top-2 right-2 cursor-pointer opacity-0 group-hover:opacity-100 hover:text-red-400"
                 >
                   <Trash2 size={14} />
                 </button>

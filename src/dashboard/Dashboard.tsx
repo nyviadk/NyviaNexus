@@ -71,7 +71,6 @@ export const Dashboard = () => {
   const [modalParentId, setModalParentId] = useState<string>("root");
 
   // Vi styrer nu notes modal uafhængigt af selectedWorkspace
-  // Dette gør at vi kan åbne noter for et space uden at skifte view til det
   const [notesModalTarget, setNotesModalTarget] = useState<{
     id: string;
     name: string;
@@ -206,7 +205,7 @@ export const Dashboard = () => {
     [windows],
   );
 
-  // Update Cache logic (Using imported windowOrderCache)
+  // Update Cache logic
   if (selectedWorkspace && sortedWindows.length > 0) {
     const wsId = selectedWorkspace.id;
     const signature = `${wsId}-${sortedWindows.length}-${sortedWindows
@@ -271,21 +270,38 @@ export const Dashboard = () => {
     });
   }, [user, selectedWorkspace]);
 
-  // Archive Sync
+  // Archive Sync (Updated to handle Inbox/Global)
   useEffect(() => {
-    if (!user || !selectedWorkspace) {
+    if (!user) return;
+
+    // Bestem korrekt path baseret på viewMode
+    let docRef;
+
+    if (viewMode === "inbox") {
+      docRef = doc(
+        db,
+        "users",
+        user.uid,
+        "inbox_data",
+        "global",
+        "archive_data",
+        "list",
+      );
+    } else if (viewMode === "workspace" && selectedWorkspace) {
+      docRef = doc(
+        db,
+        "users",
+        user.uid,
+        "workspaces_data",
+        selectedWorkspace.id,
+        "archive_data",
+        "list",
+      );
+    } else {
       setArchiveItems([]);
       return;
     }
-    const docRef = doc(
-      db,
-      "users",
-      user.uid,
-      "workspaces_data",
-      selectedWorkspace.id,
-      "archive_data",
-      "list",
-    );
+
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -295,7 +311,7 @@ export const Dashboard = () => {
       }
     });
     return () => unsubscribe();
-  }, [user, selectedWorkspace]);
+  }, [user, selectedWorkspace, viewMode]);
 
   // Listeners
   useEffect(() => {
@@ -353,13 +369,13 @@ export const Dashboard = () => {
       setSelectedWindowId(null);
       setWindows([]);
       setArchiveItems([]);
-      setNotesModalTarget(null); // Luk eventuelle noter
+      setNotesModalTarget(null);
       setSelectedWorkspace(item);
     },
     [selectedWorkspace],
   );
 
-  // --- URL PARAMS & DEEP LINKING LOGIC (OPDATERET) ---
+  // --- URL PARAMS & DEEP LINKING LOGIC ---
   useEffect(() => {
     if (items.length > 0 && !hasLoadedUrlParams.current) {
       const params = new URLSearchParams(window.location.search);
@@ -370,22 +386,24 @@ export const Dashboard = () => {
 
       // 1. Håndter Deep Link til Noter
       if (noteSpaceId) {
-        const noteWs = items.find((i) => i.id === noteSpaceId);
-        if (noteWs) {
-          // Åbn noter uafhængigt af hvad vi ellers viser
-          setNotesModalTarget({ id: noteWs.id, name: noteWs.name });
-
-          // RYD URL STRAKS
-          const newUrl = new URL(window.location.href);
-          newUrl.searchParams.delete("noteSpace");
-          // Vi fjerner også workspaceId/windowId for at give en ren URL, som du bad om
-          newUrl.searchParams.delete("workspaceId");
-          newUrl.searchParams.delete("windowId");
-          window.history.replaceState({}, "", newUrl.toString());
+        if (noteSpaceId === "global") {
+          setNotesModalTarget({ id: "global", name: "Inbox" });
+        } else {
+          const noteWs = items.find((i) => i.id === noteSpaceId);
+          if (noteWs) {
+            setNotesModalTarget({ id: noteWs.id, name: noteWs.name });
+          }
         }
+
+        // RYD URL STRAKS
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete("noteSpace");
+        newUrl.searchParams.delete("workspaceId");
+        newUrl.searchParams.delete("windowId");
+        window.history.replaceState({}, "", newUrl.toString());
       }
 
-      // 2. Håndter normal navigation (hvis ikke vi bare skal vise en note overlay)
+      // 2. Håndter normal navigation
       if (wsId) {
         const targetWs = items.find((i) => i.id === wsId);
         if (targetWs && selectedWorkspace?.id !== targetWs.id) {
@@ -441,6 +459,11 @@ export const Dashboard = () => {
     ([id, m]) =>
       id === currentWindowId && m.internalWindowId === selectedWindowId,
   );
+
+  const shouldShowArchive =
+    (viewMode === "workspace" && selectedWorkspace) || viewMode === "inbox";
+  const currentArchiveWorkspaceId =
+    viewMode === "inbox" ? "global" : selectedWorkspace?.id || "";
 
   if (!user)
     return (
@@ -536,15 +559,18 @@ export const Dashboard = () => {
               </div>
 
               {/* HØJRE: ARKIV SIDEBAR */}
-              {viewMode === "workspace" && selectedWorkspace && (
+              {shouldShowArchive && (
                 <ArchiveSidebar
-                  workspaceId={selectedWorkspace.id}
+                  workspaceId={currentArchiveWorkspaceId}
                   items={archiveItems}
                   activeMappings={activeMappings}
                   onOpenNotes={() =>
                     setNotesModalTarget({
-                      id: selectedWorkspace.id,
-                      name: selectedWorkspace.name,
+                      id: currentArchiveWorkspaceId,
+                      name:
+                        viewMode === "inbox"
+                          ? "Inbox"
+                          : selectedWorkspace?.name || "Workspace",
                     })
                   }
                 />
