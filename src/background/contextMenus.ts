@@ -100,7 +100,7 @@ const updateMenuTitles = async (windowId: number) => {
       title: `Read It Later (${name})`,
     });
   } catch (e) {
-    // Ignorer fejl ved opstart
+    // Ignorer
   }
 };
 
@@ -172,24 +172,49 @@ const handleSendToNotes = async (
       const noteDoc = snap.docs[0];
       const currentContent = noteDoc.data().content || "";
 
-      // DEDUPLIKERING: Tjek om citatet allerede findes præcist
-      if (currentContent.includes(quote)) {
-        console.log("Nexus: Citat findes allerede i noten. Ignorerer.");
+      // 1. TOTAL DUBLET TJEK: Har vi både citat og url?
+      if (
+        currentContent.includes(quote) &&
+        currentContent.includes(sourceUrl)
+      ) {
+        console.log("Nexus: Citat og kilde findes allerede. Ignorerer.");
         return;
       }
 
+      // 2. EDGE CASE TJEK: Har vi citat, men mangler kilde?
+      // (F.eks. hvis brugeren slettede kilden manuelt)
+      if (
+        currentContent.includes(quote) &&
+        !currentContent.includes(sourceUrl)
+      ) {
+        console.log("Nexus: Citat fundet uden kilde. Reparerer.");
+        // Vi indsætter kilden lige under citatet
+        const repairString = `${quote}\n\nKilde:\n${sourceUrl}`;
+        // Replace kun første forekomst
+        const repairedContent = currentContent.replace(quote, repairString);
+
+        await updateDoc(noteDoc.ref, {
+          content: repairedContent,
+          updatedAt: timestamp,
+        });
+        return;
+      }
+
+      // 3. NORMAL MERGE LOGIC (Nyt citat)
       const expectedFooter = `Kilde:\n${sourceUrl}\n${BOX_BORDER}`;
       let updatedContent = "";
 
       if (currentContent.trim().endsWith(expectedFooter)) {
         // MATCH: Merge ind i eksisterende blok
+        // Skær footeren af
         const body = currentContent
           .slice(0, currentContent.lastIndexOf(expectedFooter))
           .trimEnd();
+        // Indsæt divider, nyt citat og footer igen
         updatedContent = `${body}\n\n${BOX_DIVIDER}\n\n${quote}\n\n${expectedFooter}`;
         console.log(`Nexus: Merged content into existing block.`);
       } else {
-        // NO MATCH: Ny boks
+        // NO MATCH: Ny boks tilføjes
         const newBlock = `${BOX_BORDER}\n${quote}\n\nKilde:\n${sourceUrl}\n${BOX_BORDER}`;
         updatedContent = `${currentContent}\n\n\n${newBlock}`;
         console.log(`Nexus: Appended new block to note.`);
@@ -233,7 +258,7 @@ const handleSendToNotes = async (
   }
 };
 
-// --- FEATURE 2: READ IT LATER (DEDUPE LOGIC) ---
+// --- FEATURE 2: READ IT LATER ---
 const handleReadItLater = async (
   uid: string,
   workspaceId: string,
@@ -266,30 +291,22 @@ const handleReadItLater = async (
       items = (docSnap.data().items || []) as ArchiveItem[];
     }
 
-    // Tjek om URL allerede findes
     const existingIndex = items.findIndex((i) => i.url === targetUrl);
 
     if (existingIndex !== -1) {
-      // URL findes allerede
       const existingItem = items[existingIndex];
-
       if (existingItem.readLater) {
-        // Allerede Read Later -> Gør ingenting
         console.log("Nexus: Link er allerede på Læseliste.");
         return;
       } else {
-        // Findes i arkiv, men ikke Read Later -> Opdater til Read Later
         existingItem.readLater = true;
-        // Vi opdaterer timestamp så den ryger i toppen
         existingItem.createdAt = Date.now();
-
         await updateDoc(listRef, { items });
         console.log("Nexus: Link flyttet til Læseliste.");
         return;
       }
     }
 
-    // Hvis ikke fundet -> Tilføj ny
     const newItem: ArchiveItem = {
       id: crypto.randomUUID(),
       url: targetUrl,
@@ -298,7 +315,6 @@ const handleReadItLater = async (
       readLater: true,
     };
 
-    // Vi bruger setDoc med merge for at være sikker på dokumentet oprettes hvis det mangler
     await setDoc(listRef, { items: arrayUnion(newItem) }, { merge: true });
     console.log(`Nexus: Tilføjet til Læseliste`);
   } catch (e) {
