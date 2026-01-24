@@ -148,10 +148,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       setLocalItems(items);
       setIsReordering(false);
     } else {
-      const initialized = items.map((item, idx) => ({
+      // Sorter items først, så nye items (order=0/undefined) bliver lagt først i arrayet.
+      // Dette sikrer, at når vi tildeler index, så beholder de deres "Nr 1" plads.
+      const sortedBeforeInit = [...items].sort(
+        (a, b) => (a.order || 0) - (b.order || 0),
+      );
+
+      const initialized = sortedBeforeInit.map((item, idx) => ({
         ...item,
-        order: item.order ?? idx,
+        order: idx, // Tildel fast rækkefølge baseret på den visuelle sortering
       }));
+
       setLocalItems(initialized);
       setIsReordering(true);
     }
@@ -537,7 +544,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </div>
 
-            {/* HER ER ANIMATIONEN PÅ ROOT NIVEAU */}
             <div ref={animationParent} className="space-y-0.5">
               {filteredRootItems.map((item, index) => (
                 <SidebarItem
