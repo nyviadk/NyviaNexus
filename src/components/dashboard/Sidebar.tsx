@@ -86,8 +86,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isInboxSyncing, setIsInboxSyncing] = useState(false);
   const [aiHealth, setAiHealth] = useState<AiHealthStatus>("up");
 
+  const [folderStates, setFolderStates] = useState<Record<string, boolean>>({});
+
   const rootDragCounter = useRef<number>(0);
   const inboxDragCounter = useRef<number>(0);
+
+  // --- LOAD FOLDER STATES FRA CHROME STORAGE ---
+  useEffect(() => {
+    chrome.storage.local.get("nexus_folder_states").then((result) => {
+      if (result.nexus_folder_states) {
+        setFolderStates(result.nexus_folder_states as Record<string, boolean>);
+      }
+    });
+  }, []);
+
+  // --- GEM STATUS FUNKTION ---
+  const handleToggleFolder = useCallback((itemId: string, isOpen: boolean) => {
+    setFolderStates((prev) => {
+      const newState = { ...prev, [itemId]: isOpen };
+      // Gem asynkront
+      chrome.storage.local.set({ nexus_folder_states: newState });
+      return newState;
+    });
+  }, []);
 
   // Lyt på AI Status ændringer fra storage
   useEffect(() => {
@@ -440,6 +461,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   activeDragId={activeDragId}
                   onTabDrop={handleSidebarTabDrop}
                   onDeleteSuccess={handleDeleteSuccess}
+                  folderStates={folderStates}
+                  onToggleFolder={handleToggleFolder}
                 />
               ))}
             </div>

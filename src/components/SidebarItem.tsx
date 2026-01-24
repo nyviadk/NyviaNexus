@@ -37,6 +37,8 @@ interface Props {
   activeDragId: string | null;
   onTabDrop?: (targetItem: NexusItem) => Promise<void>;
   onDeleteSuccess?: (deletedId: string) => void;
+  folderStates: Record<string, boolean>;
+  onToggleFolder: (id: string, isOpen: boolean) => void;
 }
 
 export const SidebarItem = ({
@@ -50,13 +52,17 @@ export const SidebarItem = ({
   activeDragId,
   onTabDrop,
   onDeleteSuccess,
+  folderStates,
+  onToggleFolder,
 }: Props) => {
-  const [isOpen, setIsOpen] = useState(true);
   const [isDragOver, setIsDragOver] = useState(false);
   const [tabDropStatus, setTabDropStatus] = useState<
     "valid" | "invalid" | null
   >(null);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Hvis item ikke findes i folderStates (f.eks. første gang), defaulter vi til true (åben)
+  const isOpen = folderStates[item.id] ?? true;
 
   const dragCounter = useRef(0);
   const isFolder = item.type === "folder";
@@ -323,8 +329,9 @@ export const SidebarItem = ({
         onDrop={onDrop}
         onClick={async (e) => {
           e.stopPropagation();
-          if (isFolder) setIsOpen(!isOpen);
-          else if (onSelect) onSelect(item);
+          if (isFolder) {
+            onToggleFolder(item.id, !isOpen);
+          } else if (onSelect) onSelect(item);
           else {
             const auth = getAuth();
             const currentUser = auth.currentUser;
@@ -412,7 +419,8 @@ export const SidebarItem = ({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    setIsOpen(true);
+                    // Sørg for mappen er åben når vi tilføjer noget
+                    if (!isOpen) onToggleFolder(item.id, true);
                     onAddChild?.(item.id, "folder");
                   }}
                   title="Ny mappe"
@@ -423,7 +431,8 @@ export const SidebarItem = ({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    setIsOpen(true);
+                    // Sørg for mappen er åben når vi tilføjer noget
+                    if (!isOpen) onToggleFolder(item.id, true);
                     onAddChild?.(item.id, "workspace");
                   }}
                   title="Nyt space"
@@ -474,6 +483,8 @@ export const SidebarItem = ({
                     activeDragId={activeDragId}
                     onTabDrop={onTabDrop}
                     onDeleteSuccess={onDeleteSuccess}
+                    folderStates={folderStates}
+                    onToggleFolder={onToggleFolder}
                   />
                 </div>
               );
