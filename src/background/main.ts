@@ -433,6 +433,9 @@ async function validateAndCleanupState() {
       console.log("🔍 Scanning for untracked/new tabs...");
       for (const win of physicalWindows) {
         if (!win.id) continue;
+        // SKIP: Ignorer popups under scanning
+        if (win.type === "popup" || win.type === "panel" || win.type === "app")
+          continue;
 
         if (activeWindows.has(win.id)) {
           // Dette er et Workspace-vindue -> Force Sync (Opdaterer Firestore med nye tabs)
@@ -533,7 +536,12 @@ async function rebuildTabTracker() {
 
     const allWindows = await chrome.windows.getAll();
     const unmappedWindows = allWindows.filter(
-      (w) => w.id && !activeWindows.has(w.id) && !lockedWindowIds.has(w.id),
+      (w) =>
+        w.id &&
+        !activeWindows.has(w.id) &&
+        !lockedWindowIds.has(w.id) &&
+        w.type !== "popup" &&
+        w.type !== "panel",
     );
 
     // 1. Map Inbox Tabs
@@ -898,6 +906,17 @@ async function registerNewInboxWindow(windowId: number) {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
 
+  // SIKKERHEDSTJEK: Vi vil ikke håndtere popups som Inbox-vinduer
+  try {
+    const win = await chrome.windows.get(windowId);
+    if (win.type === "popup" || win.type === "panel" || win.type === "app") {
+      console.log(`🚫 Ignoring popup/panel window for inbox registration.`);
+      return;
+    }
+  } catch (e) {
+    return; // Vinduet er allerede lukket
+  }
+
   if (activeRestorations > 0) return;
   const tabs = await chrome.tabs.query({ windowId });
   const tabsToAdd: TabData[] = [];
@@ -1159,6 +1178,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
     } else {
       // Inbox Logic
       // Hvis vi når herned, og ensureStateHydrated har kørt, er det en "ægte" ukendt fane
+      // MEN vi skal sikre os at det ikke er en popup. Men tab.windowId er allerede valideret indirekte.
       const inboxRef = doc(db, "users", uid, "inbox_data", "global");
       const snap = await getDoc(inboxRef);
       if (snap.exists()) {
@@ -1239,6 +1259,11 @@ chrome.windows.onCreated.addListener(async (win) => {
   await ensureStateHydrated();
 
   if (win.id && !activeWindows.has(win.id)) {
+    // FIX: Tjek vinduestype. Popups og Paneler skal IKKE blive til Inbox-vinduer.
+    if (win.type === "popup" || win.type === "panel" || win.type === "app") {
+      console.log(`🚫 New window is of type ${win.type}. Ignoring.`);
+      return;
+    }
     setTimeout(() => registerNewInboxWindow(win.id!), 1000);
   }
 });
@@ -1252,6 +1277,14 @@ chrome.windows.onFocusChanged.addListener(async (winId) => {
   if (now - lastDashboardTime < 1500) return;
   try {
     const win = await chrome.windows.get(winId);
+
+    // FIX: Tjek om vinduet er en popup, app eller panel.
+    // Hvis det er, skal vi ALDRIG tvinge dashboardet frem.
+    // Dette løser problemet med at du ikke kan "komme ind" på vinduet.
+    if (win.type === "popup" || win.type === "panel" || win.type === "app") {
+      return;
+    }
+
     if (win.incognito && !activeWindows.has(winId)) return;
     const tabs = await chrome.tabs.query({ windowId: winId });
     if (!tabs.some((t) => isDash(t.url))) {
