@@ -33,7 +33,7 @@ export const CustomProfileSelector = memo(
 
     const currentProfileName = useMemo(() => {
       return (
-        profiles.find((p) => p.id === activeProfile)?.name || "Vælg Profil"
+        profiles.find((p) => p.id === activeProfile)?.name || "Vælg profil"
       );
     }, [profiles, activeProfile]);
 
