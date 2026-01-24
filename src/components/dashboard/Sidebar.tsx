@@ -4,6 +4,7 @@ import { doc, writeBatch } from "firebase/firestore";
 import {
   Activity,
   AlertTriangle,
+  ArrowRightLeft,
   ArrowUpCircle,
   FolderPlus,
   Inbox as InboxIcon,
@@ -12,9 +13,11 @@ import {
   LogOut,
   Monitor,
   PlusCircle,
+  Save,
   Settings,
   Share2,
   VenetianMask,
+  X,
   XCircle,
 } from "lucide-react";
 import React, {
@@ -88,10 +91,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const [folderStates, setFolderStates] = useState<Record<string, boolean>>({});
 
+  // --- REORDERING STATE ---
+  const [isReordering, setIsReordering] = useState(false);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
+  const [localItems, setLocalItems] = useState<NexusItem[]>([]);
+
   const rootDragCounter = useRef<number>(0);
   const inboxDragCounter = useRef<number>(0);
 
-  // --- LOAD FOLDER STATES FRA CHROME STORAGE ---
+  useEffect(() => {
+    if (!isReordering) {
+      setLocalItems(items);
+    }
+  }, [items, isReordering]);
+
   useEffect(() => {
     chrome.storage.local.get("nexus_folder_states").then((result) => {
       if (result.nexus_folder_states) {
@@ -100,26 +113,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   }, []);
 
-  // --- GEM STATUS FUNKTION ---
   const handleToggleFolder = useCallback((itemId: string, isOpen: boolean) => {
     setFolderStates((prev) => {
       const newState = { ...prev, [itemId]: isOpen };
-      // Gem asynkront
       chrome.storage.local.set({ nexus_folder_states: newState });
       return newState;
     });
   }, []);
 
-  // Lyt på AI Status ændringer fra storage
   useEffect(() => {
-    // Initial load
     chrome.storage.local.get("nexus_ai_health").then((res) => {
-      if (res.nexus_ai_health) {
+      if (res.nexus_ai_health)
         setAiHealth(res.nexus_ai_health as AiHealthStatus);
-      }
     });
 
-    // Listener
     const handleStorageChange = (
       changes: { [key: string]: chrome.storage.StorageChange },
       areaName: string,
@@ -128,19 +135,76 @@ export const Sidebar: React.FC<SidebarProps> = ({
         setAiHealth(changes.nexus_ai_health.newValue as AiHealthStatus);
       }
     };
-
     chrome.storage.onChanged.addListener(handleStorageChange);
-    return () => {
-      chrome.storage.onChanged.removeListener(handleStorageChange);
-    };
+    return () => chrome.storage.onChanged.removeListener(handleStorageChange);
   }, []);
+
+  const handleToggleReordering = () => {
+    if (isReordering) {
+      setLocalItems(items);
+      setIsReordering(false);
+    } else {
+      const initialized = items.map((item, idx) => ({
+        ...item,
+        order: item.order ?? idx,
+      }));
+      setLocalItems(initialized);
+      setIsReordering(true);
+    }
+  };
+
+  const handleSaveOrder = async () => {
+    if (!auth.currentUser) return;
+    setIsSavingOrder(true);
+    try {
+      const batch = writeBatch(db);
+      localItems.forEach((item) => {
+        const ref = doc(db, "users", auth.currentUser!.uid, "items", item.id);
+        batch.update(ref, { order: item.order });
+      });
+      await batch.commit();
+      setIsReordering(false);
+    } catch (err) {
+      console.error("Fejl ved gemning af rækkefølge:", err);
+      alert("Kunne ikke gemme rækkefølgen.");
+    } finally {
+      setIsSavingOrder(false);
+    }
+  };
+
+  const handleMoveItem = (id: string, direction: "up" | "down") => {
+    const itemsCopy = [...localItems];
+    const targetItem = itemsCopy.find((i) => i.id === id);
+    if (!targetItem) return;
+
+    const siblings = itemsCopy
+      .filter(
+        (i) =>
+          i.parentId === targetItem.parentId &&
+          i.profileId === targetItem.profileId,
+      )
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+    const currentIndex = siblings.findIndex((i) => i.id === id);
+    if (currentIndex === -1) return;
+
+    const swapIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (swapIndex < 0 || swapIndex >= siblings.length) return;
+
+    const swapSibling = siblings[swapIndex];
+    const tempOrder = targetItem.order;
+    targetItem.order = swapSibling.order;
+    swapSibling.order = tempOrder;
+
+    setLocalItems(itemsCopy);
+  };
 
   const filteredRootItems = useMemo(
     () =>
-      items.filter(
-        (i) => i.profileId === activeProfile && i.parentId === "root",
-      ),
-    [items, activeProfile],
+      localItems
+        .filter((i) => i.profileId === activeProfile && i.parentId === "root")
+        .sort((a, b) => (a.order || 0) - (b.order || 0)),
+    [localItems, activeProfile],
   );
 
   const getFilteredInboxTabs = useCallback(
@@ -153,7 +217,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     [inboxData],
   );
 
-  // Find det element der trækkes for at validere "Move to root" og fejlbeskeder
   const draggedItem = useMemo(
     () => (activeDragId ? items.find((i) => i.id === activeDragId) : null),
     [activeDragId, items],
@@ -188,10 +251,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 ([wId]) => wId === cWin.id,
               );
               const mapping = mappingEntry ? mappingEntry[1] : null;
-
               let label = "Ukendt";
               let subLabel = "";
-
               const isInbox =
                 !mapping ||
                 (mapping && mapping.workspaceId === "global") ||
@@ -202,7 +263,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 subLabel = "Global";
               } else if (mapping) {
                 const ws = items.find((i) => i.id === mapping.workspaceId);
-
                 if (ws) {
                   label = ws.name;
                 } else if (isLoading) {
@@ -210,10 +270,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 } else {
                   label = "Slettet Space";
                 }
-
                 if (mapping.index !== undefined) {
-                  if (isCurrent) {
-                  }
                   if (mapping.index === 99) {
                     subLabel = "Opretter...";
                   } else {
@@ -306,9 +363,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 kategoriseret, så snart servicen er oppe igen.
               </p>
               <a
-                className="mt-1 text-[10px] leading-relaxed text-amber-200/70 underline hover:text-amber-200"
+                className="mt-1 block text-[10px] leading-relaxed text-amber-200/70 underline hover:text-amber-200"
                 href="https://statusgator.com/services/cerebras"
                 target="_blank"
+                rel="noreferrer"
               >
                 https://statusgator.com/services/cerebras
               </a>
@@ -317,13 +375,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         <div className="flex items-center gap-2">
-          {/* Implementering af Memoized Selector */}
           <CustomProfileSelector
             profiles={profiles}
             activeProfile={activeProfile}
             onSelect={handleProfileChange}
           />
-
           <button
             onClick={() => setModalType("settings")}
             className="cursor-pointer rounded-xl border border-slate-600 bg-slate-800/50 p-2 text-slate-400 transition-colors hover:border-slate-500 hover:text-blue-400"
@@ -339,7 +395,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <nav className="space-y-4">
-          {activeDragId && !isAlreadyAtRoot && (
+          {activeDragId && !isAlreadyAtRoot && !isReordering && (
             <div
               onDragOver={(e) => e.preventDefault()}
               onDragEnter={() => {
@@ -354,7 +410,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 e.preventDefault();
                 setIsDragOverRoot(false);
                 rootDragCounter.current = 0;
-
                 const dId = e.dataTransfer.getData("itemId");
                 if (dId) {
                   setIsSyncingRoot(true);
@@ -390,62 +445,100 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="flex items-center justify-between px-2 text-[10px] font-bold tracking-widest text-slate-400 uppercase">
               Spaces
               <div className="flex gap-2">
-                <button
-                  onClick={async () => {
-                    if (!auth.currentUser) return;
-                    if (confirm("Nulstil hierarki?")) {
-                      const b = writeBatch(db);
-                      items
-                        .filter(
-                          (i) =>
-                            i.profileId === activeProfile &&
-                            i.parentId !== "root",
-                        )
-                        .forEach((it) =>
-                          b.update(
-                            doc(
-                              db,
-                              "users",
-                              auth.currentUser!.uid,
-                              "items",
-                              it.id,
-                            ),
-                            { parentId: "root" },
-                          ),
-                        );
-                      await b.commit();
-                    }
-                  }}
-                  className="cursor-pointer transition-transform hover:scale-110"
-                >
-                  <LifeBuoy size={18} className="hover:text-red-400" />
-                </button>
-                <button
-                  onClick={() => {
-                    setModalParentId("root");
-                    setModalType("folder");
-                  }}
-                  className="cursor-pointer transition-transform hover:scale-110"
-                >
-                  <FolderPlus size={18} className="hover:text-white" />
-                </button>
-                <button
-                  onClick={() => {
-                    setModalParentId("root");
-                    setModalType("workspace");
-                  }}
-                  className="cursor-pointer transition-transform hover:scale-110"
-                >
-                  <PlusCircle size={18} className="hover:text-white" />
-                </button>
+                {isReordering ? (
+                  <>
+                    <button
+                      onClick={handleSaveOrder}
+                      disabled={isSavingOrder}
+                      className="cursor-pointer text-green-400 transition-transform hover:scale-110 disabled:opacity-50"
+                      title="Gem rækkefølge"
+                    >
+                      {isSavingOrder ? (
+                        <Loader2 size={18} className="animate-spin" />
+                      ) : (
+                        <Save size={18} />
+                      )}
+                    </button>
+                    <button
+                      onClick={handleToggleReordering}
+                      disabled={isSavingOrder}
+                      className="cursor-pointer text-slate-400 transition-transform hover:scale-110 hover:text-white disabled:opacity-50"
+                      title="Annuller"
+                    >
+                      <X size={18} />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={async () => {
+                        if (!auth.currentUser) return;
+                        if (confirm("Nulstil hierarki?")) {
+                          const b = writeBatch(db);
+                          items
+                            .filter(
+                              (i) =>
+                                i.profileId === activeProfile &&
+                                i.parentId !== "root",
+                            )
+                            .forEach((it) =>
+                              b.update(
+                                doc(
+                                  db,
+                                  "users",
+                                  auth.currentUser!.uid,
+                                  "items",
+                                  it.id,
+                                ),
+                                { parentId: "root" },
+                              ),
+                            );
+                          await b.commit();
+                        }
+                      }}
+                      className="cursor-pointer transition-transform hover:scale-110"
+                    >
+                      <LifeBuoy size={18} className="hover:text-red-400" />
+                    </button>
+                    <button
+                      onClick={handleToggleReordering}
+                      className="cursor-pointer transition-transform hover:scale-110"
+                      title="Sorter spaces og mapper"
+                    >
+                      <ArrowRightLeft
+                        size={18}
+                        className="rotate-90 hover:text-white"
+                      />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setModalParentId("root");
+                        setModalType("folder");
+                      }}
+                      className="cursor-pointer transition-transform hover:scale-110"
+                    >
+                      <FolderPlus size={18} className="hover:text-white" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setModalParentId("root");
+                        setModalType("workspace");
+                      }}
+                      className="cursor-pointer transition-transform hover:scale-110"
+                    >
+                      <PlusCircle size={18} className="hover:text-white" />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
+
             <div className="space-y-0.5">
-              {filteredRootItems.map((item) => (
+              {filteredRootItems.map((item, index) => (
                 <SidebarItem
                   key={item.id}
                   item={item}
-                  allItems={items}
+                  allItems={localItems}
                   onRefresh={() => {}}
                   onSelect={handleWorkspaceClick}
                   onAddChild={(pid, type) => {
@@ -463,126 +556,133 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onDeleteSuccess={handleDeleteSuccess}
                   folderStates={folderStates}
                   onToggleFolder={handleToggleFolder}
+                  isReordering={isReordering}
+                  onMoveItem={handleMoveItem}
+                  // Beregn om det er første eller sidste element i root
+                  isFirst={index === 0}
+                  isLast={index === filteredRootItems.length - 1}
                 />
               ))}
             </div>
           </div>
         </nav>
 
-        <nav
-          onDragOver={(e) => {
-            e.preventDefault();
-            if (activeDragId) {
-              setInboxDropStatus("invalid");
-              return;
-            }
-            const tJ = window.sessionStorage.getItem("draggedTab");
-            if (tJ) {
-              const tab = JSON.parse(tJ) as DraggedTabPayload;
-              setInboxDropStatus(
-                tab.sourceWorkspaceId !== "global" || tab.isIncognito
-                  ? "valid"
-                  : "invalid",
-              );
-            }
-          }}
-          onDragEnter={() => {
-            inboxDragCounter.current++;
-            setIsInboxDragOver(true);
-          }}
-          onDragLeave={() => {
-            inboxDragCounter.current--;
-            if (inboxDragCounter.current === 0) {
-              setIsInboxDragOver(false);
-              setInboxDropStatus(null);
-            }
-          }}
-          onDrop={async (e) => {
-            e.preventDefault();
-            if (activeDragId) {
+        {!isReordering && (
+          <nav
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (activeDragId) {
+                setInboxDropStatus("invalid");
+                return;
+              }
+              const tJ = window.sessionStorage.getItem("draggedTab");
+              if (tJ) {
+                const tab = JSON.parse(tJ) as DraggedTabPayload;
+                setInboxDropStatus(
+                  tab.sourceWorkspaceId !== "global" || tab.isIncognito
+                    ? "valid"
+                    : "invalid",
+                );
+              }
+            }}
+            onDragEnter={() => {
+              inboxDragCounter.current++;
+              setIsInboxDragOver(true);
+            }}
+            onDragLeave={() => {
+              inboxDragCounter.current--;
+              if (inboxDragCounter.current === 0) {
+                setIsInboxDragOver(false);
+                setInboxDropStatus(null);
+              }
+            }}
+            onDrop={async (e) => {
+              e.preventDefault();
+              if (activeDragId) {
+                setIsInboxDragOver(false);
+                setInboxDropStatus(null);
+                inboxDragCounter.current = 0;
+                return;
+              }
+              const tJ = window.sessionStorage.getItem("draggedTab");
               setIsInboxDragOver(false);
               setInboxDropStatus(null);
               inboxDragCounter.current = 0;
-              return;
-            }
-            const tJ = window.sessionStorage.getItem("draggedTab");
-            setIsInboxDragOver(false);
-            setInboxDropStatus(null);
-            inboxDragCounter.current = 0;
-            setIsInboxSyncing(true);
-            try {
-              if (tJ) {
-                const tab = JSON.parse(tJ) as DraggedTabPayload;
-                if (tab.sourceWorkspaceId !== "global" || tab.isIncognito) {
+              setIsInboxSyncing(true);
+              try {
+                if (tJ) {
+                  const tab = JSON.parse(tJ) as DraggedTabPayload;
+                  if (tab.sourceWorkspaceId !== "global" || tab.isIncognito) {
+                    await handleSidebarTabDrop("global");
+                  }
+                } else {
                   await handleSidebarTabDrop("global");
                 }
-              } else {
-                await handleSidebarTabDrop("global");
+              } finally {
+                setIsInboxSyncing(false);
               }
-            } finally {
-              setIsInboxSyncing(false);
-            }
-          }}
-          className="group"
-        >
-          <label className="mb-2 block px-2 text-[10px] font-bold tracking-widest text-slate-400 uppercase transition-colors group-hover:text-slate-300">
-            Opsamling
-          </label>
-
-          <div
-            onClick={() => {
-              setSelectedWorkspace(null);
-              setViewMode("inbox");
             }}
-            className={`mb-2 flex cursor-pointer items-center gap-2 rounded-xl border p-2 text-sm backdrop-blur-sm transition-all ${
-              viewMode === "inbox"
-                ? "border-orange-500/50 bg-orange-600/20 text-orange-400 shadow-lg"
-                : inboxDropStatus === "invalid" && isInboxDragOver
-                  ? "scale-[0.98] border-red-500/50 bg-red-900/20 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]"
-                  : inboxDropStatus === "valid" && isInboxDragOver
-                    ? "scale-[1.02] border-emerald-500/50 bg-emerald-900/40 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)]"
-                    : isInboxDragOver
-                      ? "border-slate-500 bg-slate-700/50 text-slate-200"
-                      : "border-transparent text-slate-400 hover:bg-slate-700/30 hover:text-slate-200"
-            }`}
+            className="group"
           >
-            {isInboxSyncing ? (
-              <Loader2 size={20} className="animate-spin text-blue-400" />
-            ) : inboxDropStatus === "invalid" && isInboxDragOver ? (
-              <XCircle size={20} className="text-red-500" />
-            ) : (
-              <InboxIcon size={20} />
-            )}
-            <span className="font-medium">
-              {inboxDropStatus === "invalid" && isInboxDragOver
-                ? `Kan ikke flytte ${
-                    draggedItem?.type === "folder"
-                      ? "mappe"
-                      : draggedItem?.type === "workspace"
-                        ? "Space"
-                        : "Inbox fane"
-                  } hertil`
-                : `Inbox (${getFilteredInboxTabs(false).length})`}
-            </span>
-          </div>
+            <label className="mb-2 block px-2 text-[10px] font-bold tracking-widest text-slate-400 uppercase transition-colors group-hover:text-slate-300">
+              Opsamling
+            </label>
 
-          <div
-            onClick={() => {
-              setSelectedWorkspace(null);
-              setViewMode("incognito");
-            }}
-            className={`flex cursor-pointer items-center gap-2 rounded-xl border p-2 text-sm backdrop-blur-sm transition-all ${
-              viewMode === "incognito"
-                ? "border-purple-500/50 bg-purple-900/40 text-purple-400 shadow-lg"
-                : inboxDropStatus === "invalid" && isInboxDragOver
-                  ? "cursor-not-allowed opacity-30 grayscale"
-                  : "border-transparent text-slate-400 hover:bg-slate-700/30 hover:text-slate-200"
-            }`}
-          >
-            <VenetianMask size={20} />
-            <span>Incognito ({getFilteredInboxTabs(true).length})</span>
-          </div>
-        </nav>
+            <div
+              onClick={() => {
+                setSelectedWorkspace(null);
+                setViewMode("inbox");
+              }}
+              className={`mb-2 flex cursor-pointer items-center gap-2 rounded-xl border p-2 text-sm backdrop-blur-sm transition-all ${
+                viewMode === "inbox"
+                  ? "border-orange-500/50 bg-orange-600/20 text-orange-400 shadow-lg"
+                  : inboxDropStatus === "invalid" && isInboxDragOver
+                    ? "scale-[0.98] border-red-500/50 bg-red-900/20 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+                    : inboxDropStatus === "valid" && isInboxDragOver
+                      ? "scale-[1.02] border-emerald-500/50 bg-emerald-900/40 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+                      : isInboxDragOver
+                        ? "border-slate-500 bg-slate-700/50 text-slate-200"
+                        : "border-transparent text-slate-400 hover:bg-slate-700/30 hover:text-slate-200"
+              }`}
+            >
+              {isInboxSyncing ? (
+                <Loader2 size={20} className="animate-spin text-blue-400" />
+              ) : inboxDropStatus === "invalid" && isInboxDragOver ? (
+                <XCircle size={20} className="text-red-500" />
+              ) : (
+                <InboxIcon size={20} />
+              )}
+              <span className="font-medium">
+                {inboxDropStatus === "invalid" && isInboxDragOver
+                  ? `Kan ikke flytte ${
+                      draggedItem?.type === "folder"
+                        ? "mappe"
+                        : draggedItem?.type === "workspace"
+                          ? "Space"
+                          : "Inbox fane"
+                    } hertil`
+                  : `Inbox (${getFilteredInboxTabs(false).length})`}
+              </span>
+            </div>
+
+            <div
+              onClick={() => {
+                setSelectedWorkspace(null);
+                setViewMode("incognito");
+              }}
+              className={`flex cursor-pointer items-center gap-2 rounded-xl border p-2 text-sm backdrop-blur-sm transition-all ${
+                viewMode === "incognito"
+                  ? "border-purple-500/50 bg-purple-900/40 text-purple-400 shadow-lg"
+                  : inboxDropStatus === "invalid" && isInboxDragOver
+                    ? "cursor-not-allowed opacity-30 grayscale"
+                    : "border-transparent text-slate-400 hover:bg-slate-700/30 hover:text-slate-200"
+              }`}
+            >
+              <VenetianMask size={20} />
+              <span>Incognito ({getFilteredInboxTabs(true).length})</span>
+            </div>
+          </nav>
+        )}
       </div>
 
       <div className="flex flex-col gap-3 border-t border-slate-700/30 bg-slate-900/30 p-4 text-sm backdrop-blur-md">

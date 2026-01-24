@@ -10,6 +10,7 @@ export interface NexusItem {
   type: ItemType;
   name: string;
   isSnapshot?: boolean;
+  order?: number;
 }
 
 export interface Profile {
@@ -32,23 +33,21 @@ export interface WorkspaceWindow {
   isActive?: boolean;
   lastActive?: Timestamp;
   createdAt: Timestamp;
-  name?: string; // Kan være nyttig til debugging eller UI
+  name?: string;
 }
 
-// NYE TYPES TIL INDSTILLINGER
 export interface UserCategory {
   id: string;
   name: string;
-  color: string; // Hex code
+  color: string;
 }
 
 export interface AiSettings {
-  allowDynamic: boolean; // Må AI opfinde nye kategorier?
-  useUncategorized: boolean; // Skal vi bruge "Ukategoriseret" hvis intet passer (kun hvis allowDynamic = false)
+  allowDynamic: boolean;
+  useUncategorized: boolean;
   userCategories: UserCategory[];
 }
 
-// --- ARKIV FUNKTION ---
 export interface ArchiveItem {
   id: string;
   url: string;
@@ -57,12 +56,11 @@ export interface ArchiveItem {
   readLater?: boolean;
 }
 
-// --- NOTES SYSTEM ---
 export interface Note {
   id: string;
   title: string;
-  content: string; // Gemmer linjeskift som \n
+  content: string;
   createdAt: number;
-  updatedAt: number; // Bruges til sortering (nyeste øverst)
-  lastEditorId?: string; // NY: Hvem redigerede sidst?
+  updatedAt: number;
+  lastEditorId?: string;
 }

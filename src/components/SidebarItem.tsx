@@ -1,6 +1,8 @@
 import { getAuth } from "firebase/auth";
 import { collection, getDocs } from "firebase/firestore";
 import {
+  ArrowDown,
+  ArrowUp,
   ChevronDown,
   ChevronRight,
   Edit3,
@@ -11,7 +13,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { db } from "../lib/firebase";
 import { NexusService } from "../services/nexusService";
 import { NexusItem } from "../types";
@@ -39,6 +41,10 @@ interface Props {
   onDeleteSuccess?: (deletedId: string) => void;
   folderStates: Record<string, boolean>;
   onToggleFolder: (id: string, isOpen: boolean) => void;
+  isReordering: boolean;
+  onMoveItem: (id: string, direction: "up" | "down") => void;
+  isFirst?: boolean;
+  isLast?: boolean;
 }
 
 export const SidebarItem = ({
@@ -54,6 +60,10 @@ export const SidebarItem = ({
   onDeleteSuccess,
   folderStates,
   onToggleFolder,
+  isReordering,
+  onMoveItem,
+  isFirst = false,
+  isLast = false,
 }: Props) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [tabDropStatus, setTabDropStatus] = useState<
@@ -61,12 +71,17 @@ export const SidebarItem = ({
   >(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Hvis item ikke findes i folderStates (f.eks. første gang), defaulter vi til true (åben)
   const isOpen = folderStates[item.id] ?? true;
 
   const dragCounter = useRef(0);
   const isFolder = item.type === "folder";
-  const childItems = allItems.filter((i) => i.parentId === item.id);
+
+  // SORTERING AF BØRN
+  const childItems = useMemo(() => {
+    return allItems
+      .filter((i) => i.parentId === item.id)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+  }, [allItems, item.id]);
 
   const draggedItem = activeDragId
     ? allItems.find((i) => i.id === activeDragId)
@@ -74,13 +89,12 @@ export const SidebarItem = ({
   const isInvalidItemDrop =
     activeDragId === item.id || draggedItem?.parentId === item.id;
 
-  // Reset drag state når drag stopper globalt
   useEffect(() => {
     if (!activeDragId) {
       if (!tabDropStatus) setIsDragOver(false);
       dragCounter.current = 0;
     }
-  }, [activeDragId]);
+  }, [activeDragId, tabDropStatus]);
 
   const isDescendant = (
     sourceId: string,
@@ -99,8 +113,6 @@ export const SidebarItem = ({
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
-
-    // Vi tjekker kun lokale fysiske vinduer (går lynhurtigt)
     let hasActiveWindows = false;
     try {
       const storage = await chrome.storage.local.get("nexus_active_windows");
@@ -125,35 +137,24 @@ export const SidebarItem = ({
       console.warn("Kunne ikke tjekke aktive vinduer:", err);
     }
 
-    // --- BYG BESKEDEN ---
     let message = `Du er ved at slette "${item.name}".\n\n`;
-
     if (hasActiveWindows) {
       message += `⚠️ ADVARSEL: Dette space er åbent i browseren og vil blive lukket!\n`;
     }
-
     if (item.type === "workspace") {
-      // Standard advarsel for alle workspaces - nemmere og mere sikkert
       message += `⚠️ BEMÆRK: Dette sletter også alt i Arkiv og Noter permanent.\n`;
     }
-
     if (item.type === "folder" && childItems.length > 0) {
       message += `⚠️ Denne mappe indeholder ${childItems.length} under-elementer som også vil blive slettet.\n`;
     }
-
     message += `\nSkriv navnet "${item.name}" herunder for at bekræfte:`;
 
-    // --- PROMPT ---
     const userInput = prompt(message);
-
     if (userInput === item.name) {
-      // Korrekt navn -> Slet
       setIsSyncing(true);
       try {
         await NexusService.deleteItem(item, allItems);
-        // Lille delay så brugeren når at se loading spinner (UX)
         await new Promise((r) => setTimeout(r, 500));
-
         onRefresh();
         if (onDeleteSuccess) onDeleteSuccess(item.id);
       } catch (error) {
@@ -180,6 +181,10 @@ export const SidebarItem = ({
   };
 
   const onDragStart = (e: React.DragEvent) => {
+    if (isReordering) {
+      e.preventDefault();
+      return;
+    }
     e.dataTransfer.setData("nexus/item-id", item.id);
     e.dataTransfer.setData("itemId", item.id);
     e.dataTransfer.effectAllowed = "move";
@@ -194,6 +199,7 @@ export const SidebarItem = ({
   };
 
   const onDragEnter = (e: React.DragEvent) => {
+    if (isReordering) return;
     e.preventDefault();
     e.stopPropagation();
     dragCounter.current++;
@@ -202,7 +208,6 @@ export const SidebarItem = ({
     if (tabJson) {
       const tabData = JSON.parse(tabJson) as DraggedTabData;
       const isSourceSpace = tabData.sourceWorkspaceId === item.id;
-
       if (isFolder || isSourceSpace) {
         setTabDropStatus("invalid");
       } else {
@@ -210,13 +215,11 @@ export const SidebarItem = ({
       }
       return;
     }
-
-    if (isFolder) {
-      setIsDragOver(true);
-    }
+    if (isFolder) setIsDragOver(true);
   };
 
   const onDragLeave = (e: React.DragEvent) => {
+    if (isReordering) return;
     e.preventDefault();
     e.stopPropagation();
     dragCounter.current--;
@@ -227,19 +230,17 @@ export const SidebarItem = ({
   };
 
   const onDrop = async (e: React.DragEvent) => {
+    if (isReordering) return;
     e.preventDefault();
     e.stopPropagation();
     dragCounter.current = 0;
     setIsDragOver(false);
     setTabDropStatus(null);
 
-    // --- TAB DROP HANDLER ---
     const tabJson = window.sessionStorage.getItem("draggedTab");
     if (tabJson) {
       const tabData = JSON.parse(tabJson) as DraggedTabData;
-      if (isFolder || tabData.sourceWorkspaceId === item.id) {
-        return;
-      }
+      if (isFolder || tabData.sourceWorkspaceId === item.id) return;
 
       if (onTabDrop) {
         setIsSyncing(true);
@@ -253,7 +254,6 @@ export const SidebarItem = ({
       return;
     }
 
-    // --- ITEM SORTING HANDLER ---
     if (!isFolder || isInvalidItemDrop) {
       onDragEndCleanup();
       return;
@@ -291,27 +291,28 @@ export const SidebarItem = ({
     }
   };
 
-  // --- STYLING LOGIK (OPDATERET TIL GRØN/EMERALD) ---
   let containerClasses =
-    "relative z-10 flex items-center gap-2 p-2 rounded-xl mb-1 cursor-pointer transition-all border group ";
+    "relative z-10 flex items-center gap-2 p-2 rounded-xl mb-1 transition-all border group ";
 
-  if (tabDropStatus === "valid") {
-    // GRØN: Validt sted at droppe en fane
+  if (isReordering) {
     containerClasses +=
-      "bg-emerald-900/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)] scale-[1.02]";
-  } else if (tabDropStatus === "invalid") {
-    // RØD: Invalidt sted (mappe eller kilde-space)
-    containerClasses +=
-      "bg-red-900/40 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)] opacity-80 cursor-not-allowed";
-  } else if (isDragOver) {
-    // GRØN (Eller Rød): Dragging af en mappe/item
-    containerClasses += isInvalidItemDrop
-      ? "bg-red-900/40 border-red-400"
-      : "bg-emerald-900/40 border-emerald-500/50 scale-[1.02]";
+      "cursor-default border-dashed border-slate-600 bg-slate-800/40 ";
   } else {
-    // STANDARD: Normal tilstand
-    containerClasses +=
-      "border-transparent hover:bg-slate-700/80 hover:border-slate-600 active:scale-[0.98]";
+    containerClasses += "cursor-pointer ";
+    if (tabDropStatus === "valid") {
+      containerClasses +=
+        "bg-emerald-900/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)] scale-[1.02]";
+    } else if (tabDropStatus === "invalid") {
+      containerClasses +=
+        "bg-red-900/40 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)] opacity-80 cursor-not-allowed";
+    } else if (isDragOver) {
+      containerClasses += isInvalidItemDrop
+        ? "bg-red-900/40 border-red-400"
+        : "bg-emerald-900/40 border-emerald-500/50 scale-[1.02]";
+    } else {
+      containerClasses +=
+        "border-transparent hover:bg-slate-700/80 hover:border-slate-600 active:scale-[0.98]";
+    }
   }
 
   return (
@@ -331,12 +332,12 @@ export const SidebarItem = ({
           e.stopPropagation();
           if (isFolder) {
             onToggleFolder(item.id, !isOpen);
-          } else if (onSelect) onSelect(item);
-          else {
+          } else if (!isReordering && onSelect) {
+            onSelect(item);
+          } else if (!isReordering && !onSelect) {
             const auth = getAuth();
             const currentUser = auth.currentUser;
             if (!currentUser) return;
-
             try {
               const winSnap = await getDocs(
                 collection(
@@ -361,7 +362,7 @@ export const SidebarItem = ({
             }
           }
         }}
-        draggable={!isSyncing}
+        draggable={!isSyncing && !isReordering}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
       >
@@ -413,49 +414,91 @@ export const SidebarItem = ({
         </span>
 
         {!isSyncing && (
-          <div className="flex gap-1 rounded-lg border border-slate-700/50 bg-slate-800/80 px-1 opacity-0 shadow-sm backdrop-blur-sm transition-opacity group-hover:opacity-100">
-            {isFolder && (
+          <div
+            className={`flex gap-1 rounded-lg border border-slate-700/50 bg-slate-800/80 px-1 shadow-sm backdrop-blur-sm transition-opacity ${
+              isReordering ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            }`}
+          >
+            {isReordering ? (
+              // --- REORDERING BUTTONS ---
               <>
+                {!isFirst ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMoveItem(item.id, "up");
+                    }}
+                    title="Flyt op"
+                    className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-white"
+                  >
+                    <ArrowUp size={16} />
+                  </button>
+                ) : (
+                  // Placeholder for alignment
+                  <div className="w-6.5" />
+                )}
+
+                {!isLast ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMoveItem(item.id, "down");
+                    }}
+                    title="Flyt ned"
+                    className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-white"
+                  >
+                    <ArrowDown size={16} />
+                  </button>
+                ) : (
+                  // Placeholder for alignment
+                  <div className="w-6.5" />
+                )}
+              </>
+            ) : (
+              // --- NORMAL ACTION BUTTONS ---
+              <>
+                {isFolder && (
+                  <>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!isOpen) onToggleFolder(item.id, true);
+                        onAddChild?.(item.id, "folder");
+                      }}
+                      title="Ny mappe"
+                      className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-blue-300"
+                    >
+                      <FolderPlus size={18} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!isOpen) onToggleFolder(item.id, true);
+                        onAddChild?.(item.id, "workspace");
+                      }}
+                      title="Nyt space"
+                      className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-blue-300"
+                    >
+                      <Plus size={18} />
+                    </button>
+                  </>
+                )}
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    // Sørg for mappen er åben når vi tilføjer noget
-                    if (!isOpen) onToggleFolder(item.id, true);
-                    onAddChild?.(item.id, "folder");
-                  }}
-                  title="Ny mappe"
+                  onClick={handleRename}
+                  title="Omdøb"
                   className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-blue-300"
                 >
-                  <FolderPlus size={18} />
+                  <Edit3 size={18} />
                 </button>
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    // Sørg for mappen er åben når vi tilføjer noget
-                    if (!isOpen) onToggleFolder(item.id, true);
-                    onAddChild?.(item.id, "workspace");
-                  }}
-                  title="Nyt space"
-                  className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-blue-300"
+                  onClick={handleDelete}
+                  title="Slet"
+                  className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-red-400"
                 >
-                  <Plus size={18} />
+                  <Trash2 size={18} />
                 </button>
               </>
             )}
-            <button
-              onClick={handleRename}
-              title="Omdøb"
-              className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-blue-300"
-            >
-              <Edit3 size={18} />
-            </button>
-            <button
-              onClick={handleDelete}
-              title="Slet"
-              className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-red-400"
-            >
-              <Trash2 size={18} />
-            </button>
           </div>
         )}
       </div>
@@ -465,6 +508,8 @@ export const SidebarItem = ({
           {childItems.length > 0 ? (
             childItems.map((child, index) => {
               const isLastChild = index === childItems.length - 1;
+              const isFirstChild = index === 0;
+
               return (
                 <div key={child.id} className="relative pl-4">
                   <div
@@ -485,6 +530,11 @@ export const SidebarItem = ({
                     onDeleteSuccess={onDeleteSuccess}
                     folderStates={folderStates}
                     onToggleFolder={onToggleFolder}
+                    isReordering={isReordering}
+                    onMoveItem={onMoveItem}
+                    // REKURSIVT SEND FIRST/LAST LOGIK
+                    isFirst={isFirstChild}
+                    isLast={isLastChild}
                   />
                 </div>
               );
