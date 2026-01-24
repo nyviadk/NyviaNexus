@@ -1,5 +1,6 @@
 import { getAuth } from "firebase/auth";
 import { collection, getDocs } from "firebase/firestore";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import {
   ArrowDown,
   ArrowUp,
@@ -70,6 +71,9 @@ export const SidebarItem = ({
     "valid" | "invalid" | null
   >(null);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // --- ANIMATION HOOK ---
+  const [animationParent] = useAutoAnimate();
 
   const isOpen = folderStates[item.id] ?? true;
 
@@ -434,7 +438,6 @@ export const SidebarItem = ({
                     <ArrowUp size={16} />
                   </button>
                 ) : (
-                  // Placeholder for alignment
                   <div className="w-6.5" />
                 )}
 
@@ -450,7 +453,6 @@ export const SidebarItem = ({
                     <ArrowDown size={16} />
                   </button>
                 ) : (
-                  // Placeholder for alignment
                   <div className="w-6.5" />
                 )}
               </>
@@ -504,7 +506,8 @@ export const SidebarItem = ({
       </div>
 
       {isFolder && isOpen && (
-        <div className="ml-5">
+        // HER ER ANIMATIONEN PÅ BØRN NIVEAU
+        <div ref={animationParent} className="ml-5">
           {childItems.length > 0 ? (
             childItems.map((child, index) => {
               const isLastChild = index === childItems.length - 1;
@@ -532,7 +535,6 @@ export const SidebarItem = ({
                     onToggleFolder={onToggleFolder}
                     isReordering={isReordering}
                     onMoveItem={onMoveItem}
-                    // REKURSIVT SEND FIRST/LAST LOGIK
                     isFirst={isFirstChild}
                     isLast={isLastChild}
                   />

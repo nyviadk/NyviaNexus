@@ -1,5 +1,6 @@
 import { WinMapping } from "@/background/main";
 import { DraggedTabPayload, InboxData } from "@/dashboard/types";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { doc, writeBatch } from "firebase/firestore";
 import {
   Activity,
@@ -95,6 +96,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isReordering, setIsReordering] = useState(false);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [localItems, setLocalItems] = useState<NexusItem[]>([]);
+
+  // --- ANIMATION HOOK ---
+  const [animationParent] = useAutoAnimate();
 
   const rootDragCounter = useRef<number>(0);
   const inboxDragCounter = useRef<number>(0);
@@ -533,7 +537,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </div>
 
-            <div className="space-y-0.5">
+            {/* HER ER ANIMATIONEN PÅ ROOT NIVEAU */}
+            <div ref={animationParent} className="space-y-0.5">
               {filteredRootItems.map((item, index) => (
                 <SidebarItem
                   key={item.id}
@@ -558,7 +563,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onToggleFolder={handleToggleFolder}
                   isReordering={isReordering}
                   onMoveItem={handleMoveItem}
-                  // Beregn om det er første eller sidste element i root
                   isFirst={index === 0}
                   isLast={index === filteredRootItems.length - 1}
                 />
