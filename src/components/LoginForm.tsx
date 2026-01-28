@@ -83,7 +83,7 @@ export const LoginForm = () => {
         />
         <button
           disabled={loading}
-          className="flex justify-center rounded bg-blue-600 p-2 font-bold transition hover:bg-blue-500 active:scale-95 disabled:opacity-50"
+          className="flex cursor-pointer justify-center rounded bg-blue-600 p-2 font-bold transition hover:bg-blue-500 active:scale-95 disabled:opacity-50"
         >
           {loading ? <Loader2 className="animate-spin" size={20} /> : "Log ind"}
         </button>

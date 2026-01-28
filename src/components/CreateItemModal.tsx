@@ -90,7 +90,7 @@ export const CreateItemModal = ({
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-lg p-1 text-slate-400 ring-blue-500 transition-colors outline-none hover:bg-slate-700 hover:text-white focus:ring-2"
+            className="cursor-pointer rounded-lg p-1 text-slate-400 ring-blue-500 transition-colors outline-none hover:bg-slate-700 hover:text-white focus:ring-2"
           >
             <X size={20} />
           </button>
@@ -113,14 +113,14 @@ export const CreateItemModal = ({
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 rounded-xl border border-slate-600 px-4 py-2.5 text-sm font-medium text-slate-300 ring-slate-500 transition-colors outline-none hover:bg-slate-700 hover:text-white focus:ring-2"
+              className="flex-1 cursor-pointer rounded-xl border border-slate-600 px-4 py-2.5 text-sm font-medium text-slate-300 ring-slate-500 transition-colors outline-none hover:bg-slate-700 hover:text-white focus:ring-2"
             >
               Annuller
             </button>
             <button
               type="submit"
               disabled={loading || !name.trim()}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-500/20 ring-blue-400 transition-all outline-none hover:bg-blue-500 focus:ring-2 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-500/20 ring-blue-400 transition-all outline-none hover:bg-blue-500 focus:ring-2 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading && <Loader2 size={16} className="animate-spin" />}
               Opret

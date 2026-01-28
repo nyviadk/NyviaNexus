@@ -89,7 +89,7 @@ export const ClaimModal = ({
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white"
+            className="cursor-pointer rounded-lg p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white"
           >
             <X size={20} />
           </button>
@@ -133,7 +133,7 @@ export const ClaimModal = ({
           <button
             disabled={loading || !name.trim()}
             onClick={handleClaim}
-            className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 p-2.5 font-bold transition-all hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500"
+            className="mt-2 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-600 p-2.5 font-bold transition-all hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500"
           >
             {loading ? (
               <>

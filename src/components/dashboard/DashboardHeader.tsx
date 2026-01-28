@@ -103,7 +103,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             <button
               onClick={handleCopySpace}
               disabled={totalTabsInSpace === 0}
-              className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-bold transition ${
+              className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-bold transition ${
                 totalTabsInSpace === 0
                   ? "cursor-not-allowed border-slate-800 bg-slate-800 text-slate-600"
                   : "cursor-pointer border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500 hover:text-white"

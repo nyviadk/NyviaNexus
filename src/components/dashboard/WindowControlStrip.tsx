@@ -187,7 +187,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
         }}
         onClick={() => handleCreateNewWindow()}
         disabled={isCreating}
-        className={`flex h-14 w-14 items-center justify-center rounded-xl border border-dashed transition-all duration-200 ${
+        className={`flex h-14 w-14 cursor-pointer items-center justify-center rounded-xl border border-dashed transition-all duration-200 ${
           isPlusOver
             ? "scale-110 border-emerald-500 bg-emerald-500/10 text-emerald-400 shadow-xl shadow-emerald-900/20"
             : "border-slate-700 text-slate-500 hover:border-blue-500 hover:text-blue-400"

@@ -37,7 +37,7 @@ export const WindowActions = ({
       <button
         onClick={handleCopy}
         title="Kopier alle links til udklipsholder"
-        className="group relative rounded-md p-1.5 text-slate-400 transition hover:bg-slate-700 hover:text-blue-400"
+        className="group relative cursor-pointer rounded-md p-1.5 text-slate-400 transition hover:bg-slate-700 hover:text-blue-400"
       >
         {hasCopied ? (
           <Check size={14} className="text-green-500" />
@@ -53,7 +53,7 @@ export const WindowActions = ({
         <button
           onClick={handlePasteClick}
           disabled={isWindowOpen}
-          className={`rounded-md p-1.5 transition ${
+          className={`cursor-pointer rounded-md p-1.5 transition ${
             isWindowOpen
               ? "cursor-not-allowed bg-slate-800/50 text-slate-600"
               : "text-slate-400 hover:bg-slate-700 hover:text-purple-400"
