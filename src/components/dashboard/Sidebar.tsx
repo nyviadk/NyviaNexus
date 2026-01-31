@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   ArrowRightLeft,
   ArrowUpCircle,
+  Eye,
   FolderPlus,
   Inbox as InboxIcon,
   LifeBuoy,
@@ -70,6 +71,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeMappings,
   viewMode,
   setViewMode,
+  selectedWorkspace,
   setSelectedWorkspace,
   setModalType,
   setModalParentId,
@@ -292,6 +294,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }
               }
 
+              // Logic to determine if Dashboard View matches Physical Window Context
+              let isContextMatch = false;
+              if (isInbox) {
+                if (cWin.incognito) {
+                  isContextMatch = viewMode === "incognito";
+                } else {
+                  isContextMatch = viewMode === "inbox";
+                }
+              } else if (mapping && mapping.workspaceId) {
+                isContextMatch =
+                  viewMode === "workspace" &&
+                  selectedWorkspace?.id === mapping.workspaceId;
+              }
+
               return (
                 <div
                   key={cWin.id}
@@ -347,8 +363,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     )}
                   </div>
                   {isCurrent && (
-                    <div className="ml-2 shrink-0 rounded bg-green-500/20 px-1.5 py-0.5 text-[9px] font-black tracking-wider text-green-500 uppercase shadow-[0_0_5px_rgba(34,197,94,0.2)]">
-                      HER
+                    <div className="flex items-center gap-1.5">
+                      {!isContextMatch && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isInbox) {
+                              setSelectedWorkspace(null);
+                              setViewMode(
+                                cWin.incognito ? "incognito" : "inbox",
+                              );
+                            } else if (mapping?.workspaceId) {
+                              const ws = items.find(
+                                (i) => i.id === mapping.workspaceId,
+                              );
+                              if (ws) handleWorkspaceClick(ws);
+                            }
+                          }}
+                          className="group flex cursor-pointer items-center justify-center rounded bg-slate-700/50 p-1 text-slate-300 transition-all hover:bg-blue-500 hover:text-white"
+                          title="Gå til dette space i Dashboardet"
+                        >
+                          <Eye size={12} />
+                        </button>
+                      )}
+                      <div className="ml-2 shrink-0 rounded bg-green-500/20 px-1.5 py-0.5 text-[9px] font-black tracking-wider text-green-500 uppercase shadow-[0_0_5px_rgba(34,197,94,0.2)]">
+                        HER
+                      </div>
                     </div>
                   )}
                 </div>
