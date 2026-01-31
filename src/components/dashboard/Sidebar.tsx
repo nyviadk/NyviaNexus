@@ -377,7 +377,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               const ws = items.find(
                                 (i) => i.id === mapping.workspaceId,
                               );
-                              if (ws) handleWorkspaceClick(ws);
+                              if (ws) {
+                                if (ws.profileId !== activeProfile) {
+                                  setActiveProfile(ws.profileId);
+                                }
+                                handleWorkspaceClick(ws);
+                              }
                             }
                           }}
                           className="group flex cursor-pointer items-center justify-center rounded bg-slate-700/50 p-1 text-slate-300 transition-all hover:bg-blue-500 hover:text-white"
