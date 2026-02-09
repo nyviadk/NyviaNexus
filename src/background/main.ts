@@ -143,6 +143,17 @@ type BackgroundMessage =
         targetWorkspaceId: string;
         targetInternalWindowId: string;
       };
+    }
+  | {
+      // NY MESSAGE: Tvinger en fane ind i AI køen (Bypasser anti-spam)
+      type: "FORCE_QUEUE_TAB";
+      payload: {
+        uid: string;
+        url: string;
+        title: string;
+        tabId: number;
+        workspaceName: string;
+      };
     };
 
 // --- STATE ---
@@ -827,7 +838,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-async function addToAiQueue(items: QueueItem[]) {
+// FIX: Added 'force' parameter to bypass recentQueueAdds check
+async function addToAiQueue(items: QueueItem[], force: boolean = false) {
   try {
     const data = (await chrome.storage.local.get(
       AI_STORAGE_KEY,
@@ -848,6 +860,9 @@ async function addToAiQueue(items: QueueItem[]) {
         return false;
       }
 
+      // HVIS FORCE er true, så ignorerer vi "nyligt tilføjet" tjekket
+      if (force) return true;
+
       const recentlyAdded = recentQueueAdds.has(i.uid + i.url);
       const isProcessing = currentlyProcessing.has(i.uid);
 
@@ -866,7 +881,9 @@ async function addToAiQueue(items: QueueItem[]) {
     )
       return;
 
-    console.log(`📥 Adding ${newItems.length} items to AI Queue (URL Unique)`);
+    console.log(
+      `📥 Adding ${newItems.length} items to AI Queue (Force: ${force})`,
+    );
     newItems.forEach((i) => {
       recentQueueAdds.add(i.uid + i.url);
       setTimeout(() => recentQueueAdds.delete(i.uid + i.url), 5000);
@@ -1083,6 +1100,24 @@ async function saveToFirestore(
     console.error("Save error:", e);
   }
 }
+
+// --- FIX: NYE LISTENERS FOR AT FANGE FLYTNING MELLEM VINDUER ---
+chrome.tabs.onAttached.addListener(async (_tabId, info) => {
+  const uid = auth.currentUser?.uid;
+  if (!uid || activeRestorations > 0) return;
+  console.log(`📌 Tab Attached to Window ${info.newWindowId}`);
+  // Opdater destinationens vindue
+  await saveToFirestore(info.newWindowId);
+});
+
+chrome.tabs.onDetached.addListener(async (_tabId, info) => {
+  const uid = auth.currentUser?.uid;
+  if (!uid || activeRestorations > 0) return;
+  console.log(`📤 Tab Detached from Window ${info.oldWindowId}`);
+  // Opdater kildens vindue
+  await saveToFirestore(info.oldWindowId);
+});
+// -------------------------------------------------------------
 
 chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
   const uid = auth.currentUser?.uid;
@@ -1358,6 +1393,18 @@ chrome.runtime.onMessage.addListener(
           }
         });
         return false; // No response needed
+      }
+
+      // NYT: Force queue håndtering
+      case "FORCE_QUEUE_TAB": {
+        console.log("⚡ FORCE_QUEUE_TAB received:", message.payload);
+        const { uid, url, title, tabId, workspaceName } = message.payload;
+        // Vi kalder addToAiQueue med force=true
+        addToAiQueue(
+          [{ uid, url, title, tabId, workspaceName, attempts: 0 }],
+          true,
+        );
+        return true;
       }
 
       case "DELETE_AND_CLOSE_WINDOW": {

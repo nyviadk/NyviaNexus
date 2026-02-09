@@ -68,10 +68,7 @@ const getNoteDocRef = (uid: string, workspaceId: string, noteId: string) => {
 };
 
 export const NexusService = {
-  // ... (deleteItem, createItem, renameItem, moveItem, deleteTab, moveTabBetweenWindows, createWorkspace forbliver uændrede) ...
-
   async deleteItem(item: NexusItem, allItems: NexusItem[]) {
-    // (Behold eksisterende kode her)
     const uid = getUid();
     const batch = writeBatch(db);
     const itemsToDelete: string[] = [];
@@ -127,7 +124,6 @@ export const NexusService = {
     parentId: string;
     profileId: string;
   }) {
-    // (Behold eksisterende kode)
     const uid = getUid();
     const id = `${data.type === "folder" ? "fol" : "ws"}_${Date.now()}`;
     const batch = writeBatch(db);
@@ -175,7 +171,6 @@ export const NexusService = {
   },
 
   async deleteTab(tab: TabData, workspaceId: string, windowId: string) {
-    // (Behold eksisterende kode)
     const uid = getUid();
     const ref =
       windowId === "global" ||
@@ -207,7 +202,6 @@ export const NexusService = {
     targetWorkspaceId: string,
     targetWindowId: string,
   ) {
-    // (Behold eksisterende kode)
     const uid = getUid();
     const getRef = (wsId: string, winId: string) => {
       if (winId === "global" || winId === "incognito" || wsId === "global")
@@ -216,7 +210,17 @@ export const NexusService = {
     };
     const sourceRef = getRef(sourceWorkspaceId, sourceWindowId);
     const targetRef = getRef(targetWorkspaceId, targetWindowId);
+
+    // FIX: Rens tab for ID for at sikre clean Firestore object
     const tabToMove = { ...tab, uid: tab.uid || crypto.randomUUID() };
+    delete (tabToMove as any).id;
+    delete (tabToMove as any).width;
+    delete (tabToMove as any).height;
+    delete (tabToMove as any).index;
+    delete (tabToMove as any).windowId;
+    delete (tabToMove as any).active;
+    delete (tabToMove as any).selected;
+
     const batch = writeBatch(db);
     const sourceSnap = await getDoc(sourceRef);
     if (sourceSnap.exists()) {
@@ -238,7 +242,6 @@ export const NexusService = {
     internalWindowId: string;
     tabs: TabData[];
   }) {
-    // (Behold eksisterende kode)
     const uid = getUid();
     const batch = writeBatch(db);
     const tabsWithUid = data.tabs.map((t) => ({
@@ -276,7 +279,7 @@ export const NexusService = {
     return await batch.commit();
   },
 
-  // --- ARCHIVE METHODS (OPDATERET MED DEDUPE) ---
+  // --- ARCHIVE METHODS ---
   async addArchiveItem(
     workspaceId: string,
     url: string,
@@ -309,14 +312,12 @@ export const NexusService = {
         items[existingIndex] = {
           ...existing,
           readLater: true,
-          createdAt: Date.now(), // Bump to top
+          createdAt: Date.now(),
         };
         return await updateDoc(docRef, { items });
       }
-      // Ellers gør ingenting (den er der allerede)
       return;
     }
-
     // 3. Tilføj ny hvis ikke fundet
     const newItem: ArchiveItem = {
       id: crypto.randomUUID(),
@@ -369,7 +370,7 @@ export const NexusService = {
     });
   },
 
-  // --- NOTES METHODS (Uændret) ---
+  // --- NOTES METHODS ---
   subscribeToNotes(
     workspaceId: string,
     onUpdate: (notes: Note[], fromLocal: boolean) => void,
