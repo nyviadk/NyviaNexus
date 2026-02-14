@@ -255,13 +255,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 ([wId]) => wId === cWin.id,
               );
               const mapping = mappingEntry ? mappingEntry[1] : null;
-              let label = "Ukendt";
-              let subLabel = "";
+
+              // --- LABEL LOGIK ---
+              let label = "Ukendt"; // Dette er som udgangspunkt Space Navnet
+              let subLabel = ""; // Dette er som udgangspunkt Vindues Indeks/Code
+
               const isInbox =
                 !mapping ||
                 (mapping && mapping.workspaceId === "global") ||
                 cWin.type === "popup";
 
+              // 1. Bestem Space Navn (Basic Label)
               if (isInbox) {
                 label = cWin.incognito ? "Incognito Inbox" : "Inbox";
                 subLabel = "Global";
@@ -275,20 +279,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   label = "Slettet Space";
                 }
 
-                // FIX: Hent custom windowName hvis det findes
+                // 2. Tjek for Custom Window Name
                 const customWindowName =
                   (mapping as any).windowName || (mapping as any).name;
 
-                if (mapping.index !== undefined) {
-                  if (mapping.index === 99) {
-                    subLabel = "Opretter...";
-                  } else if (customWindowName) {
-                    subLabel = customWindowName;
-                  } else {
-                    subLabel = `Vindue ${mapping.index}`;
-                  }
+                // 3. PRIORITERING LOGIK:
+                // Hvis der er et Custom Name, skal det være "Main Headline" (label),
+                // og Space Navnet rykkes ned som "Sub Headline" (subLabel).
+                if (customWindowName) {
+                  subLabel = label; // Space navnet bliver sekundært
+                  label = customWindowName; // Custom navnet bliver primært (stor grøn)
                 } else {
-                  subLabel = "Indlæser...";
+                  // Standard adfærd: Ingen custom navn -> Vis indeks
+                  if (mapping.index !== undefined) {
+                    if (mapping.index === 99) {
+                      subLabel = "Opretter...";
+                    } else {
+                      subLabel = `Vindue ${mapping.index}`;
+                    }
+                  } else {
+                    subLabel = "Indlæser...";
+                  }
                 }
               }
 
