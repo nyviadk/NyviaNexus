@@ -62,21 +62,30 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
   };
 
   const handleSaveRename = async () => {
-    if (editingId && selectedWorkspace) {
-      const trimmed = editName.trim();
-      // Hvis tomt, gemmer vi null/undefined så den falder tilbage til "Vindue X"
-      await NexusService.renameWindow(
-        selectedWorkspace.id,
-        editingId,
-        trimmed || "",
-      );
-    }
+    // Guard clause: Hvis vi ikke redigerer noget, stop her.
+    // Dette beskytter mod race conditions hvis onBlur og Enter rammer samtidigt.
+    if (!editingId || !selectedWorkspace) return;
+
+    const currentEditingId = editingId;
+    const trimmed = editName.trim();
+    // Hvis tomt, gemmer vi null/undefined så den falder tilbage til "Vindue X"
+
+    await NexusService.renameWindow(
+      selectedWorkspace.id,
+      currentEditingId,
+      trimmed || "",
+    );
+
     setEditingId(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") handleSaveRename();
-    if (e.key === "Escape") setEditingId(null);
+    if (e.key === "Enter") {
+      handleSaveRename();
+    }
+    if (e.key === "Escape") {
+      setEditingId(null);
+    }
   };
 
   return (
@@ -148,13 +157,18 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
                       onKeyDown={handleKeyDown}
+                      onBlur={handleSaveRename} // Gemmer når fokus mistes
                       onClick={(e) => e.stopPropagation()}
                       className="w-32 rounded border border-blue-500 bg-slate-900 px-1 py-0.5 text-xs text-white outline-none"
                       placeholder={`Vindue ${idx + 1}`}
                     />
                     <button
-                      onClick={(e) => {
+                      // onMouseDown bruges i stedet for onClick her, fordi onBlur ellers
+                      // trigger før onClick når man trykker på knappen, hvilket kan skabe race conditions.
+                      // onMouseDown sker før blur.
+                      onMouseDown={(e) => {
                         e.stopPropagation();
+                        e.preventDefault(); // Forhindrer input i at miste fokus før vi gemmer manuelt
                         handleSaveRename();
                       }}
                       className="cursor-pointer rounded bg-green-500/20 p-0.5 text-green-400 hover:bg-green-500/30"
