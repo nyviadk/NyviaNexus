@@ -33,7 +33,7 @@ export interface WorkspaceWindow {
   isActive?: boolean;
   lastActive?: Timestamp;
   createdAt: Timestamp;
-  name?: string;
+  name?: string; // Dette felt bruger vi til det brugerdefinerede navn
 }
 
 export interface UserCategory {

@@ -1,7 +1,8 @@
-import React, { useState } from "react";
-import { ExternalLink, PlusCircle, Trash2, Loader2 } from "lucide-react";
-import { NexusItem, WorkspaceWindow } from "../../types";
+import { Check, ExternalLink, Loader2, PlusCircle, Trash2 } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
 import { DraggedTabPayload } from "../../dashboard/types";
+import { NexusService } from "../../services/nexusService";
+import { NexusItem, WorkspaceWindow } from "../../types";
 
 interface WindowControlStripProps {
   sortedWindows: WorkspaceWindow[];
@@ -24,6 +25,16 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
 }) => {
   const [isPlusOver, setIsPlusOver] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editingId && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editingId]);
 
   const handleCreateNewWindow = (initialTab?: DraggedTabPayload) => {
     if (!selectedWorkspace) return;
@@ -44,17 +55,41 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
     );
   };
 
+  const handleStartRename = (win: WorkspaceWindow, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(win.id);
+    setEditName(win.name || ""); // Brug eksisterende navn eller tom streng
+  };
+
+  const handleSaveRename = async () => {
+    if (editingId && selectedWorkspace) {
+      const trimmed = editName.trim();
+      // Hvis tomt, gemmer vi null/undefined så den falder tilbage til "Vindue X"
+      await NexusService.renameWindow(
+        selectedWorkspace.id,
+        editingId,
+        trimmed || "",
+      );
+    }
+    setEditingId(null);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") handleSaveRename();
+    if (e.key === "Escape") setEditingId(null);
+  };
+
   return (
     <div className="flex flex-wrap items-center gap-4">
       {sortedWindows.map((win, idx) => {
         const isDropTarget = dropTargetWinId === win.id;
         const isSourceWindow = selectedWindowId === win.id;
+        const isEditing = editingId === win.id;
 
         let borderClass = "border-slate-700 hover:border-slate-500";
         let bgClass = "bg-slate-800";
         let shadowClass = "";
 
-        // Din logik for styling prioritet genindført:
         if (isDropTarget) {
           if (isSourceWindow) {
             // RØD: Forsøger at droppe i samme vindue (Invalid)
@@ -84,7 +119,6 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
               }
             }}
             onDragLeave={(e) => {
-              // Flicker-fix genindført
               const currentTarget = e.currentTarget;
               const relatedTarget = e.relatedTarget as Node;
               if (currentTarget.contains(relatedTarget)) {
@@ -100,64 +134,94 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
           >
             <div
               onClick={() =>
+                !isEditing &&
                 setSelectedWindowId(selectedWindowId === win.id ? null : win.id)
               }
               className={`group relative flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-all ${bgClass} ${borderClass} ${shadowClass}`}
+              onDoubleClick={(e) => !isEditing && handleStartRename(win, e)}
             >
-              <div className="pointer-events-none flex flex-col">
-                <span
-                  className={`text-xs font-bold ${
-                    isDropTarget && !isSourceWindow
-                      ? "text-emerald-400"
-                      : "text-slate-300"
-                  }`}
-                >
-                  Vindue {idx + 1}
-                </span>
-                <span className="mt-1 text-[10px] text-slate-500">
-                  {win.tabs?.length || 0} tabs
-                </span>
+              <div className="flex flex-col">
+                {isEditing ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={inputRef}
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-32 rounded border border-blue-500 bg-slate-900 px-1 py-0.5 text-xs text-white outline-none"
+                      placeholder={`Vindue ${idx + 1}`}
+                    />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSaveRename();
+                      }}
+                      className="cursor-pointer rounded bg-green-500/20 p-0.5 text-green-400 hover:bg-green-500/30"
+                    >
+                      <Check size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <span
+                      className={`text-xs font-bold ${
+                        isDropTarget && !isSourceWindow
+                          ? "text-emerald-400"
+                          : "text-slate-300"
+                      }`}
+                    >
+                      {win.name || `Vindue ${idx + 1}`}
+                    </span>
+
+                    <span className="mt-1 text-[10px] text-slate-500">
+                      {win.tabs?.length || 0} tabs
+                    </span>
+                  </>
+                )}
               </div>
 
-              {/* Handlingsknapper genindført */}
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    chrome.runtime.sendMessage({
-                      type: "OPEN_SPECIFIC_WINDOW",
-                      payload: {
-                        workspaceId: selectedWorkspace?.id,
-                        windowData: win,
-                        name: selectedWorkspace?.name,
-                        index: idx + 1,
-                      },
-                    });
-                  }}
-                  className="cursor-pointer rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-blue-500/20 hover:text-blue-400"
-                  title="Åbn dette vindue"
-                >
-                  <ExternalLink size={18} />
-                </button>
-
-                <button
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    if (confirm("Slet vindue?"))
+              {/* Handlingsknapper */}
+              {!isEditing && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
                       chrome.runtime.sendMessage({
-                        type: "DELETE_AND_CLOSE_WINDOW",
+                        type: "OPEN_SPECIFIC_WINDOW",
                         payload: {
                           workspaceId: selectedWorkspace?.id,
-                          internalWindowId: win.id,
+                          windowData: win,
+                          name: selectedWorkspace?.name,
+                          index: idx + 1,
                         },
                       });
-                  }}
-                  className="cursor-pointer rounded-lg p-1.5 text-slate-400 opacity-0 transition-all group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-400"
-                  title="Slet vindue"
-                >
-                  <Trash2 size={18} />
-                </button>
-              </div>
+                    }}
+                    className="cursor-pointer rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-blue-500/20 hover:text-blue-400"
+                    title="Åbn dette vindue"
+                  >
+                    <ExternalLink size={18} />
+                  </button>
+
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (confirm("Slet vindue?"))
+                        chrome.runtime.sendMessage({
+                          type: "DELETE_AND_CLOSE_WINDOW",
+                          payload: {
+                            workspaceId: selectedWorkspace?.id,
+                            internalWindowId: win.id,
+                          },
+                        });
+                    }}
+                    className="cursor-pointer rounded-lg p-1.5 text-slate-400 opacity-0 transition-all group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-400"
+                    title="Slet vindue"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         );

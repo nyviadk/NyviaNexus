@@ -77,6 +77,8 @@ export const SidebarItem = ({
 
   const isOpen = folderStates[item.id] ?? true;
 
+  // Vi beholder den originale ref, men bruger den ikke til logik for at undgå fejl.
+  // Vi bruger relatedTarget i stedet for stabilitet.
   const dragCounter = useRef(0);
   const isFolder = item.type === "folder";
 
@@ -192,7 +194,8 @@ export const SidebarItem = ({
     e.dataTransfer.setData("nexus/item-id", item.id);
     e.dataTransfer.setData("itemId", item.id);
     e.dataTransfer.effectAllowed = "move";
-    setTimeout(() => onDragStateChange(item.id), 50);
+    // Vi bruger requestAnimationFrame for at sikre at drag-billedet er genereret før state opdateres
+    requestAnimationFrame(() => onDragStateChange(item.id));
   };
 
   const onDragEnd = () => {
@@ -212,11 +215,13 @@ export const SidebarItem = ({
     if (tabJson) {
       const tabData = JSON.parse(tabJson) as DraggedTabData;
       const isSourceSpace = tabData.sourceWorkspaceId === item.id;
+      // Hvis det er en mappe eller samme space, er det ugyldigt
       if (isFolder || isSourceSpace) {
         setTabDropStatus("invalid");
       } else {
         setTabDropStatus("valid");
       }
+      setIsDragOver(true); // VIGTIGT: Sæt dragOver til true for at vise farver
       return;
     }
     if (isFolder) setIsDragOver(true);
@@ -226,11 +231,25 @@ export const SidebarItem = ({
     if (isReordering) return;
     e.preventDefault();
     e.stopPropagation();
-    dragCounter.current--;
-    if (dragCounter.current === 0) {
-      setIsDragOver(false);
-      setTabDropStatus(null);
+
+    // Brug relatedTarget til at forhindre flickering når musen rammer child elements
+    const currentTarget = e.currentTarget;
+    const relatedTarget = e.relatedTarget as Node;
+    if (currentTarget.contains(relatedTarget)) {
+      return;
     }
+
+    dragCounter.current--;
+    // Vi nulstiller kun, hvis vi faktisk forlader containeren
+    setIsDragOver(false);
+    setTabDropStatus(null);
+  };
+
+  // Nødvendig for at tillade drop
+  const onDragOver = (e: React.DragEvent) => {
+    if (isReordering) return;
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   const onDrop = async (e: React.DragEvent) => {
@@ -310,6 +329,7 @@ export const SidebarItem = ({
       containerClasses +=
         "bg-red-900/40 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)] opacity-80 cursor-not-allowed";
     } else if (isDragOver) {
+      // Hvis vi dragger en mappe over en mappe (validt drop for items)
       containerClasses += isInvalidItemDrop
         ? "bg-red-900/40 border-red-400"
         : "bg-emerald-900/40 border-emerald-500/50 scale-[1.02]";
@@ -326,10 +346,7 @@ export const SidebarItem = ({
           isSyncing ? "pointer-events-none opacity-50" : ""
         }`}
         onDragEnter={onDragEnter}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-        }}
+        onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
         onClick={async (e) => {
@@ -371,17 +388,20 @@ export const SidebarItem = ({
         onDragEnd={onDragEnd}
       >
         {isSyncing ? (
-          <Loader2 size={18} className="animate-spin text-blue-300" />
+          <Loader2
+            size={18}
+            className="pointer-events-none animate-spin text-blue-300"
+          />
         ) : isFolder ? (
           isOpen ? (
             <ChevronDown
               size={18}
-              className="cursor-pointer text-slate-400 transition-transform"
+              className="pointer-events-none cursor-pointer text-slate-400 transition-transform"
             />
           ) : (
             <ChevronRight
               size={18}
-              className="cursor-pointer text-slate-400 transition-transform"
+              className="pointer-events-none cursor-pointer text-slate-400 transition-transform"
             />
           )
         ) : (
@@ -389,7 +409,7 @@ export const SidebarItem = ({
             size={20}
             className={`${
               tabDropStatus === "valid" ? "text-emerald-400" : "text-blue-300"
-            } shrink-0 shadow-sm transition-colors`}
+            } pointer-events-none shrink-0 shadow-sm transition-colors`}
           />
         )}
 
@@ -403,12 +423,12 @@ export const SidebarItem = ({
                     (isDragOver && isInvalidItemDrop)
                   ? "text-red-400"
                   : "text-amber-400"
-            } shrink-0 fill-current transition-colors`}
+            } pointer-events-none shrink-0 fill-current transition-colors`}
           />
         )}
 
         <span
-          className={`flex-1 truncate text-sm font-medium ${
+          className={`pointer-events-none flex-1 truncate text-sm font-medium ${
             isSyncing
               ? "text-slate-400 italic"
               : "text-slate-200 group-hover:text-white"
@@ -506,7 +526,6 @@ export const SidebarItem = ({
       </div>
 
       {isFolder && isOpen && (
-        // HER ER ANIMATIONEN PÅ BØRN NIVEAU
         <div ref={animationParent} className="ml-5">
           {childItems.length > 0 ? (
             childItems.map((child, index) => {

@@ -22,13 +22,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { AiHealthStatus } from "../../services/aiService";
 import { NexusService } from "../../services/nexusService";
@@ -101,9 +95,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // --- ANIMATION HOOK ---
   const [animationParent] = useAutoAnimate();
-
-  const rootDragCounter = useRef<number>(0);
-  const inboxDragCounter = useRef<number>(0);
 
   useEffect(() => {
     if (!isReordering) {
@@ -283,9 +274,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 } else {
                   label = "Slettet Space";
                 }
+
+                // FIX: Hent custom windowName hvis det findes
+                const customWindowName =
+                  (mapping as any).windowName || (mapping as any).name;
+
                 if (mapping.index !== undefined) {
                   if (mapping.index === 99) {
                     subLabel = "Opretter...";
+                  } else if (customWindowName) {
+                    subLabel = customWindowName;
                   } else {
                     subLabel = `Vindue ${mapping.index}`;
                   }
@@ -454,18 +452,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {activeDragId && !isAlreadyAtRoot && !isReordering && (
             <div
               onDragOver={(e) => e.preventDefault()}
+              // Robust hover logic - tjek relatedTarget
               onDragEnter={() => {
-                rootDragCounter.current++;
                 setIsDragOverRoot(true);
               }}
-              onDragLeave={() => {
-                rootDragCounter.current--;
-                if (rootDragCounter.current === 0) setIsDragOverRoot(false);
+              onDragLeave={(e) => {
+                const currentTarget = e.currentTarget;
+                const relatedTarget = e.relatedTarget as Node;
+                // Hvis musen går ind i et child element, så tæl det ikke som leave
+                if (currentTarget.contains(relatedTarget)) return;
+                setIsDragOverRoot(false);
               }}
               onDrop={async (e) => {
                 e.preventDefault();
                 setIsDragOverRoot(false);
-                rootDragCounter.current = 0;
                 const dId = e.dataTransfer.getData("itemId");
                 if (dId) {
                   setIsSyncingRoot(true);
@@ -488,10 +488,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ) : (
                 <ArrowUpCircle
                   size={24}
-                  className={isDragOverRoot ? "animate-bounce" : ""}
+                  className={`pointer-events-none ${isDragOverRoot ? "animate-bounce" : ""}`}
                 />
               )}
-              <span className="text-xs font-bold tracking-widest uppercase">
+              <span className="pointer-events-none text-xs font-bold tracking-widest uppercase">
                 {isSyncingRoot ? "Flytter..." : "Flyt til rod"}
               </span>
             </div>
@@ -605,7 +605,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onDragEndCleanup={() => {
                     setActiveDragId(null);
                     setIsDragOverRoot(false);
-                    rootDragCounter.current = 0;
                   }}
                   activeDragId={activeDragId}
                   onTabDrop={handleSidebarTabDrop}
@@ -640,29 +639,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 );
               }
             }}
+            // Robust hover logic for Inbox
             onDragEnter={() => {
-              inboxDragCounter.current++;
               setIsInboxDragOver(true);
             }}
-            onDragLeave={() => {
-              inboxDragCounter.current--;
-              if (inboxDragCounter.current === 0) {
-                setIsInboxDragOver(false);
-                setInboxDropStatus(null);
-              }
+            onDragLeave={(e) => {
+              const currentTarget = e.currentTarget;
+              const relatedTarget = e.relatedTarget as Node;
+              // Hvis musen går ind i et child element (som ikonet), så tæl det ikke som leave
+              if (currentTarget.contains(relatedTarget)) return;
+              setIsInboxDragOver(false);
+              setInboxDropStatus(null);
             }}
             onDrop={async (e) => {
               e.preventDefault();
               if (activeDragId) {
                 setIsInboxDragOver(false);
                 setInboxDropStatus(null);
-                inboxDragCounter.current = 0;
                 return;
               }
               const tJ = window.sessionStorage.getItem("draggedTab");
               setIsInboxDragOver(false);
               setInboxDropStatus(null);
-              inboxDragCounter.current = 0;
               setIsInboxSyncing(true);
               try {
                 if (tJ) {
@@ -703,11 +701,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {isInboxSyncing ? (
                 <Loader2 size={20} className="animate-spin text-blue-400" />
               ) : inboxDropStatus === "invalid" && isInboxDragOver ? (
-                <XCircle size={20} className="text-red-500" />
+                <XCircle
+                  size={20}
+                  className="pointer-events-none text-red-500"
+                />
               ) : (
-                <InboxIcon size={20} />
+                <InboxIcon size={20} className="pointer-events-none" />
               )}
-              <span className="font-medium">
+              <span className="pointer-events-none font-medium">
                 {inboxDropStatus === "invalid" && isInboxDragOver
                   ? `Kan ikke flytte ${
                       draggedItem?.type === "folder"

@@ -162,6 +162,37 @@ export const NexusService = {
     });
   },
 
+  // Funktion til at omdøbe et specifikt vindue i et workspace
+  async renameWindow(workspaceId: string, windowId: string, newName: string) {
+    const uid = getUid();
+    const winRef = doc(
+      db,
+      "users",
+      uid,
+      "workspaces_data",
+      workspaceId,
+      "windows",
+      windowId,
+    );
+
+    await updateDoc(winRef, {
+      name: newName,
+    });
+
+    // Send besked til background script om at opdatere cachen
+    try {
+      chrome.runtime.sendMessage({
+        type: "UPDATE_WINDOW_NAME_CACHE",
+        payload: {
+          internalWindowId: windowId,
+          newName: newName,
+        },
+      });
+    } catch (e) {
+      console.warn("Could not update window name cache", e);
+    }
+  },
+
   async moveItem(itemId: string, newParentId: string) {
     const uid = getUid();
     if (!itemId || itemId === newParentId) return Promise.resolve();

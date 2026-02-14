@@ -50,6 +50,7 @@ export interface WinMapping {
   internalWindowId: string;
   workspaceName: string;
   index: number;
+  windowName?: string; // <--- brugerdefineret navn
 }
 
 interface TrackerData {
@@ -142,6 +143,13 @@ type BackgroundMessage =
         tabId: number;
         targetWorkspaceId: string;
         targetInternalWindowId: string;
+      };
+    }
+  | {
+      type: "UPDATE_WINDOW_NAME_CACHE";
+      payload: {
+        internalWindowId: string;
+        newName: string;
       };
     }
   | {
@@ -1656,6 +1664,23 @@ chrome.runtime.onMessage.addListener(
         sendResponse({ success: false });
         return false;
       }
+      case "UPDATE_WINDOW_NAME_CACHE": {
+        const { internalWindowId, newName } = message.payload;
+        ensureStateHydrated().then(async () => {
+          let updated = false;
+          for (const [winId, mapping] of activeWindows.entries()) {
+            if (mapping.internalWindowId === internalWindowId) {
+              activeWindows.set(winId, { ...mapping, windowName: newName });
+              updated = true;
+            }
+          }
+          if (updated) {
+            await saveActiveWindowsToStorage();
+            console.log("✅ Updated cache for window:", internalWindowId);
+          }
+        });
+        return true;
+      }
       case "MOVE_INCOGNITO_TAB": {
         // Håndter flytning af incognito tabs hvis nødvendigt
         return true;
@@ -1822,6 +1847,7 @@ async function handleOpenSpecificWindow(
           internalWindowId: winData.id,
           workspaceName: name,
           index: index, // Dette index bruges nu kun som fallback
+          windowName: winData.name,
         };
         activeWindows.set(winId, mapping);
         await saveActiveWindowsToStorage();
