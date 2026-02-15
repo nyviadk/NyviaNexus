@@ -1,10 +1,3 @@
-# 👋 Hej Temponizer-teamet
+# 👋 Hello
 
-Dette repo er gjort offentligt i anledning af min ansøgning hos jer.
-
-De bedste hilsner,
-Sebastian Holm Grünberg
-
----
-
-Koden er bygget 100% til eget brug, hvor jeg har prioriteret funktionalitet, hastighed og komplekse features (Firebase sync, AI-kategorisering, Chrome API) over 'clean code' principper.
+The code is built 100% for my own use, where I have prioritized functionality, speed and complex features (Firebase sync, AI categorization, Chrome API) over 'clean code' principles.
