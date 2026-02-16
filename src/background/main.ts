@@ -225,6 +225,27 @@ function getTimestampMillis(
   return 0;
 }
 
+// --- AUTH HELPER (FIX FOR RACE CONDITIONS) ---
+/**
+ * Venter på at Firebase Auth initialiserer.
+ * Dette løser problemet hvor SW vågner, og koden kører før Auth er klar.
+ */
+function waitForAuth(): Promise<string | null> {
+  return new Promise((resolve) => {
+    // Hvis vi allerede har en bruger, returner straks
+    if (auth.currentUser) {
+      resolve(auth.currentUser.uid);
+      return;
+    }
+
+    // Ellers vent på første emission fra onAuthStateChanged
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      unsubscribe();
+      resolve(user ? user.uid : null);
+    });
+  });
+}
+
 // --- PERSISTENCE HELPERS ---
 
 async function saveTrackerToStorage() {
@@ -294,7 +315,7 @@ async function validateAndCleanupState() {
   lockedWindowIds.clear();
 
   // Auth check nødvendigt for database oprydning
-  const uid = auth.currentUser?.uid;
+  const uid = await waitForAuth(); // FIX: Wait for auth
 
   try {
     // 1. Hent gemte mappings OG tab tracker
@@ -544,7 +565,7 @@ async function saveActiveWindowsToStorage() {
 }
 
 async function rebuildTabTracker() {
-  const uid = auth.currentUser?.uid;
+  const uid = await waitForAuth(); // FIX: Wait for auth
   if (!uid) return;
 
   // Vi rydder IKKE tabTracker her, da vi nu bruger persistence.
@@ -708,7 +729,7 @@ async function cleanupQueueItem(uid: string) {
 }
 
 async function processAiQueue() {
-  const uid = auth.currentUser?.uid;
+  const uid = await waitForAuth(); // FIX: Wait for auth
   if (!uid) return;
 
   if (activeRestorations > 0) {
@@ -928,7 +949,7 @@ function getOrAssignUid(tabId: number, url: string): string {
 // --- STANDARD LOGIC ---
 
 async function registerNewInboxWindow(windowId: number) {
-  const uid = auth.currentUser?.uid;
+  const uid = await waitForAuth(); // FIX: Wait for auth
   if (!uid) return;
 
   // SIKKERHEDSTJEK: Vi vil ikke håndtere popups som Inbox-vinduer
@@ -988,7 +1009,7 @@ async function saveToFirestore(
   isRemoval: boolean = false,
   force: boolean = false,
 ) {
-  const uid = auth.currentUser?.uid;
+  const uid = await waitForAuth(); // FIX: Wait for auth
   if (!uid) return;
 
   if (!force && (lockedWindowIds.has(windowId) || activeRestorations > 0))
@@ -1111,7 +1132,7 @@ async function saveToFirestore(
 
 // --- FIX: NYE LISTENERS FOR AT FANGE FLYTNING MELLEM VINDUER ---
 chrome.tabs.onAttached.addListener(async (_tabId, info) => {
-  const uid = auth.currentUser?.uid;
+  const uid = await waitForAuth(); // FIX: Wait for auth
   if (!uid || activeRestorations > 0) return;
   console.log(`📌 Tab Attached to Window ${info.newWindowId}`);
   // Opdater destinationens vindue
@@ -1119,7 +1140,7 @@ chrome.tabs.onAttached.addListener(async (_tabId, info) => {
 });
 
 chrome.tabs.onDetached.addListener(async (_tabId, info) => {
-  const uid = auth.currentUser?.uid;
+  const uid = await waitForAuth(); // FIX: Wait for auth
   if (!uid || activeRestorations > 0) return;
   console.log(`📤 Tab Detached from Window ${info.oldWindowId}`);
   // Opdater kildens vindue
@@ -1128,7 +1149,7 @@ chrome.tabs.onDetached.addListener(async (_tabId, info) => {
 // -------------------------------------------------------------
 
 chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
-  const uid = auth.currentUser?.uid;
+  const uid = await waitForAuth(); // FIX: Wait for auth
   if (!uid) return;
 
   if (
@@ -1257,7 +1278,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId, info) => {
-  const uid = auth.currentUser?.uid;
+  const uid = await waitForAuth(); // FIX: Wait for auth
   if (!uid) return;
 
   if (activeRestorations > 0) return;
@@ -1344,7 +1365,7 @@ chrome.windows.onFocusChanged.addListener(async (winId) => {
 
 chrome.windows.onRemoved.addListener(async (windowId) => {
   broadcast("PHYSICAL_WINDOWS_CHANGED");
-  const uid = auth.currentUser?.uid;
+  const uid = await waitForAuth(); // FIX: Wait for auth
 
   await ensureStateHydrated();
 
@@ -1377,7 +1398,8 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
 // Using the BackgroundMessage discriminated union to ensure type safety
 chrome.runtime.onMessage.addListener(
   (message: BackgroundMessage, _sender, sendResponse) => {
-    const uid = auth.currentUser?.uid;
+    // FIX: Vi bruger ikke auth.currentUser?.uid direkte her mere,
+    // men lader de asynkrone funktioner kalde waitForAuth() når de er klar.
 
     switch (message.type) {
       case "DELETE_WORKSPACE_WINDOWS": {
@@ -1416,8 +1438,13 @@ chrome.runtime.onMessage.addListener(
       }
 
       case "DELETE_AND_CLOSE_WINDOW": {
-        if (!uid) return false;
         ensureStateHydrated().then(async () => {
+          const uid = await waitForAuth(); // FIX: Wait for auth
+          if (!uid) {
+            sendResponse({ success: false, error: "No auth" });
+            return;
+          }
+
           const { workspaceId, internalWindowId } = message.payload;
           let physicalId: number | null = null;
           console.log(
@@ -1470,8 +1497,13 @@ chrome.runtime.onMessage.addListener(
       }
 
       case "TRIGGER_AI_SORT": {
-        if (!uid) return false;
         ensureStateHydrated().then(async () => {
+          const uid = await waitForAuth(); // FIX: Wait for auth
+          if (!uid) {
+            sendResponse({ success: false, reason: "No auth" });
+            return;
+          }
+
           getDoc(doc(db, "users", uid, "inbox_data", "global"))
             .then(async (snap) => {
               if (snap.exists()) {
@@ -1644,7 +1676,11 @@ chrome.runtime.onMessage.addListener(
       }
 
       case "CLAIM_WINDOW": {
+        // Bemærk: Denne er synkron, men hvis auth mangler kan vi ikke gøre så meget.
+        // Til "claim" operationer antager vi at brugeren er logget ind.
+        const uid = auth.currentUser?.uid; // Fallback to current user synchronously
         if (!uid) return false;
+
         if (activeRestorations === 0) {
           getWorkspaceWindowIndex(
             message.payload.workspaceId,
@@ -1779,7 +1815,7 @@ async function handleOpenSpecificWindow(
   name: string,
   index: number,
 ) {
-  const uid = auth.currentUser?.uid;
+  const uid = await waitForAuth(); // FIX: Wait for auth
   if (!uid) return;
 
   // Tjek om vinduet allerede er åbent
@@ -1916,7 +1952,7 @@ async function handleCreateNewWindowInWorkspace(
   name: string,
   initialTab?: TabData & { id?: number; sourceWorkspaceId?: string },
 ) {
-  const uid = auth.currentUser?.uid;
+  const uid = await waitForAuth(); // FIX: Wait for auth
   if (!uid) return;
 
   activeRestorations++;
@@ -2014,7 +2050,7 @@ async function handleCreateNewWindowInWorkspace(
 }
 
 async function handleForceSync(windowId: number) {
-  const uid = auth.currentUser?.uid;
+  const uid = await waitForAuth(); // FIX: Wait for auth
   if (!uid) return;
 
   const mapping = activeWindows.get(windowId);
@@ -2061,7 +2097,7 @@ async function getWorkspaceWindowIndex(
   workspaceId: string,
   internalWindowId: string,
 ): Promise<number> {
-  const uid = auth.currentUser?.uid;
+  const uid = await waitForAuth(); // FIX: Wait for auth
   if (!uid) return 1;
 
   try {
