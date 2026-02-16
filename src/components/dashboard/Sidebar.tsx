@@ -50,7 +50,7 @@ interface SidebarProps {
   activeDragId: string | null;
   setActiveDragId: (id: string | null) => void;
   handleSidebarTabDrop: (target: NexusItem | "global") => Promise<void>;
-  handleWorkspaceClick: (item: NexusItem) => void;
+  handleWorkspaceClick: (item: NexusItem, specificWindowId?: string) => void;
   handleDeleteSuccess: (id: string) => void;
   inboxData: InboxData | null;
 }
@@ -390,7 +390,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 if (ws.profileId !== activeProfile) {
                                   setActiveProfile(ws.profileId);
                                 }
-                                handleWorkspaceClick(ws);
+                                // OPDATERET: Vi sender nu internalWindowId med
+                                handleWorkspaceClick(
+                                  ws,
+                                  mapping.internalWindowId,
+                                );
                               }
                             }
                           }}

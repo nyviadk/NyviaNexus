@@ -364,16 +364,24 @@ export const Dashboard = () => {
   }, [user, refreshChromeWindows]);
 
   const handleWorkspaceClick = useCallback(
-    (item: NexusItem) => {
-      if (selectedWorkspace?.id === item.id) return;
+    (item: NexusItem, specificWindowId?: string) => {
+      // Hvis vi allerede er på spacet, men vil skifte vindue:
+      if (selectedWorkspace?.id === item.id) {
+        if (specificWindowId && selectedWindowId !== specificWindowId) {
+          setSelectedWindowId(specificWindowId);
+        }
+        return;
+      }
+
       setViewMode("workspace");
-      setSelectedWindowId(null);
+      // Sæt specifikt vindue ID hvis angivet, ellers nulstil
+      setSelectedWindowId(specificWindowId || null);
       setWindows([]);
       setArchiveItems([]);
       setNotesModalTarget(null);
       setSelectedWorkspace(item);
     },
-    [selectedWorkspace],
+    [selectedWorkspace, selectedWindowId],
   );
 
   // --- URL PARAMS & DEEP LINKING LOGIC ---
@@ -408,8 +416,8 @@ export const Dashboard = () => {
       if (wsId) {
         const targetWs = items.find((i) => i.id === wsId);
         if (targetWs && selectedWorkspace?.id !== targetWs.id) {
-          handleWorkspaceClick(targetWs);
-          if (winId) setSelectedWindowId(winId);
+          // Brug winId fra URL params hvis tilgængeligt
+          handleWorkspaceClick(targetWs, winId || undefined);
         }
       }
 
