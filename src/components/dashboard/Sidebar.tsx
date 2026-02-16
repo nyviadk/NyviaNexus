@@ -53,6 +53,7 @@ interface SidebarProps {
   handleWorkspaceClick: (item: NexusItem, specificWindowId?: string) => void;
   handleDeleteSuccess: (id: string) => void;
   inboxData: InboxData | null;
+  selectedWindowId: string | null;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -76,6 +77,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   handleWorkspaceClick,
   handleDeleteSuccess,
   inboxData,
+  selectedWindowId,
 }) => {
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
   const [isSyncingRoot, setIsSyncingRoot] = useState(false);
@@ -312,9 +314,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   isContextMatch = viewMode === "inbox";
                 }
               } else if (mapping && mapping.workspaceId) {
-                isContextMatch =
+                // Vi er kun i et "Context Match", hvis vi er i rigtigt space
+                // OG dashboardet kigger på netop DETTE vindue.
+                const isSameWorkspace =
                   viewMode === "workspace" &&
                   selectedWorkspace?.id === mapping.workspaceId;
+
+                // Tjekker om dashboardet aktuelt viser dette specifikke vindue
+                const isSameWindow =
+                  selectedWindowId === mapping.internalWindowId;
+
+                isContextMatch = isSameWorkspace && isSameWindow;
               }
 
               return (
@@ -390,7 +400,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 if (ws.profileId !== activeProfile) {
                                   setActiveProfile(ws.profileId);
                                 }
-                                // OPDATERET: Vi sender nu internalWindowId med
                                 handleWorkspaceClick(
                                   ws,
                                   mapping.internalWindowId,
@@ -399,7 +408,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             }
                           }}
                           className="group flex cursor-pointer items-center justify-center rounded bg-slate-700/50 p-1 text-slate-300 transition-all hover:bg-blue-500 hover:text-white"
-                          title="Gå til dette space i Dashboardet"
+                          title="Gå til dette space/vindue i Dashboardet"
                         >
                           <Eye size={12} />
                         </button>

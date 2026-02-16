@@ -527,6 +527,7 @@ export const Dashboard = () => {
         handleDeleteSuccess={handleDeleteSuccess}
         inboxData={inboxData}
         isLoading={items.length === 0}
+        selectedWindowId={selectedWindowId}
       />
 
       <main className="relative flex flex-1 flex-col overflow-hidden bg-slate-900">
