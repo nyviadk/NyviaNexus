@@ -573,11 +573,13 @@ export const Dashboard = () => {
                   selectedWindowId={selectedWindowId}
                   selectedWorkspace={selectedWorkspace}
                   selectedUrls={selectedUrls}
+                  activeMappings={activeMappings} // Tilføjet prop
                   handleTabSelect={handleTabSelect}
                   handleTabDelete={handleTabDelete}
                   onConsume={handleTabConsume}
                   setReasoningData={setReasoningData}
                   setMenuData={setMenuData}
+                  setPasteModalData={setPasteModalData}
                   aiSettings={aiSettings}
                 />
               </div>

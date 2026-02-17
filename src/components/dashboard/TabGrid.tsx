@@ -1,8 +1,9 @@
-import { AiData } from "@/background/main";
+import { AiData, WinMapping } from "@/background/main";
 import React, { useMemo } from "react";
-import { Clock } from "lucide-react"; // Vi genbruger Clock ikonet til info-boksen
+import { Clock, Plus } from "lucide-react"; // Vi genbruger Clock ikonet til info-boksen, Plus til knappen
 import { AiSettings, NexusItem, TabData, WorkspaceWindow } from "../../types";
 import { TabItem } from "./TabItem";
+import { PasteModalState } from "@/dashboard/Dashboard";
 
 interface TabGridProps {
   viewMode: "workspace" | "inbox" | "incognito";
@@ -11,6 +12,7 @@ interface TabGridProps {
   selectedWindowId: string | null;
   selectedWorkspace: NexusItem | null;
   selectedUrls: string[];
+  activeMappings: [number, WinMapping][]; // VIGTIGT: Nødvendig for at tjekke om vinduet er fysisk åbent
 
   // Handlers
   handleTabSelect: (tab: TabData) => void;
@@ -19,6 +21,9 @@ interface TabGridProps {
   onConsume?: (tab: TabData) => void;
   setReasoningData: (data: AiData | null) => void;
   setMenuData: (data: any) => void;
+
+  // Actions
+  setPasteModalData: (data: PasteModalState) => void;
 
   // Settings
   aiSettings: AiSettings;
@@ -62,11 +67,13 @@ export const TabGrid: React.FC<TabGridProps> = ({
   selectedWindowId,
   selectedWorkspace,
   selectedUrls,
+  activeMappings,
   handleTabSelect,
   handleTabDelete,
   onConsume, // Modtager nu onConsume
   setReasoningData,
   setMenuData,
+  setPasteModalData,
   aiSettings,
 }) => {
   // Håndterer klik på en dato-header (Bulk Select/Deselect)
@@ -236,9 +243,65 @@ export const TabGrid: React.FC<TabGridProps> = ({
     }
 
     // 3. Workspace view (Fladt grid)
+
+    // Tjek om det valgte vindue faktisk eksisterer i databasen (windows listen)
+    // Dette sikrer at knappen ikke vises for "Ghost" vinduer der er ved at blive slettet
+    const windowObject = windows.find((w) => w.id === selectedWindowId);
+    const windowExists = !!windowObject;
+
+    // Tjek om det valgte vindue er fysisk åbnet i Chrome via activeMappings
+    const isPhysicallyOpen =
+      viewMode === "workspace" &&
+      selectedWindowId &&
+      activeMappings.some(
+        ([_, mapping]) => mapping.internalWindowId === selectedWindowId,
+      );
+
     return (
       <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-4">
         {rawList.map((tab, i) => renderTabItem(tab, i))}
+
+        {/* "Tilføj Fane" kort 
+           - Vises KUN hvis vi er i workspace mode
+           - Vises KUN hvis et vindue er valgt
+           - Vises KUN hvis vinduet faktisk eksisterer i Firestore (windowExists)
+           - Vises KUN hvis vinduet IKKE er åbnet fysisk (isPhysicallyOpen === false)
+        */}
+        {viewMode === "workspace" &&
+          selectedWindowId &&
+          windowExists &&
+          !isPhysicallyOpen && (
+            <button
+              onClick={() => {
+                if (selectedWorkspace && selectedWindowId) {
+                  const winTitle = windowObject?.name || "Dette vindue";
+
+                  setPasteModalData({
+                    workspaceId: selectedWorkspace.id,
+                    windowId: selectedWindowId,
+                    windowName: winTitle,
+                  });
+                }
+              }}
+              className="group flex min-h-25 cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-slate-700/50 bg-slate-800/20 p-4 text-slate-500 transition-all hover:border-purple-500/50 hover:bg-purple-900/10 hover:text-purple-400 hover:shadow-lg active:scale-95"
+              title="Vinduet er ikke åbent. Klik for at tilføje links til listen."
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-800/80 shadow-sm transition-transform group-hover:scale-110 group-hover:bg-purple-500/20">
+                <Plus
+                  size={24}
+                  className="transition-colors group-hover:text-purple-400"
+                />
+              </div>
+              <div className="flex flex-col items-center">
+                <span className="text-sm font-bold">
+                  Tilføj til dette vindue
+                </span>
+                <span className="text-[10px] font-medium text-slate-600 group-hover:text-purple-400/70">
+                  (Offline redigering)
+                </span>
+              </div>
+            </button>
+          )}
       </div>
     );
   }, [
@@ -248,12 +311,14 @@ export const TabGrid: React.FC<TabGridProps> = ({
     getFilteredInboxTabs,
     selectedWorkspace,
     selectedUrls,
+    activeMappings,
     handleTabSelect,
     handleTabDelete,
     onConsume,
     aiSettings.userCategories,
     setReasoningData,
     setMenuData,
+    setPasteModalData,
   ]);
 
   return <div className="flex-1 overflow-y-auto p-8">{renderedContent}</div>;
