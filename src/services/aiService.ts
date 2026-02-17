@@ -64,12 +64,12 @@ export const AiService = {
     title: string,
     url: string,
     metadata: string,
-    workspaceContext?: string
+    workspaceContext?: string,
   ): Promise<AiAnalysisResult | null> {
     console.log(
       `🤖 AI Service: Analyserer tab: "${title}" [Context: ${
         workspaceContext || "None"
-      }]`
+      }]`,
     );
 
     const apiKey = await this.getApiKey();
@@ -173,7 +173,7 @@ ${contextInstruction}
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: "llama-3.3-70b",
+          model: "llama3.1-8b",
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
