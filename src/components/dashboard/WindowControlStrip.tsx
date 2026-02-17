@@ -142,10 +142,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
             }}
           >
             <div
-              onClick={() =>
-                !isEditing &&
-                setSelectedWindowId(selectedWindowId === win.id ? null : win.id)
-              }
+              onClick={() => !isEditing && setSelectedWindowId(win.id)}
               className={`group relative flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-all ${bgClass} ${borderClass} ${shadowClass}`}
               onDoubleClick={(e) => !isEditing && handleStartRename(win, e)}
             >
