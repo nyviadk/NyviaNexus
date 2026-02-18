@@ -157,9 +157,23 @@ export const NexusService = {
 
   async renameItem(id: string, newName: string) {
     const uid = getUid();
-    return await updateDoc(doc(db, "users", uid, "items", id), {
-      name: newName,
-    });
+    try {
+      await updateDoc(doc(db, "users", uid, "items", id), {
+        name: newName,
+      });
+
+      // Fortæl background script at konteksten er ændret
+      // Dette sikrer at cachen opdateres og AI kører igen med ny kontekst
+      chrome.runtime.sendMessage({
+        type: "WORKSPACE_RENAMED",
+        payload: { workspaceId: id, newName },
+      });
+    } catch (e) {
+      console.warn(
+        "Could not update name or notify background about rename:",
+        e,
+      );
+    }
   },
 
   // Funktion til at omdøbe et specifikt vindue i et workspace

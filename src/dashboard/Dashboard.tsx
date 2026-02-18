@@ -134,6 +134,20 @@ export const Dashboard = () => {
 
   // --- HELPERS & MEMOS ---
 
+  // --- SYNC SELECTED WORKSPACE NAME ---
+  // Denne effekt sikrer, at hvis 'items' opdateres (f.eks. ved rename i sidebar),
+  // så opdateres det valgte workspace objekt i Dashboard state med det samme.
+  useEffect(() => {
+    if (selectedWorkspace) {
+      const freshItem = items.find((i) => i.id === selectedWorkspace.id);
+      // Hvis vi finder den i den opdaterede liste, og objektet er ændret (f.eks. nyt navn)
+      if (freshItem && freshItem !== selectedWorkspace) {
+        setSelectedWorkspace(freshItem);
+      }
+    }
+  }, [items, selectedWorkspace]);
+  // -----------------------------------------
+
   const handleDeleteSuccess = useCallback(
     (deletedId: string) => {
       if (selectedWorkspace?.id === deletedId) {

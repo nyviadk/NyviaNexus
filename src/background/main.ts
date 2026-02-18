@@ -162,6 +162,14 @@ type BackgroundMessage =
         tabId: number;
         workspaceName: string;
       };
+    }
+  | {
+      // NY MESSAGE: Håndterer omdøbning af workspaces (Cache + AI reset)
+      type: "WORKSPACE_RENAMED";
+      payload: {
+        workspaceId: string;
+        newName: string;
+      };
     };
 
 // --- STATE ---
@@ -1434,6 +1442,91 @@ chrome.runtime.onMessage.addListener(
           [{ uid, url, title, tabId, workspaceName, attempts: 0 }],
           true,
         );
+        return true;
+      }
+
+      case "WORKSPACE_RENAMED": {
+        const { workspaceId, newName } = message.payload;
+        ensureStateHydrated().then(async () => {
+          const uid = await waitForAuth();
+          if (!uid) return;
+
+          console.log(
+            `✏️ Workspace renamed to "${newName}". Updating cache & AI context...`,
+          );
+
+          // 1. Opdater In-Memory Cache & Storage (Løser flickering/gammelt navn i UI)
+          let cacheUpdated = false;
+          for (const [winId, map] of activeWindows.entries()) {
+            if (map.workspaceId === workspaceId) {
+              activeWindows.set(winId, { ...map, workspaceName: newName });
+              cacheUpdated = true;
+            }
+          }
+          if (cacheUpdated) {
+            await saveActiveWindowsToStorage();
+          }
+
+          // 2. Reset AI Status in Firestore & Re-queue
+          // Vi henter alle vinduer i dette workspace
+          const windowsRef = collection(
+            db,
+            "users",
+            uid,
+            "workspaces_data",
+            workspaceId,
+            "windows",
+          );
+          const snapshot = await getDocs(windowsRef);
+          const queueItems: QueueItem[] = [];
+
+          for (const docSnap of snapshot.docs) {
+            const data = docSnap.data();
+            let tabs = (data.tabs || []) as TabData[];
+
+            // VIGTIGT: Vi opretter en ny liste af tabs hvor KUN AI data er ændret
+            const updatedTabs = tabs.map((t) => {
+              if (t.url && !isDash(t.url)) {
+                // Find fysisk ID via tracker for at kunne køre AI scrape
+                let physId = -1;
+                for (const [pid, tData] of tabTracker.entries()) {
+                  if (tData.uid === t.uid) {
+                    physId = pid;
+                    break;
+                  }
+                }
+
+                // Hvis vi har en fysisk tab, tilføj til kø med NYT navn
+                if (physId !== -1) {
+                  queueItems.push({
+                    uid: t.uid,
+                    url: t.url,
+                    title: t.title,
+                    tabId: physId,
+                    attempts: 0,
+                    workspaceName: newName, // NY KONTEKST!
+                  });
+                }
+
+                return {
+                  ...t, // BEHOLDER al eksisterende data (uid, title, url etc.)
+                  aiData: {
+                    status: "pending", // Sætter status til pending
+                  },
+                };
+              }
+              return t;
+            });
+
+            // Opdater Firestore med de opdaterede (ikke genskabte) tabs
+            await updateDoc(docSnap.ref, { tabs: updatedTabs });
+          }
+
+          // 3. Tilføj til AI Queue (Force = true for at omgå anti-spam)
+          if (queueItems.length > 0) {
+            addToAiQueue(queueItems, true);
+          }
+        });
         return true;
       }
 
