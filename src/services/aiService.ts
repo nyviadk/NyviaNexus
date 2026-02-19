@@ -102,7 +102,8 @@ INSTRUKSER:
    - Den skal beskrive indholdets emne.
 4. Du skal ikke modsige dine egne tanker. Hvis du tænker, at en fane ikke passer i de fortrukne kategorier, skal du ikke vælge en af de fortrukne kategorier. Du skal stole på dine tanker.
 5. Hvis Fane titlen og metadata ikke indeholder noget, som tyder på at den har noget at gøre med en fortrukne kategori, skal du lave din egen kategori. Du skal ikke være kreativ for at presse ned i en kategori.
-6. Tænk dig om. Hvis Workspacet hedder noget, og indholdet på siden ikke er relateret til workspace navnet, så lad vær med at være kreativ. Du skal igen opfinde din egen passende kategori.
+6. Vær klog: Hvis spacenavnet indikerer et professionelt projekt eller arbejde, skal du sandsynligvis tolke fanens formål gennem den linse.
+7. Tænk dig om. Hvis Workspacet hedder noget, og indholdet på siden ikke er relateret til workspace navnet, så lad vær med at være kreativ. Du skal igen opfinde din egen passende kategori.
 
 Output Format (JSON Only):
 { "category": "String", "confidence": Number (0-100), "reasoning": "Kort forklaring på dansk" }
