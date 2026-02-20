@@ -14,7 +14,8 @@ import {
   getDocs,
   addDoc,
 } from "firebase/firestore";
-import { Loader2, ArrowRight } from "lucide-react";
+import { Loader2, ArrowRight, ExternalLink, Sparkles } from "lucide-react";
+import { AiService } from "../../services/aiService";
 
 interface LoginFormProps {
   onUserCreated: (uid: string) => void;
@@ -27,6 +28,7 @@ interface LoginFormProps {
 export const LoginForm: React.FC<LoginFormProps> = ({ onUserCreated }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [cerebrasKey, setCerebrasKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +58,11 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onUserCreated }) => {
       }
 
       const uid = userCredential.user.uid;
+
+      // Gem Cerebras API nøgle hvis den er indtastet (Valgfrit)
+      if (cerebrasKey.trim()) {
+        await AiService.saveApiKey(cerebrasKey.trim());
+      }
 
       // Bootstrap Inbox
       const inboxRef = doc(db, "users", uid, "inbox_data", "global");
@@ -121,9 +128,37 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onUserCreated }) => {
         required
       />
 
+      <div className="mt-2 space-y-2">
+        <div className="flex items-center justify-between px-1">
+          <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase">
+            <Sparkles size={12} className="text-blue-400" /> Cerebras API Key
+            (Valgfri)
+          </label>
+          <a
+            href="https://www.cerebras.ai/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-[10px] text-blue-400 hover:underline"
+          >
+            Hent nøgle <ExternalLink size={10} />
+          </a>
+        </div>
+        <input
+          type="password"
+          placeholder="csk-..."
+          className="w-full rounded-lg border border-slate-700 bg-slate-800/50 p-3 text-sm text-white transition-all outline-none focus:border-blue-500"
+          value={cerebrasKey}
+          onChange={(e) => setCerebrasKey(e.target.value)}
+        />
+        <p className="px-1 text-[10px] text-slate-500">
+          Vælg model:{" "}
+          <span className="font-mono text-slate-300 italic">"llama3.1-8b"</span>
+        </p>
+      </div>
+
       <button
         disabled={loading}
-        className="group mt-2 flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-blue-600 p-3 font-bold text-white transition hover:bg-blue-500 active:scale-95 disabled:opacity-50"
+        className="group mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-blue-600 p-3 font-bold text-white transition hover:bg-blue-500 active:scale-95 disabled:opacity-50"
       >
         {loading ? (
           <Loader2 className="animate-spin" size={20} />
