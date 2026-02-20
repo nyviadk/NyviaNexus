@@ -117,25 +117,31 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
 
   const handleSave = async () => {
     if (!parsedPreview) return;
-
     setIsValidating(true);
     setError("");
 
-    const isConnected = await testConnection(parsedPreview);
-
-    if (!isConnected) {
-      setError("Forbindelsen mislykkedes. Tjek venligst dine Firebase-nøgler.");
-      setIsValidating(false);
-      return;
-    }
-
     try {
+      // 1. Test forbindelsen først (din dummy-login logik)
+      const isConnected = await testConnection(parsedPreview);
+      if (!isConnected) {
+        setError(
+          "Forbindelsen mislykkedes. Tjek venligst dine Firebase-nøgler.",
+        );
+        setIsValidating(false);
+        return;
+      }
+
+      // 2. Gem til storage
       await chrome.storage.local.set({ userFirebaseConfig: parsedPreview });
-      chrome.runtime.sendMessage({ type: "REINITIALIZE_FIREBASE" });
-      setState("needs_auth"); // Gå til Login/AuthLayout efter config er gemt
+
+      // 3. VIGTIGT: Giv Background Script besked og VENT på svar
+      // Dette sikrer at background er klar FØR vi lader UI gå videre
+      await chrome.runtime.sendMessage({ type: "REINITIALIZE_FIREBASE" });
+
+      // 4. Skift tilstand
+      setState("ready");
     } catch (err) {
       setError("Kunne ikke gemme konfigurationen.");
-    } finally {
       setIsValidating(false);
     }
   };
