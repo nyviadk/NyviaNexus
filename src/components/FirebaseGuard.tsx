@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { configureFirebase, auth } from "../lib/firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
+import { FirebaseError } from "firebase/app";
 import {
   ChevronLeft,
   Database,
@@ -86,15 +87,20 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
   const testConnection = async (config: FirebaseConfig): Promise<boolean> => {
     try {
       configureFirebase(config);
+      // Vi bruger en dummy login for at validere at keys virker og kan ramme Auth
       await signInWithEmailAndPassword(auth, "test@nexus.dk", "123456");
       return true;
-    } catch (err: any) {
-      const validAuthErrors = [
-        "auth/invalid-credential",
-        "auth/user-not-found",
-        "auth/wrong-password",
-      ];
-      return validAuthErrors.includes(err.code);
+    } catch (err) {
+      if (err instanceof FirebaseError) {
+        const validAuthErrors = [
+          "auth/invalid-credential",
+          "auth/user-not-found",
+          "auth/wrong-password",
+          "auth/invalid-email",
+        ];
+        return validAuthErrors.includes(err.code);
+      }
+      return false;
     }
   };
 
@@ -134,22 +140,22 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
   if (state === "needs_setup") {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-slate-950 p-6 font-sans text-white">
-        <div className="relative z-20 flex w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-slate-700/50 bg-linear-to-b from-slate-900 via-slate-800/60 to-slate-900 shadow-2xl">
+        <div className="relative z-20 flex min-h-125 w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-slate-700/50 bg-linear-to-b from-slate-900 via-slate-800/60 to-slate-900 shadow-2xl">
           <div className="border-b border-slate-700/30 bg-slate-900/10 p-8 backdrop-blur-sm">
             <h1 className="text-4xl font-black tracking-tighter text-white italic">
               NyviaNexus
             </h1>
             <div className="mt-2 flex items-center gap-2">
-              <Activity size={14} className="animate-pulse text-blue-500" />
+              <Activity size={14} className="text-blue-500" />
               <p className="text-[11px] font-bold tracking-widest text-slate-500 uppercase">
                 Systemopstart
               </p>
             </div>
           </div>
 
-          <div className="space-y-8 p-10">
+          <div className="relative flex-1 p-10">
             {view === "landing" ? (
-              <div className="animate-in fade-in space-y-8 duration-500">
+              <div className="space-y-8">
                 <div className="space-y-3">
                   <h2 className="text-xl font-bold text-slate-100">
                     {`Velkommen til :}`}
@@ -162,7 +168,7 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
                 </div>
 
                 <div className="grid grid-cols-1 gap-4">
-                  <div className="flex items-start gap-4 rounded-xl border border-slate-700/30 bg-slate-900/20 p-4 transition-all">
+                  <div className="flex items-start gap-4 rounded-xl border border-slate-700/30 bg-slate-900/20 p-4">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-400">
                       <Database size={20} />
                     </div>
@@ -176,7 +182,7 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-start gap-4 rounded-xl border border-slate-700/30 bg-slate-900/20 p-4 transition-all">
+                  <div className="flex items-start gap-4 rounded-xl border border-slate-700/30 bg-slate-900/20 p-4">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
                       <Server size={20} />
                     </div>
@@ -194,22 +200,18 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
 
                 <button
                   onClick={() => setView("input")}
-                  className="w-full cursor-pointer rounded-xl bg-blue-600 py-4 text-sm font-bold text-white shadow-lg shadow-blue-900/20 transition-all hover:bg-blue-500 active:scale-[0.98]"
+                  className="w-full cursor-pointer rounded-xl bg-blue-600 py-4 text-sm font-bold text-white shadow-lg shadow-blue-900/20 hover:bg-blue-500 active:scale-[0.98]"
                 >
                   Begynd opsætning
                 </button>
               </div>
             ) : (
-              <div className="animate-in fade-in slide-in-from-right-4 space-y-6 duration-300">
+              <div className="space-y-6">
                 <button
                   onClick={() => setView("landing")}
-                  className="group flex cursor-pointer items-center gap-2 text-[10px] font-bold text-slate-500 transition-colors hover:text-white"
+                  className="group flex cursor-pointer items-center gap-2 text-[10px] font-bold text-slate-500 hover:text-white"
                 >
-                  <ChevronLeft
-                    size={14}
-                    className="transition-transform group-hover:-translate-x-1"
-                  />{" "}
-                  GÅ TILBAGE
+                  <ChevronLeft size={14} /> GÅ TILBAGE
                 </button>
 
                 <div className="space-y-3">
@@ -221,13 +223,13 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
                       href="https://console.firebase.google.com"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="cursor-pointer text-[10px] font-bold text-blue-400 transition-colors hover:text-blue-300 hover:underline"
+                      className="cursor-pointer text-[10px] font-bold text-blue-400 hover:text-blue-300 hover:underline"
                     >
                       Hent nøgler her
                     </a>
                   </div>
                   <textarea
-                    className={`h-48 w-full resize-none rounded-xl border bg-black/40 p-4 font-mono text-[11px] backdrop-blur-sm transition-all outline-none ${
+                    className={`h-48 w-full resize-none rounded-xl border bg-black/40 p-4 font-mono text-[11px] backdrop-blur-sm outline-none ${
                       error
                         ? "border-red-500/50 text-red-200"
                         : "border-slate-700 text-slate-300 focus:border-blue-500/50 focus:bg-black/60"
@@ -244,7 +246,7 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
                 </div>
 
                 {parsedPreview && !isValidating && (
-                  <div className="animate-in zoom-in-95 flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 duration-200">
+                  <div className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
                     <ShieldCheck size={18} className="text-emerald-400" />
                     <div className="flex flex-col">
                       <span className="text-[10px] font-black tracking-wider text-emerald-400 uppercase">
@@ -267,7 +269,7 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
                 <button
                   onClick={handleSave}
                   disabled={!parsedPreview || isValidating}
-                  className={`flex w-full items-center justify-center gap-2 rounded-xl py-4 text-sm font-bold transition-all ${
+                  className={`flex w-full items-center justify-center gap-2 rounded-xl py-4 text-sm font-bold ${
                     parsedPreview && !isValidating
                       ? "cursor-pointer bg-white text-black hover:bg-slate-200 active:scale-[0.98]"
                       : "cursor-not-allowed bg-slate-800 text-slate-600 opacity-50"
