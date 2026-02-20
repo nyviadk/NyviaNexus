@@ -10,6 +10,7 @@ import {
   Loader2,
   Server,
   Activity,
+  MapPin,
 } from "lucide-react";
 import { AuthLayout } from "./auth/AuthLayout";
 
@@ -250,6 +251,22 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
                       Hent nøgler her
                     </a>
                   </div>
+
+                  {/* Lokations-instruktion tilføjet herunder */}
+                  <div className="flex items-center gap-3 rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2">
+                    <MapPin size={14} className="text-blue-400" />
+                    <p className="text-[10px] leading-tight text-slate-400">
+                      <strong className="text-blue-400 uppercase">
+                        Vigtigt:
+                      </strong>{" "}
+                      Sørg for at vælge{" "}
+                      <span className="text-white">
+                        "europe-west1 (Belgium)"
+                      </span>{" "}
+                      som lokation for din Firestore database.
+                    </p>
+                  </div>
+
                   <textarea
                     className={`h-48 w-full resize-none rounded-xl border bg-black/40 p-4 font-mono text-[11px] backdrop-blur-sm outline-none ${
                       error
