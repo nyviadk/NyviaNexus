@@ -238,10 +238,20 @@ export const Dashboard = () => {
   // --- EFFECTS ---
 
   useEffect(() => {
-    const lastProfile = localStorage.getItem("lastActiveProfileId");
-    if (lastProfile) setActiveProfile(lastProfile);
+    // 1. Hent indstillinger
     AiService.getSettings().then(setAiSettings);
-  }, []);
+
+    // 2. Håndter valg af profil
+    const lastProfile = localStorage.getItem("lastActiveProfileId");
+
+    if (profiles.length === 1) {
+      // Hvis der kun er én, vælg den altid
+      setActiveProfile(profiles[0].id);
+    } else if (lastProfile && profiles.some((p) => p.id === lastProfile)) {
+      // Hvis der er flere, og vi har en gemt profil der stadig findes
+      setActiveProfile(lastProfile);
+    }
+  }, [profiles]);
 
   useEffect(() => {
     if (!modalType) AiService.getSettings().then(setAiSettings);

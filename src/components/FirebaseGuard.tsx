@@ -11,6 +11,7 @@ import {
   Server,
   Activity,
 } from "lucide-react";
+import { AuthLayout } from "./auth/AuthLayout";
 
 export interface FirebaseConfig {
   apiKey: string;
@@ -21,7 +22,7 @@ export interface FirebaseConfig {
   appId: string;
 }
 
-type SetupState = "loading" | "needs_setup" | "ready";
+type SetupState = "loading" | "needs_setup" | "needs_auth" | "ready";
 type SetupView = "landing" | "input";
 
 export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
@@ -45,7 +46,18 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
       const data = await chrome.storage.local.get(["userFirebaseConfig"]);
       if (data.userFirebaseConfig) {
         configureFirebase(data.userFirebaseConfig as FirebaseConfig);
-        auth.onAuthStateChanged(() => setState("ready"));
+
+        // Overvåg Auth tilstand
+        auth.onAuthStateChanged((user) => {
+          const isSetupMode =
+            sessionStorage.getItem("nexus_setup_mode") === "true";
+
+          if (user && !isSetupMode) {
+            setState("ready");
+          } else {
+            setState("needs_auth");
+          }
+        });
       } else {
         setState("needs_setup");
       }
@@ -87,7 +99,6 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
   const testConnection = async (config: FirebaseConfig): Promise<boolean> => {
     try {
       configureFirebase(config);
-      // Vi bruger en dummy login for at validere at keys virker og kan ramme Auth
       await signInWithEmailAndPassword(auth, "test@nexus.dk", "123456");
       return true;
     } catch (err) {
@@ -121,7 +132,7 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
     try {
       await chrome.storage.local.set({ userFirebaseConfig: parsedPreview });
       chrome.runtime.sendMessage({ type: "REINITIALIZE_FIREBASE" });
-      setState("ready");
+      setState("needs_auth"); // Gå til Login/AuthLayout efter config er gemt
     } catch (err) {
       setError("Kunne ikke gemme konfigurationen.");
     } finally {
@@ -135,6 +146,11 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
         Starter Nexus...
       </div>
     );
+  }
+
+  // Hvis vi mangler login eller er i Setup Guide mode
+  if (state === "needs_auth") {
+    return <AuthLayout />;
   }
 
   if (state === "needs_setup") {

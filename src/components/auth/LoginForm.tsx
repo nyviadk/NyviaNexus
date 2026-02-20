@@ -4,6 +4,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
 } from "firebase/auth";
+import { FirebaseError } from "firebase/app";
 import {
   doc,
   getDoc,
@@ -15,30 +16,38 @@ import {
 } from "firebase/firestore";
 import { Loader2, ArrowRight } from "lucide-react";
 
-/**
- * NyviaNexus - LoginForm
- * Håndterer både login og initialisering af brugerdata (Bootstrapping).
- */
+interface LoginFormProps {
+  onUserCreated: (uid: string) => void;
+}
 
-export const LoginForm: React.FC = () => {
+/**
+ * LoginForm
+ * Håndterer logik for både eksisterende og nye brugere.
+ */
+export const LoginForm: React.FC<LoginFormProps> = ({ onUserCreated }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError(null);
+
     try {
       let userCredential;
 
       if (isNewUser) {
+        sessionStorage.setItem("nexus_setup_mode", "true");
         userCredential = await createUserWithEmailAndPassword(
           auth,
           email,
           password,
         );
       } else {
+        sessionStorage.removeItem("nexus_setup_mode");
         userCredential = await signInWithEmailAndPassword(
           auth,
           email,
@@ -48,34 +57,36 @@ export const LoginForm: React.FC = () => {
 
       const uid = userCredential.user.uid;
 
-      // --- BOOTSTRAP CHECK ---
-      // Tjek om inbox_data/global findes for denne bruger.
-      // Hvis ikke, opret den, så Extensionen har et sted at gemme tabs.
+      // Bootstrap Inbox
       const inboxRef = doc(db, "users", uid, "inbox_data", "global");
       const inboxSnap = await getDoc(inboxRef);
-
       if (!inboxSnap.exists()) {
-        console.log("Creating initial Inbox for user...");
         await setDoc(inboxRef, {
           tabs: [],
           lastUpdate: serverTimestamp(),
         });
       }
 
-      // 2. Tjek og opret en Profil hvis brugeren ingen har
+      // Bootstrap Profiler
       const profilesCollection = collection(db, "users", uid, "profiles");
       const profilesSnap = await getDocs(profilesCollection);
-
       if (profilesSnap.empty) {
-        console.log("Creating default Profile for user...");
-        // Her bruger vi addDoc, så Firestore genererer et unikt ID (f.eks. "7f8g9d...")
-        // præcis som når man opretter profiler i indstillingerne.
         await addDoc(profilesCollection, {
           name: "Privat",
+          createdAt: serverTimestamp(),
         });
       }
-    } catch (error: any) {
-      alert("Autentificering fejlede: " + error.message);
+
+      if (isNewUser) {
+        onUserCreated(uid);
+      }
+    } catch (err) {
+      sessionStorage.removeItem("nexus_setup_mode");
+      if (err instanceof FirebaseError) {
+        setError(err.message);
+      } else {
+        setError("Der opstod en uventet fejl.");
+      }
     } finally {
       setLoading(false);
     }
@@ -87,10 +98,16 @@ export const LoginForm: React.FC = () => {
         {isNewUser ? "Opret Ny Konto" : "Log Ind På Nexus"}
       </h2>
 
+      {error && (
+        <div className="rounded border border-red-500/20 bg-red-500/10 p-2 text-[10px] text-red-400">
+          {error}
+        </div>
+      )}
+
       <input
         type="email"
         placeholder="Email"
-        className="rounded-lg border border-slate-700 bg-slate-800 p-3 text-sm transition outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+        className="rounded-lg border border-slate-700 bg-slate-800 p-3 text-sm text-white transition-all outline-none focus:border-blue-500"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         required
@@ -98,7 +115,7 @@ export const LoginForm: React.FC = () => {
       <input
         type="password"
         placeholder="Password"
-        className="rounded-lg border border-slate-700 bg-slate-800 p-3 text-sm transition outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+        className="rounded-lg border border-slate-700 bg-slate-800 p-3 text-sm text-white transition-all outline-none focus:border-blue-500"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         required
@@ -106,7 +123,7 @@ export const LoginForm: React.FC = () => {
 
       <button
         disabled={loading}
-        className="group flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-blue-600 p-3 font-bold transition hover:bg-blue-500 active:scale-95 disabled:opacity-50"
+        className="group mt-2 flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-blue-600 p-3 font-bold text-white transition hover:bg-blue-500 active:scale-95 disabled:opacity-50"
       >
         {loading ? (
           <Loader2 className="animate-spin" size={20} />
@@ -124,10 +141,10 @@ export const LoginForm: React.FC = () => {
       <button
         type="button"
         onClick={() => setIsNewUser(!isNewUser)}
-        className="mt-2 cursor-pointer text-xs text-slate-400 hover:text-white"
+        className="mt-4 cursor-pointer text-center text-xs text-slate-400 transition-colors hover:text-white"
       >
         {isNewUser
-          ? "Har du allerede en konto? Log ind her"
+          ? "Har du en konto? Log ind"
           : "Ny bruger? Opret en konto her"}
       </button>
     </form>
