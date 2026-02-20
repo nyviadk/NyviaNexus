@@ -1,19 +1,33 @@
-import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { initializeApp, getApp, getApps, FirebaseApp } from "firebase/app";
+import { getFirestore, Firestore } from "firebase/firestore";
+import { getAuth, Auth } from "firebase/auth";
+import { FirebaseConfig } from "@/components/FirebaseGuard";
 
-// Indsæt dine egne Firebase-nøgler her fra Firebase Console
-const firebaseConfig = {
-  apiKey: "AIzaSyBAcOVYRONo6_rYm7QkT8yDD_szhfcrZ2w",
-  authDomain: "nyvianexus.firebaseapp.com",
-  projectId: "nyvianexus",
-  storageBucket: "nyvianexus.firebasestorage.app",
-  messagingSenderId: "621186701330",
-  appId: "1:621186701330:web:41a6423ef21c622b19e0cb",
+// Vi bruger "let" i stedet for Proxies.
+// ES6 Modules gør, at når disse får en værdi i configureFirebase,
+// opdateres de automatisk i alle filer, der har importeret dem!
+export let db: Firestore;
+export let auth: Auth;
+export let app: FirebaseApp;
+
+export const configureFirebase = (config: FirebaseConfig) => {
+  try {
+    if (getApps().length === 0) {
+      app = initializeApp(config);
+    } else {
+      app = getApp();
+    }
+
+    // Tildel de ægte instanser direkte til de eksporterede variabler
+    db = getFirestore(app);
+    auth = getAuth(app);
+
+    console.log(
+      "🚀 [Firebase] Dynamisk konfiguration fuldført og live-bindings er opdateret.",
+    );
+  } catch (error) {
+    console.error("❌ [Firebase] Fejl ved konfiguration:", error);
+  }
 };
-
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
-export const auth = getAuth(app);
 
 // europe-west1 (Belgium)

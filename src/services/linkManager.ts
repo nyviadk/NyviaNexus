@@ -1,4 +1,4 @@
-import { TabData } from "../types";
+import { TabData, WorkspaceWindow } from "../types";
 
 export const LinkManager = {
   /**
@@ -17,6 +17,43 @@ export const LinkManager = {
       return tabs.length;
     } catch (err) {
       console.error("Failed to copy: ", err);
+      return 0;
+    }
+  },
+
+  /**
+   * Kopierer et helt workspace (flere vinduer) og adskiller vinduerne med "###".
+   * Perfekt til backup og gendannelse via PasteModal.
+   */
+  async copyWindowsToClipboard(windows: WorkspaceWindow[]): Promise<number> {
+    if (!windows || windows.length === 0) return 0;
+
+    let totalTabs = 0;
+
+    const windowStrings = windows.map((w) => {
+      const validUrls = (w.tabs || [])
+        .map((t) => t.url)
+        .filter((url) => url && !url.includes("dashboard.html")); // Filtrer dashboard fra
+
+      totalTabs += validUrls.length;
+      return validUrls.join("\n");
+    });
+
+    // Filtrer tomme vinduer fra, så vi ikke får unødige "###" i træk
+    const nonEmptyWindows = windowStrings.filter(
+      (str) => str.trim().length > 0,
+    );
+
+    // Saml det hele med vores sektions-deler
+    const finalString = nonEmptyWindows.join("\n\n###\n\n");
+
+    if (totalTabs === 0) return 0;
+
+    try {
+      await navigator.clipboard.writeText(finalString);
+      return totalTabs;
+    } catch (err) {
+      console.error("Failed to copy workspace: ", err);
       return 0;
     }
   },

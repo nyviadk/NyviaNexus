@@ -12,7 +12,6 @@ import {
   Inbox as InboxIcon,
   LifeBuoy,
   Loader2,
-  LogOut,
   Monitor,
   PlusCircle,
   Save,
@@ -29,6 +28,7 @@ import { NexusService } from "../../services/nexusService";
 import { NexusItem, Profile, TabData } from "../../types";
 import { SidebarItem } from "../SidebarItem";
 import { CustomProfileSelector } from "./CustomProfileSelector";
+import { LogoutButton } from "./LogoutButton";
 
 interface SidebarProps {
   profiles: Profile[];
@@ -773,7 +773,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={() => auth.signOut()}
           className="flex cursor-pointer items-center gap-2 text-slate-500 transition-colors hover:text-red-500"
         >
-          <LogOut size={20} /> Log ud
+          <LogoutButton activeMappings={activeMappings} />
         </button>
       </div>
     </aside>

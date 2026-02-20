@@ -11,7 +11,7 @@ import {
   Timestamp,
   updateDoc,
 } from "firebase/firestore";
-import { auth, db } from "../lib/firebase";
+import { auth, db, configureFirebase } from "../lib/firebase";
 import { AiService } from "../services/aiService";
 import { initializeContextMenus } from "./contextMenus";
 
@@ -78,11 +78,13 @@ interface StorageResponse {
   nexus_ai_last_call?: number;
   nexus_active_windows?: [number, WinMapping][];
   nexus_tab_tracker?: [number, TrackerData][]; // NY: Gemmer trackeren
+  userFirebaseConfig?: any; // NY: Til at hente dynamisk Firebase config
   [key: string]: unknown; // Fallback for andre nøgler, men typesafe som unknown
 }
 
 // Discriminated Union for Type-Safe Messaging
 type BackgroundMessage =
+  | { type: "REINITIALIZE_FIREBASE"; payload?: null }
   | { type: "DELETE_WORKSPACE_WINDOWS"; payload: { workspaceId: string } }
   | {
       type: "DELETE_AND_CLOSE_WINDOW";
@@ -172,6 +174,71 @@ type BackgroundMessage =
       };
     };
 
+// --- INITIALIZATION LOGIC (THE SHIELD) ---
+
+let isInitialized = false;
+let initPromise: Promise<void> | null = null;
+
+/**
+ * ensureInitialized - Den centrale gatekeeper.
+ * Sikrer at Firebase og Auth er klar før noget andet sker, baseret på dynamisk config.
+ */
+async function ensureInitialized() {
+  if (isInitialized) return;
+  if (initPromise) return initPromise;
+
+  initPromise = (async () => {
+    try {
+      const storage = (await chrome.storage.local.get([
+        "userFirebaseConfig",
+      ])) as StorageResponse;
+
+      if (storage.userFirebaseConfig) {
+        // 1. Skyd liv i Firebase Proxy
+        configureFirebase(storage.userFirebaseConfig);
+
+        // 2. Vent på at Firebase Auth har bestemt sig (logger ind eller afviser)
+        await new Promise<void>((resolve) => {
+          const unsubscribe = auth.onAuthStateChanged(() => {
+            unsubscribe();
+            resolve();
+          });
+        });
+
+        isInitialized = true;
+        console.log("🚀 [Nexus] Alt er klar (Firebase + Auth)");
+
+        // 3. Nu hvor vi er initialiseret, kan vi køre cleanup & hydration uden at den crasher.
+        await validateAndCleanupState();
+      } else {
+        console.warn("⚠️ [Nexus] Venter på Firebase opsætning i Dashboardet.");
+      }
+    } catch (err) {
+      console.error("❌ [Nexus] Initialisering fejlede:", err);
+    } finally {
+      initPromise = null;
+    }
+  })();
+
+  return initPromise;
+}
+
+/**
+ * createSafeListener - The Bodyguard for Chrome Events.
+ * Den griber eventet og holder det fast, indtil systemet er initialiseret.
+ */
+function createSafeListener<T extends any[]>(
+  fn: (...args: T) => Promise<void> | void,
+) {
+  return async (...args: T) => {
+    await ensureInitialized();
+    // Hvis vi er klar, kør logikken. Ellers drop eventet pænt.
+    if (isInitialized) {
+      return fn(...args);
+    }
+  };
+}
+
 // --- STATE ---
 let activeRestorations = 0;
 let restorationStatus = "";
@@ -233,27 +300,6 @@ function getTimestampMillis(
   return 0;
 }
 
-// --- AUTH HELPER (FIX FOR RACE CONDITIONS) ---
-/**
- * Venter på at Firebase Auth initialiserer.
- * Dette løser problemet hvor SW vågner, og koden kører før Auth er klar.
- */
-function waitForAuth(): Promise<string | null> {
-  return new Promise((resolve) => {
-    // Hvis vi allerede har en bruger, returner straks
-    if (auth.currentUser) {
-      resolve(auth.currentUser.uid);
-      return;
-    }
-
-    // Ellers vent på første emission fra onAuthStateChanged
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      unsubscribe();
-      resolve(user ? user.uid : null);
-    });
-  });
-}
-
 // --- PERSISTENCE HELPERS ---
 
 async function saveTrackerToStorage() {
@@ -310,6 +356,22 @@ async function reindexWorkspaceWindows(workspaceId: string, uid: string) {
   }
 }
 
+// --- MUTEX / LOCK SYSTEM ---
+// Forhindrer Firestore Read-Modify-Write race conditions
+const syncLocks = new Map<string, Promise<void>>();
+async function runWithLock(
+  lockKey: string,
+  task: () => Promise<void>,
+): Promise<void> {
+  await ensureInitialized(); // Gatekeeper for mutex
+  const prev = syncLocks.get(lockKey) || Promise.resolve();
+  const next = prev.then(task).catch((err) => {
+    console.error(`🛑 [LockError] Fejl i kø for ${lockKey}:`, err);
+  });
+  syncLocks.set(lockKey, next);
+  return next;
+}
+
 // --- CRITICAL: STATE HYDRATION & CLEANUP ---
 
 // Denne funktion køres ved opstart af Chrome eller Service Worker.
@@ -322,8 +384,8 @@ async function validateAndCleanupState() {
   restorationStatus = "";
   lockedWindowIds.clear();
 
-  // Auth check nødvendigt for database oprydning
-  const uid = await waitForAuth(); // FIX: Wait for auth
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
 
   try {
     // 1. Hent gemte mappings OG tab tracker
@@ -504,6 +566,8 @@ async function validateAndCleanupState() {
 
 // Hydration wrapper til events: Sikrer at vi ikke arbejder med tomt map efter sleep
 async function ensureStateHydrated() {
+  await ensureInitialized(); // Vigtig safety check
+
   if (activeWindows.size > 0) return;
 
   try {
@@ -548,21 +612,13 @@ async function ensureStateHydrated() {
 
 // --- BOOTSTRAP ---
 
-// Kør cleanup når Chrome starter
+// Kør opsætning når Chrome starter.
 chrome.runtime.onStartup.addListener(() => {
-  validateAndCleanupState();
+  ensureInitialized();
 });
 
-// Kør cleanup når extension installeres/opdateres/reloader
 chrome.runtime.onInstalled.addListener(() => {
-  validateAndCleanupState();
-});
-
-auth.onAuthStateChanged((user) => {
-  if (user) {
-    // Kør også cleanup når bruger logger ind, for at være sikker
-    validateAndCleanupState();
-  }
+  ensureInitialized();
 });
 
 // --- STORAGE SAVE ---
@@ -573,7 +629,7 @@ async function saveActiveWindowsToStorage() {
 }
 
 async function rebuildTabTracker() {
-  const uid = await waitForAuth(); // FIX: Wait for auth
+  const uid = auth.currentUser?.uid;
   if (!uid) return;
 
   // Vi rydder IKKE tabTracker her, da vi nu bruger persistence.
@@ -737,7 +793,7 @@ async function cleanupQueueItem(uid: string) {
 }
 
 async function processAiQueue() {
-  const uid = await waitForAuth(); // FIX: Wait for auth
+  const uid = auth.currentUser?.uid;
   if (!uid) return;
 
   if (activeRestorations > 0) {
@@ -957,7 +1013,7 @@ function getOrAssignUid(tabId: number, url: string): string {
 // --- STANDARD LOGIC ---
 
 async function registerNewInboxWindow(windowId: number) {
-  const uid = await waitForAuth(); // FIX: Wait for auth
+  const uid = auth.currentUser?.uid;
   if (!uid) return;
 
   // SIKKERHEDSTJEK: Vi vil ikke håndtere popups som Inbox-vinduer
@@ -972,44 +1028,48 @@ async function registerNewInboxWindow(windowId: number) {
   }
 
   if (activeRestorations > 0) return;
-  const tabs = await chrome.tabs.query({ windowId });
-  const tabsToAdd: TabData[] = [];
-  const inboxDocRef = doc(db, "users", uid, "inbox_data", "global");
 
-  // Vi bruger getDoc, men hvis det ikke findes, opretter vi det senere
-  const inboxSnap = await getDoc(inboxDocRef);
-  let currentTabs = inboxSnap.exists()
-    ? (inboxSnap.data().tabs as TabData[]) || []
-    : [];
+  return runWithLock("inbox_global", async () => {
+    const tabs = await chrome.tabs.query({ windowId });
+    const tabsToAdd: TabData[] = [];
+    const inboxDocRef = doc(db, "users", uid, "inbox_data", "global");
 
-  for (const t of tabs) {
-    if (t.id && t.url && !isDash(t.url) && !t.url.startsWith("chrome")) {
-      const uid = getOrAssignUid(t.id, t.url);
+    console.log(`📂 [Inbox] Registrerer vindue. Path: ${inboxDocRef.path}`);
 
-      if (!currentTabs.some((ct) => ct.uid === uid)) {
-        tabsToAdd.push({
-          uid: uid,
-          title: t.title || "Ny fane",
-          url: t.url,
-          favIconUrl: t.favIconUrl || "",
-          isIncognito: t.incognito,
-          aiData: { status: "pending" },
-        });
+    const inboxSnap = await getDoc(inboxDocRef);
+    let currentTabs = inboxSnap.exists()
+      ? (inboxSnap.data().tabs as TabData[]) || []
+      : [];
+
+    for (const t of tabs) {
+      if (t.id && t.url && !isDash(t.url) && !t.url.startsWith("chrome")) {
+        const uid = getOrAssignUid(t.id, t.url);
+
+        if (!currentTabs.some((ct) => ct.uid === uid)) {
+          tabsToAdd.push({
+            uid: uid,
+            title: t.title || "Ny fane",
+            url: t.url,
+            favIconUrl: t.favIconUrl || "",
+            isIncognito: t.incognito,
+            aiData: { status: "pending" },
+          });
+        }
       }
     }
-  }
 
-  if (tabsToAdd.length > 0) {
-    // Brug setDoc med merge for at være sikker på at dokumentet findes
-    await setDoc(
-      inboxDocRef,
-      {
-        tabs: [...currentTabs, ...tabsToAdd],
-        lastUpdate: serverTimestamp(),
-      },
-      { merge: true },
-    );
-  }
+    if (tabsToAdd.length > 0) {
+      console.log(`📥 [Inbox] Tilføjer ${tabsToAdd.length} nye faner til DB.`);
+      await setDoc(
+        inboxDocRef,
+        {
+          tabs: [...currentTabs, ...tabsToAdd],
+          lastUpdate: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }
+  });
 }
 
 async function saveToFirestore(
@@ -1017,7 +1077,7 @@ async function saveToFirestore(
   isRemoval: boolean = false,
   force: boolean = false,
 ) {
-  const uid = await waitForAuth(); // FIX: Wait for auth
+  const uid = auth.currentUser?.uid;
   if (!uid) return;
 
   if (!force && (lockedWindowIds.has(windowId) || activeRestorations > 0))
@@ -1034,11 +1094,19 @@ async function saveToFirestore(
     await ensureStateHydrated();
 
     const mapping = activeWindows.get(windowId);
-    if (mapping) {
-      if (!windowExists) return; // Don't save if physical window is gone (unless removal logic runs)
+    if (!mapping) return;
+
+    return runWithLock(mapping.internalWindowId, async () => {
+      if (!windowExists && !isRemoval) return;
 
       let tabs: chrome.tabs.Tab[] = [];
-      tabs = await chrome.tabs.query({ windowId });
+      if (windowExists) {
+        tabs = await chrome.tabs.query({ windowId });
+      }
+
+      console.log(
+        `💾 [Save] Vindue ${windowId} mapping fundet: ${mapping.internalWindowId}`,
+      );
 
       const docRef = doc(
         db,
@@ -1132,71 +1200,271 @@ async function saveToFirestore(
         { merge: true },
       );
       if (tabsToQueue.length > 0) addToAiQueue(tabsToQueue);
-    }
+    });
   } catch (e) {
     console.error("Save error:", e);
   }
 }
 
 // --- FIX: NYE LISTENERS FOR AT FANGE FLYTNING MELLEM VINDUER ---
-chrome.tabs.onAttached.addListener(async (_tabId, info) => {
-  const uid = await waitForAuth(); // FIX: Wait for auth
-  if (!uid || activeRestorations > 0) return;
-  console.log(`📌 Tab Attached to Window ${info.newWindowId}`);
-  // Opdater destinationens vindue
-  await saveToFirestore(info.newWindowId);
-});
+chrome.tabs.onAttached.addListener(
+  createSafeListener(async (_tabId, info) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid || activeRestorations > 0) return;
+    console.log(`📌 Tab Attached to Window ${info.newWindowId}`);
+    // Opdater destinationens vindue
+    await saveToFirestore(info.newWindowId);
+  }),
+);
 
-chrome.tabs.onDetached.addListener(async (_tabId, info) => {
-  const uid = await waitForAuth(); // FIX: Wait for auth
-  if (!uid || activeRestorations > 0) return;
-  console.log(`📤 Tab Detached from Window ${info.oldWindowId}`);
-  // Opdater kildens vindue
-  await saveToFirestore(info.oldWindowId);
-});
+chrome.tabs.onDetached.addListener(
+  createSafeListener(async (_tabId, info) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid || activeRestorations > 0) return;
+    console.log(`📤 Tab Detached from Window ${info.oldWindowId}`);
+    // Opdater kildens vindue
+    await saveToFirestore(info.oldWindowId);
+  }),
+);
 // -------------------------------------------------------------
 
-chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
-  const uid = await waitForAuth(); // FIX: Wait for auth
-  if (!uid) return;
+chrome.tabs.onUpdated.addListener(
+  createSafeListener(async (tabId, change, tab) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
 
-  if (
-    activeRestorations > 0 ||
-    !tab.url ||
-    isDash(tab.url) ||
-    tab.url.startsWith("chrome") ||
-    tab.url.startsWith("edge")
-  ) {
-    return;
-  }
+    if (
+      activeRestorations > 0 ||
+      !tab.url ||
+      isDash(tab.url) ||
+      tab.url.startsWith("chrome") ||
+      tab.url.startsWith("edge")
+    ) {
+      return;
+    }
 
-  await ensureStateHydrated();
+    await ensureStateHydrated();
 
-  const isUrlChange = change.url !== undefined;
-  const isStatusComplete = change.status === "complete";
-  const isTitleChange = change.title !== undefined;
+    const isUrlChange = change.url !== undefined;
+    const isStatusComplete = change.status === "complete";
+    const isTitleChange = change.title !== undefined;
 
-  if (isUrlChange || isStatusComplete || isTitleChange) {
-    const url = tab.url;
-    const uidTab = getOrAssignUid(tabId, url);
-    const title = tab.title || "Indlæser...";
-    const mapping = activeWindows.get(tab.windowId);
+    if (isUrlChange || isStatusComplete || isTitleChange) {
+      const url = tab.url;
+      const uidTab = getOrAssignUid(tabId, url);
+      const title = tab.title || "Indlæser...";
+      const mapping = activeWindows.get(tab.windowId);
 
-    const triggerAi = () => {
-      addToAiQueue([
-        {
-          uid: uidTab,
-          url,
-          title,
-          tabId,
-          attempts: 0,
-          workspaceName: mapping ? mapping.workspaceName : "Inbox",
-        },
-      ]);
-    };
+      const triggerAi = () => {
+        addToAiQueue([
+          {
+            uid: uidTab,
+            url,
+            title,
+            tabId,
+            attempts: 0,
+            workspaceName: mapping ? mapping.workspaceName : "Inbox",
+          },
+        ]);
+      };
 
-    if (mapping) {
-      const winRef = doc(
+      if (mapping) {
+        await runWithLock(mapping.internalWindowId, async () => {
+          const winRef = doc(
+            db,
+            "users",
+            uid,
+            "workspaces_data",
+            mapping.workspaceId,
+            "windows",
+            mapping.internalWindowId,
+          );
+
+          try {
+            const snap = await getDoc(winRef);
+
+            if (snap.exists()) {
+              let tabs = (snap.data().tabs || []) as TabData[];
+              const idx = tabs.findIndex((t) => t.uid === uidTab);
+
+              if (idx !== -1) {
+                const oldUrl = tabs[idx].url;
+                const hasNoAiData =
+                  !tabs[idx].aiData || tabs[idx].aiData?.status === "pending";
+
+                if (oldUrl !== url || isStatusComplete || hasNoAiData) {
+                  tabs[idx].url = url;
+                  tabs[idx].title = title;
+                  tabs[idx].favIconUrl =
+                    tab.favIconUrl || tabs[idx].favIconUrl || "";
+
+                  if (oldUrl !== url || hasNoAiData) {
+                    tabs[idx].aiData = { status: "pending" };
+                    await updateDoc(winRef, { tabs });
+                    triggerAi();
+                  } else {
+                    await updateDoc(winRef, { tabs });
+                  }
+                }
+              } else {
+                tabs.push({
+                  uid: uidTab,
+                  title,
+                  url,
+                  favIconUrl: tab.favIconUrl || "",
+                  aiData: { status: "pending" },
+                });
+                await updateDoc(winRef, { tabs });
+                triggerAi();
+              }
+            }
+          } catch (e) {
+            // Ignore updates to missing docs
+          }
+        });
+      } else {
+        // Inbox Logic
+        await runWithLock("inbox_global", async () => {
+          const inboxRef = doc(db, "users", uid, "inbox_data", "global");
+          const snap = await getDoc(inboxRef);
+          if (snap.exists()) {
+            let tabs = (snap.data().tabs || []) as TabData[];
+            const idx = tabs.findIndex((t) => t.uid === uidTab);
+
+            if (idx !== -1) {
+              if (tabs[idx].url !== url || !tabs[idx].aiData) {
+                tabs[idx].url = url;
+                tabs[idx].title = title;
+                tabs[idx].aiData = { status: "pending" };
+                await updateDoc(inboxRef, { tabs });
+                triggerAi();
+              }
+            } else {
+              tabs.push({
+                uid: uidTab,
+                title,
+                url,
+                favIconUrl: tab.favIconUrl || "",
+                isIncognito: tab.incognito,
+                aiData: { status: "pending" },
+              });
+              await updateDoc(inboxRef, {
+                tabs,
+                lastUpdate: serverTimestamp(),
+              });
+              triggerAi();
+            }
+          }
+        });
+      }
+    }
+  }),
+);
+
+chrome.tabs.onRemoved.addListener(
+  createSafeListener(async (tabId, info) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+
+    if (activeRestorations > 0) return;
+    await ensureStateHydrated();
+
+    const tracked = tabTracker.get(tabId);
+    tabTracker.delete(tabId);
+    saveTrackerToStorage(); // GEM ÆNDRING
+
+    if (activeWindows.has(info.windowId)) {
+      if (!info.isWindowClosing) saveToFirestore(info.windowId, true);
+    } else {
+      // Dette er den vigtige del for Inbox.
+      if (tracked && !info.isWindowClosing) {
+        await runWithLock("inbox_global", async () => {
+          const inboxRef = doc(db, "users", uid, "inbox_data", "global");
+          try {
+            const snap = await getDoc(inboxRef);
+            if (snap.exists()) {
+              const data = snap.data();
+              let tabs: TabData[] = data.tabs || [];
+              const newTabs = tabs.filter((t) => t.uid !== tracked.uid);
+              if (newTabs.length !== tabs.length) {
+                await updateDoc(inboxRef, {
+                  tabs: newTabs,
+                  lastUpdate: serverTimestamp(),
+                });
+              }
+            }
+          } catch (e) {
+            console.warn(
+              "Could not remove tab from inbox (maybe deleted?):",
+              e,
+            );
+          }
+        });
+      }
+    }
+  }),
+);
+
+chrome.windows.onCreated.addListener(
+  createSafeListener(async (win) => {
+    broadcast("PHYSICAL_WINDOWS_CHANGED");
+    if (activeRestorations > 0) return;
+
+    await ensureStateHydrated();
+
+    if (win.id && !activeWindows.has(win.id)) {
+      // FIX: Tjek vinduestype. Popups og Paneler skal IKKE blive til Inbox-vinduer.
+      if (win.type === "popup" || win.type === "panel" || win.type === "app") {
+        console.log(`🚫 New window is of type ${win.type}. Ignoring.`);
+        return;
+      }
+      setTimeout(() => registerNewInboxWindow(win.id!), 1000);
+    }
+  }),
+);
+
+chrome.windows.onFocusChanged.addListener(
+  createSafeListener(async (winId) => {
+    if (winId === chrome.windows.WINDOW_ID_NONE || activeRestorations > 0)
+      return;
+
+    await ensureStateHydrated();
+
+    const now = Date.now();
+    if (now - lastDashboardTime < 1500) return;
+    try {
+      const win = await chrome.windows.get(winId);
+
+      // FIX: Tjek om vinduet er en popup, app eller panel.
+      if (win.type === "popup" || win.type === "panel" || win.type === "app") {
+        return;
+      }
+
+      if (win.incognito && !activeWindows.has(winId)) return;
+      const tabs = await chrome.tabs.query({ windowId: winId });
+      if (!tabs.some((t) => isDash(t.url))) {
+        lastDashboardTime = now;
+        await chrome.tabs.create({
+          windowId: winId,
+          url: "dashboard.html",
+          pinned: true,
+          index: 0,
+        });
+      }
+    } catch (e) {}
+  }),
+);
+
+chrome.windows.onRemoved.addListener(
+  createSafeListener(async (windowId) => {
+    broadcast("PHYSICAL_WINDOWS_CHANGED");
+    const uid = auth.currentUser?.uid;
+
+    await ensureStateHydrated();
+
+    const mapping = activeWindows.get(windowId);
+    if (mapping && uid) {
+      const docRef = doc(
         db,
         "users",
         uid,
@@ -1205,618 +1473,445 @@ chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
         "windows",
         mapping.internalWindowId,
       );
+      // Use catch to ignore errors if doc is already gone
+      updateDoc(docRef, { isActive: false }).catch(() => {});
 
-      try {
-        const snap = await getDoc(winRef);
+      activeWindows.delete(windowId);
 
-        if (snap.exists()) {
-          let tabs = (snap.data().tabs || []) as TabData[];
-          const idx = tabs.findIndex((t) => t.uid === uidTab);
+      // VIGTIGT: RE-INDEXER NÅR VI LUKKER ET VINDUE!
+      await reindexWorkspaceWindows(mapping.workspaceId, uid);
 
-          if (idx !== -1) {
-            const oldUrl = tabs[idx].url;
-            const hasNoAiData =
-              !tabs[idx].aiData || tabs[idx].aiData?.status === "pending";
-
-            if (oldUrl !== url || isStatusComplete || hasNoAiData) {
-              tabs[idx].url = url;
-              tabs[idx].title = title;
-              tabs[idx].favIconUrl =
-                tab.favIconUrl || tabs[idx].favIconUrl || "";
-
-              if (oldUrl !== url || hasNoAiData) {
-                tabs[idx].aiData = { status: "pending" };
-                await updateDoc(winRef, { tabs });
-                triggerAi();
-              } else {
-                await updateDoc(winRef, { tabs });
-              }
-            }
-          } else {
-            tabs.push({
-              uid: uidTab,
-              title,
-              url,
-              favIconUrl: tab.favIconUrl || "",
-              aiData: { status: "pending" },
-            });
-            await updateDoc(winRef, { tabs });
-            triggerAi();
-          }
-        }
-      } catch (e) {
-        // Ignore updates to missing docs
-      }
-    } else {
-      // Inbox Logic
-      // Hvis vi når herned, og ensureStateHydrated har kørt, er det en "ægte" ukendt fane
-      // MEN vi skal sikre os at det ikke er en popup. Men tab.windowId er allerede valideret indirekte.
-      const inboxRef = doc(db, "users", uid, "inbox_data", "global");
-      const snap = await getDoc(inboxRef);
-      if (snap.exists()) {
-        let tabs = (snap.data().tabs || []) as TabData[];
-        const idx = tabs.findIndex((t) => t.uid === uidTab);
-
-        if (idx !== -1) {
-          if (tabs[idx].url !== url || !tabs[idx].aiData) {
-            tabs[idx].url = url;
-            tabs[idx].title = title;
-            tabs[idx].aiData = { status: "pending" };
-            await updateDoc(inboxRef, { tabs });
-            triggerAi();
-          }
-        } else {
-          tabs.push({
-            uid: uidTab,
-            title,
-            url,
-            favIconUrl: tab.favIconUrl || "",
-            isIncognito: tab.incognito,
-            aiData: { status: "pending" },
-          });
-          await updateDoc(inboxRef, {
-            tabs,
-            lastUpdate: serverTimestamp(),
-          });
-          triggerAi();
-        }
-      }
+      await saveActiveWindowsToStorage();
     }
-  }
-});
-
-chrome.tabs.onRemoved.addListener(async (tabId, info) => {
-  const uid = await waitForAuth(); // FIX: Wait for auth
-  if (!uid) return;
-
-  if (activeRestorations > 0) return;
-  await ensureStateHydrated();
-
-  const tracked = tabTracker.get(tabId);
-  tabTracker.delete(tabId);
-  saveTrackerToStorage(); // GEM ÆNDRING
-
-  if (activeWindows.has(info.windowId)) {
-    if (!info.isWindowClosing) saveToFirestore(info.windowId, true);
-  } else {
-    // Dette er den vigtige del for Inbox.
-    // Hvis 'tracked' var undefined pga. reload (før), fejlede dette.
-    // Nu er tracked hydreret fra storage.
-    if (tracked && !info.isWindowClosing) {
-      const inboxRef = doc(db, "users", uid, "inbox_data", "global");
-      try {
-        const snap = await getDoc(inboxRef);
-        if (snap.exists()) {
-          const data = snap.data();
-          let tabs: TabData[] = data.tabs || [];
-          const newTabs = tabs.filter((t) => t.uid !== tracked.uid);
-          if (newTabs.length !== tabs.length) {
-            await updateDoc(inboxRef, {
-              tabs: newTabs,
-              lastUpdate: serverTimestamp(),
-            });
-          }
-        }
-      } catch (e) {
-        console.warn("Could not remove tab from inbox (maybe deleted?):", e);
-      }
-    }
-  }
-});
-
-chrome.windows.onCreated.addListener(async (win) => {
-  broadcast("PHYSICAL_WINDOWS_CHANGED");
-  if (activeRestorations > 0) return;
-
-  await ensureStateHydrated();
-
-  if (win.id && !activeWindows.has(win.id)) {
-    // FIX: Tjek vinduestype. Popups og Paneler skal IKKE blive til Inbox-vinduer.
-    if (win.type === "popup" || win.type === "panel" || win.type === "app") {
-      console.log(`🚫 New window is of type ${win.type}. Ignoring.`);
-      return;
-    }
-    setTimeout(() => registerNewInboxWindow(win.id!), 1000);
-  }
-});
-
-chrome.windows.onFocusChanged.addListener(async (winId) => {
-  if (winId === chrome.windows.WINDOW_ID_NONE || activeRestorations > 0) return;
-
-  await ensureStateHydrated();
-
-  const now = Date.now();
-  if (now - lastDashboardTime < 1500) return;
-  try {
-    const win = await chrome.windows.get(winId);
-
-    // FIX: Tjek om vinduet er en popup, app eller panel.
-    // Hvis det er, skal vi ALDRIG tvinge dashboardet frem.
-    // Dette løser problemet med at du ikke kan "komme ind" på vinduet.
-    if (win.type === "popup" || win.type === "panel" || win.type === "app") {
-      return;
-    }
-
-    if (win.incognito && !activeWindows.has(winId)) return;
-    const tabs = await chrome.tabs.query({ windowId: winId });
-    if (!tabs.some((t) => isDash(t.url))) {
-      lastDashboardTime = now;
-      await chrome.tabs.create({
-        windowId: winId,
-        url: "dashboard.html",
-        pinned: true,
-        index: 0,
-      });
-    }
-  } catch (e) {}
-});
-
-chrome.windows.onRemoved.addListener(async (windowId) => {
-  broadcast("PHYSICAL_WINDOWS_CHANGED");
-  const uid = await waitForAuth(); // FIX: Wait for auth
-
-  await ensureStateHydrated();
-
-  const mapping = activeWindows.get(windowId);
-  if (mapping && uid) {
-    const docRef = doc(
-      db,
-      "users",
-      uid,
-      "workspaces_data",
-      mapping.workspaceId,
-      "windows",
-      mapping.internalWindowId,
-    );
-    // Use catch to ignore errors if doc is already gone
-    updateDoc(docRef, { isActive: false }).catch(() => {});
-
-    activeWindows.delete(windowId);
-
-    // VIGTIGT: RE-INDEXER NÅR VI LUKKER ET VINDUE!
-    await reindexWorkspaceWindows(mapping.workspaceId, uid);
-
-    await saveActiveWindowsToStorage();
-  }
-  lockedWindowIds.delete(windowId);
-});
+    lockedWindowIds.delete(windowId);
+  }),
+);
 
 // --- MESSAGING ---
 
 // Using the BackgroundMessage discriminated union to ensure type safety
 chrome.runtime.onMessage.addListener(
   (message: BackgroundMessage, _sender, sendResponse) => {
-    // FIX: Vi bruger ikke auth.currentUser?.uid direkte her mere,
-    // men lader de asynkrone funktioner kalde waitForAuth() når de er klar.
-
-    switch (message.type) {
-      case "DELETE_WORKSPACE_WINDOWS": {
-        ensureStateHydrated().then(async () => {
-          const { workspaceId } = message.payload;
-          const windowsToClose: number[] = [];
-
-          for (const [winId, mapping] of activeWindows.entries()) {
-            if (mapping.workspaceId === workspaceId) {
-              windowsToClose.push(winId);
-              activeWindows.delete(winId); // Remove from memory immediately
-            }
-          }
-
-          if (windowsToClose.length > 0) {
-            await saveActiveWindowsToStorage();
-            // Close physical windows
-            windowsToClose.forEach((wid) =>
-              chrome.windows.remove(wid).catch(() => {}),
-            );
-          }
-        });
-        return false; // No response needed
+    // Bemærk: Vi wrapper hele message handleren i ensureInitialized
+    // for at sikre, at vi ikke afviser messages pga. manglende init.
+    ensureInitialized().then(async () => {
+      if (!isInitialized) {
+        sendResponse({ success: false, error: "Not initialized" });
+        return;
       }
 
-      // NYT: Force queue håndtering
-      case "FORCE_QUEUE_TAB": {
-        console.log("⚡ FORCE_QUEUE_TAB received:", message.payload);
-        const { uid, url, title, tabId, workspaceName } = message.payload;
-        // Vi kalder addToAiQueue med force=true
-        addToAiQueue(
-          [{ uid, url, title, tabId, workspaceName, attempts: 0 }],
-          true,
-        );
-        return true;
-      }
-
-      case "WORKSPACE_RENAMED": {
-        const { workspaceId, newName } = message.payload;
-        ensureStateHydrated().then(async () => {
-          const uid = await waitForAuth();
-          if (!uid) return;
-
+      switch (message.type) {
+        case "REINITIALIZE_FIREBASE": {
           console.log(
-            `✏️ Workspace renamed to "${newName}". Updating cache & AI context...`,
+            "♻️ [Nexus] Re-initializing background logic with new keys...",
           );
+          isInitialized = false;
+          initPromise = null;
+          ensureInitialized().then(() => {
+            sendResponse({ success: true });
+          });
+          return true; // Hold kanalen åben
+        }
 
-          // 1. Opdater In-Memory Cache & Storage (Løser flickering/gammelt navn i UI)
-          let cacheUpdated = false;
-          for (const [winId, map] of activeWindows.entries()) {
-            if (map.workspaceId === workspaceId) {
-              activeWindows.set(winId, { ...map, workspaceName: newName });
-              cacheUpdated = true;
-            }
-          }
-          if (cacheUpdated) {
-            await saveActiveWindowsToStorage();
-          }
+        case "DELETE_WORKSPACE_WINDOWS": {
+          ensureStateHydrated().then(async () => {
+            const { workspaceId } = message.payload;
+            const windowsToClose: number[] = [];
 
-          // 2. Reset AI Status in Firestore & Re-queue
-          // Vi henter alle vinduer i dette workspace
-          const windowsRef = collection(
-            db,
-            "users",
-            uid,
-            "workspaces_data",
-            workspaceId,
-            "windows",
-          );
-          const snapshot = await getDocs(windowsRef);
-          const queueItems: QueueItem[] = [];
-
-          for (const docSnap of snapshot.docs) {
-            const data = docSnap.data();
-            let tabs = (data.tabs || []) as TabData[];
-
-            // VIGTIGT: Vi opretter en ny liste af tabs hvor KUN AI data er ændret
-            const updatedTabs = tabs.map((t) => {
-              if (t.url && !isDash(t.url)) {
-                // Find fysisk ID via tracker for at kunne køre AI scrape
-                let physId = -1;
-                for (const [pid, tData] of tabTracker.entries()) {
-                  if (tData.uid === t.uid) {
-                    physId = pid;
-                    break;
-                  }
-                }
-
-                // Hvis vi har en fysisk tab, tilføj til kø med NYT navn
-                if (physId !== -1) {
-                  queueItems.push({
-                    uid: t.uid,
-                    url: t.url,
-                    title: t.title,
-                    tabId: physId,
-                    attempts: 0,
-                    workspaceName: newName, // NY KONTEKST!
-                  });
-                }
-
-                return {
-                  ...t, // BEHOLDER al eksisterende data (uid, title, url etc.)
-                  aiData: {
-                    status: "pending", // Sætter status til pending
-                  },
-                };
+            for (const [winId, mapping] of activeWindows.entries()) {
+              if (mapping.workspaceId === workspaceId) {
+                windowsToClose.push(winId);
+                activeWindows.delete(winId); // Remove from memory immediately
               }
-              return t;
-            });
-
-            // Opdater Firestore med de opdaterede (ikke genskabte) tabs
-            await updateDoc(docSnap.ref, { tabs: updatedTabs });
-          }
-
-          // 3. Tilføj til AI Queue (Force = true for at omgå anti-spam)
-          if (queueItems.length > 0) {
-            addToAiQueue(queueItems, true);
-          }
-        });
-        return true;
-      }
-
-      case "DELETE_AND_CLOSE_WINDOW": {
-        ensureStateHydrated().then(async () => {
-          const uid = await waitForAuth(); // FIX: Wait for auth
-          if (!uid) {
-            sendResponse({ success: false, error: "No auth" });
-            return;
-          }
-
-          const { workspaceId, internalWindowId } = message.payload;
-          let physicalId: number | null = null;
-          console.log(
-            `🗑️ DELETE REQUEST: Workspace ${workspaceId}, Win ${internalWindowId}`,
-          );
-
-          for (const [pId, map] of activeWindows.entries()) {
-            if (
-              map.workspaceId === workspaceId &&
-              map.internalWindowId === internalWindowId
-            ) {
-              physicalId = pId;
-              break;
             }
-          }
-          const docRef = doc(
-            db,
-            "users",
-            uid,
-            "workspaces_data",
-            workspaceId,
-            "windows",
-            internalWindowId,
-          );
-          try {
-            await deleteDoc(docRef);
 
-            if (physicalId) {
-              activeWindows.delete(physicalId);
-              console.log(
-                `Found physical window ${physicalId}. Removing from map.`,
+            if (windowsToClose.length > 0) {
+              await saveActiveWindowsToStorage();
+              // Close physical windows
+              windowsToClose.forEach((wid) =>
+                chrome.windows.remove(wid).catch(() => {}),
               );
             }
+          });
+          break;
+        }
 
-            // --- RE-INDEXER FRA DB ---
-            await reindexWorkspaceWindows(workspaceId, uid);
+        case "FORCE_QUEUE_TAB": {
+          console.log("⚡ FORCE_QUEUE_TAB received:", message.payload);
+          const { uid, url, title, tabId, workspaceName } = message.payload;
+          addToAiQueue(
+            [{ uid, url, title, tabId, workspaceName, attempts: 0 }],
+            true,
+          );
+          sendResponse({ success: true });
+          break;
+        }
 
-            if (physicalId) {
-              await chrome.windows.remove(physicalId).catch(() => {});
+        case "WORKSPACE_RENAMED": {
+          const { workspaceId, newName } = message.payload;
+          ensureStateHydrated().then(async () => {
+            const uid = auth.currentUser?.uid;
+            if (!uid) return;
+
+            console.log(
+              `✏️ Workspace renamed to "${newName}". Updating cache & AI context...`,
+            );
+
+            let cacheUpdated = false;
+            for (const [winId, map] of activeWindows.entries()) {
+              if (map.workspaceId === workspaceId) {
+                activeWindows.set(winId, { ...map, workspaceName: newName });
+                cacheUpdated = true;
+              }
+            }
+            if (cacheUpdated) {
+              await saveActiveWindowsToStorage();
             }
 
-            sendResponse({ success: true });
-          } catch (e) {
-            const error = e as Error;
-            console.error("Error deleting window:", error);
-            sendResponse({ success: false, error: error.message });
-          }
-        });
-        return true;
-      }
+            const windowsRef = collection(
+              db,
+              "users",
+              uid,
+              "workspaces_data",
+              workspaceId,
+              "windows",
+            );
+            const snapshot = await getDocs(windowsRef);
+            const queueItems: QueueItem[] = [];
 
-      case "TRIGGER_AI_SORT": {
-        ensureStateHydrated().then(async () => {
-          const uid = await waitForAuth(); // FIX: Wait for auth
-          if (!uid) {
-            sendResponse({ success: false, reason: "No auth" });
-            return;
-          }
+            for (const docSnap of snapshot.docs) {
+              const data = docSnap.data();
+              let tabs = (data.tabs || []) as TabData[];
 
-          getDoc(doc(db, "users", uid, "inbox_data", "global"))
-            .then(async (snap) => {
-              if (snap.exists()) {
-                const tabs = (snap.data().tabs || []) as TabData[];
-                const queueItems: QueueItem[] = [];
-                for (const t of tabs) {
-                  if (
-                    (t.aiData?.status === "pending" || !t.aiData?.status) &&
-                    !t.aiData?.isLocked
-                  ) {
-                    let physId = -1;
-                    for (const [pid, data] of tabTracker.entries()) {
-                      if (data.uid === t.uid) {
-                        physId = pid;
-                        break;
-                      }
-                    }
-                    if (physId !== -1) {
-                      queueItems.push({
-                        uid: t.uid,
-                        url: t.url,
-                        title: t.title,
-                        tabId: physId,
-                        attempts: 0,
-                        workspaceName: "Inbox",
-                      });
+              const updatedTabs = tabs.map((t) => {
+                if (t.url && !isDash(t.url)) {
+                  let physId = -1;
+                  for (const [pid, tData] of tabTracker.entries()) {
+                    if (tData.uid === t.uid) {
+                      physId = pid;
+                      break;
                     }
                   }
+
+                  if (physId !== -1) {
+                    queueItems.push({
+                      uid: t.uid,
+                      url: t.url,
+                      title: t.title,
+                      tabId: physId,
+                      attempts: 0,
+                      workspaceName: newName,
+                    });
+                  }
+
+                  return {
+                    ...t,
+                    aiData: {
+                      status: "pending",
+                    },
+                  };
                 }
-                if (queueItems.length > 0) {
-                  addToAiQueue(queueItems);
-                  sendResponse({
-                    success: true,
-                    count: queueItems.length,
-                  });
+                return t;
+              });
+
+              await updateDoc(docSnap.ref, { tabs: updatedTabs });
+            }
+
+            if (queueItems.length > 0) {
+              addToAiQueue(queueItems, true);
+            }
+          });
+          sendResponse({ success: true });
+          break;
+        }
+
+        case "DELETE_AND_CLOSE_WINDOW": {
+          ensureStateHydrated().then(async () => {
+            const uid = auth.currentUser?.uid;
+            if (!uid) {
+              sendResponse({ success: false, error: "No auth" });
+              return;
+            }
+
+            const { workspaceId, internalWindowId } = message.payload;
+            let physicalId: number | null = null;
+            console.log(
+              `🗑️ DELETE REQUEST: Workspace ${workspaceId}, Win ${internalWindowId}`,
+            );
+
+            for (const [pId, map] of activeWindows.entries()) {
+              if (
+                map.workspaceId === workspaceId &&
+                map.internalWindowId === internalWindowId
+              ) {
+                physicalId = pId;
+                break;
+              }
+            }
+            const docRef = doc(
+              db,
+              "users",
+              uid,
+              "workspaces_data",
+              workspaceId,
+              "windows",
+              internalWindowId,
+            );
+            try {
+              await deleteDoc(docRef);
+
+              if (physicalId) {
+                activeWindows.delete(physicalId);
+                console.log(
+                  `Found physical window ${physicalId}. Removing from map.`,
+                );
+              }
+
+              await reindexWorkspaceWindows(workspaceId, uid);
+
+              if (physicalId) {
+                await chrome.windows.remove(physicalId).catch(() => {});
+              }
+
+              sendResponse({ success: true });
+            } catch (e) {
+              const error = e as Error;
+              console.error("Error deleting window:", error);
+              sendResponse({ success: false, error: error.message });
+            }
+          });
+          break;
+        }
+
+        case "TRIGGER_AI_SORT": {
+          ensureStateHydrated().then(async () => {
+            const uid = auth.currentUser?.uid;
+            if (!uid) {
+              sendResponse({ success: false, reason: "No auth" });
+              return;
+            }
+
+            getDoc(doc(db, "users", uid, "inbox_data", "global"))
+              .then(async (snap) => {
+                if (snap.exists()) {
+                  const tabs = (snap.data().tabs || []) as TabData[];
+                  const queueItems: QueueItem[] = [];
+                  for (const t of tabs) {
+                    if (
+                      (t.aiData?.status === "pending" || !t.aiData?.status) &&
+                      !t.aiData?.isLocked
+                    ) {
+                      let physId = -1;
+                      for (const [pid, data] of tabTracker.entries()) {
+                        if (data.uid === t.uid) {
+                          physId = pid;
+                          break;
+                        }
+                      }
+                      if (physId !== -1) {
+                        queueItems.push({
+                          uid: t.uid,
+                          url: t.url,
+                          title: t.title,
+                          tabId: physId,
+                          attempts: 0,
+                          workspaceName: "Inbox",
+                        });
+                      }
+                    }
+                  }
+                  if (queueItems.length > 0) {
+                    addToAiQueue(queueItems);
+                    sendResponse({
+                      success: true,
+                      count: queueItems.length,
+                    });
+                  } else {
+                    sendResponse({
+                      success: false,
+                      reason: "No processable tabs",
+                    });
+                  }
                 } else {
                   sendResponse({
                     success: false,
-                    reason: "No processable tabs",
+                    reason: "Inbox not found",
                   });
                 }
-              } else {
+              })
+              .catch((e) =>
                 sendResponse({
                   success: false,
-                  reason: "Inbox not found",
-                });
-              }
-            })
-            .catch((e) =>
-              sendResponse({
-                success: false,
-                error: (e as Error).message,
-              }),
-            );
-        });
-        return true;
-      }
-
-      case "GET_WINDOW_NAME": {
-        ensureStateHydrated().then(() => {
-          const mapping = activeWindows.get(message.payload.windowId);
-          sendResponse({
-            name: mapping ? mapping.workspaceName : "Inbox",
+                  error: (e as Error).message,
+                }),
+              );
           });
-        });
-        return true;
-      }
-
-      case "GET_LATEST_STATE": {
-        sendResponse(null);
-        return false;
-      }
-
-      case "WATCH_WORKSPACE": {
-        sendResponse({ success: true });
-        return false;
-      }
-
-      case "OPEN_WORKSPACE": {
-        const { workspaceId, windows, name } = message.payload;
-
-        // Anti-spam check: Returnerer straks hvis vi allerede er i gang
-        if (openingWorkspaces.has(workspaceId)) {
-          sendResponse({ success: true });
-          return false;
+          break;
         }
 
-        openingWorkspaces.add(workspaceId);
-
-        // Vi wrapper hele logikken i en async IIFE (Immediately Invoked Function Expression)
-        // for at kunne bruge try/finally på låse-mekanismen.
-        (async () => {
-          try {
-            await ensureStateHydrated();
-            await handleOpenWorkspace(workspaceId, windows, name);
-            sendResponse({ success: true });
-          } catch (e) {
-            console.error("Open Workspace Failed:", e);
-            sendResponse({ success: false });
-          } finally {
-            // VIGTIGT: Fjerner altid låsen, også ved fejl/crash
-            setTimeout(() => {
-              openingWorkspaces.delete(workspaceId);
-            }, 2000);
-          }
-        })();
-
-        return true; // Indikerer at sendResponse kaldes asynkront
-      }
-
-      case "OPEN_SPECIFIC_WINDOW": {
-        ensureStateHydrated().then(() => {
-          handleOpenSpecificWindow(
-            message.payload.workspaceId,
-            message.payload.windowData,
-            message.payload.name,
-            message.payload.index,
-          ).then(() => sendResponse({ success: true }));
-        });
-        return true;
-      }
-
-      case "GET_ACTIVE_MAPPINGS": {
-        ensureStateHydrated().then(() => {
-          sendResponse(Array.from(activeWindows.entries()));
-        });
-        return true;
-      }
-
-      case "GET_RESTORING_STATUS": {
-        sendResponse(restorationStatus);
-        return false;
-      }
-
-      case "FORCE_SYNC_ACTIVE_WINDOW": {
-        ensureStateHydrated().then(() => {
-          handleForceSync(message.payload.windowId).then(() =>
-            sendResponse({ success: true }),
-          );
-        });
-        return true;
-      }
-
-      case "CREATE_NEW_WINDOW_IN_WORKSPACE": {
-        ensureStateHydrated().then(() => {
-          handleCreateNewWindowInWorkspace(
-            message.payload.workspaceId,
-            message.payload.name,
-            message.payload.initialTab,
-          ).then(() => sendResponse({ success: true }));
-        });
-        return true;
-      }
-
-      case "CLOSE_PHYSICAL_TABS": {
-        const { uids, tabIds } = message.payload;
-        ensureStateHydrated().then(() => {
-          handleClosePhysicalTabs(uids, tabIds)
-            .then(() => {
-              sendResponse({ success: true });
-            })
-            .catch((e) =>
-              sendResponse({
-                success: false,
-                error: (e as Error).message,
-              }),
-            );
-        });
-        return true;
-      }
-
-      case "CLAIM_WINDOW": {
-        // Bemærk: Denne er synkron, men hvis auth mangler kan vi ikke gøre så meget.
-        // Til "claim" operationer antager vi at brugeren er logget ind.
-        const uid = auth.currentUser?.uid; // Fallback to current user synchronously
-        if (!uid) return false;
-
-        if (activeRestorations === 0) {
-          getWorkspaceWindowIndex(
-            message.payload.workspaceId,
-            message.payload.internalWindowId,
-          ).then((idx) => {
-            activeWindows.set(message.payload.windowId, {
-              workspaceId: message.payload.workspaceId,
-              internalWindowId: message.payload.internalWindowId,
-              workspaceName: message.payload.name,
-              index: idx,
+        case "GET_WINDOW_NAME": {
+          ensureStateHydrated().then(() => {
+            const mapping = activeWindows.get(message.payload.windowId);
+            sendResponse({
+              name: mapping ? mapping.workspaceName : "Inbox",
             });
-            saveActiveWindowsToStorage();
+          });
+          break;
+        }
+
+        case "GET_LATEST_STATE": {
+          sendResponse(null);
+          break;
+        }
+
+        case "WATCH_WORKSPACE": {
+          sendResponse({ success: true });
+          break;
+        }
+
+        case "OPEN_WORKSPACE": {
+          const { workspaceId, windows, name } = message.payload;
+
+          if (openingWorkspaces.has(workspaceId)) {
+            sendResponse({ success: true });
+            return;
+          }
+
+          openingWorkspaces.add(workspaceId);
+
+          (async () => {
+            try {
+              await ensureStateHydrated();
+              await handleOpenWorkspace(workspaceId, windows, name);
+              sendResponse({ success: true });
+            } catch (e) {
+              console.error("Open Workspace Failed:", e);
+              sendResponse({ success: false });
+            } finally {
+              setTimeout(() => {
+                openingWorkspaces.delete(workspaceId);
+              }, 2000);
+            }
+          })();
+          break;
+        }
+
+        case "OPEN_SPECIFIC_WINDOW": {
+          ensureStateHydrated().then(() => {
+            handleOpenSpecificWindow(
+              message.payload.workspaceId,
+              message.payload.windowData,
+              message.payload.name,
+              message.payload.index,
+            ).then(() => sendResponse({ success: true }));
+          });
+          break;
+        }
+
+        case "GET_ACTIVE_MAPPINGS": {
+          ensureStateHydrated().then(() => {
+            sendResponse(Array.from(activeWindows.entries()));
+          });
+          break;
+        }
+
+        case "GET_RESTORING_STATUS": {
+          sendResponse(restorationStatus);
+          break;
+        }
+
+        case "FORCE_SYNC_ACTIVE_WINDOW": {
+          ensureStateHydrated().then(() => {
+            handleForceSync(message.payload.windowId).then(() =>
+              sendResponse({ success: true }),
+            );
+          });
+          break;
+        }
+
+        case "CREATE_NEW_WINDOW_IN_WORKSPACE": {
+          ensureStateHydrated().then(() => {
+            handleCreateNewWindowInWorkspace(
+              message.payload.workspaceId,
+              message.payload.name,
+              message.payload.initialTab,
+            ).then(() => sendResponse({ success: true }));
+          });
+          break;
+        }
+
+        case "CLOSE_PHYSICAL_TABS": {
+          const { uids, tabIds } = message.payload;
+          ensureStateHydrated().then(() => {
+            handleClosePhysicalTabs(uids, tabIds)
+              .then(() => {
+                sendResponse({ success: true });
+              })
+              .catch((e) =>
+                sendResponse({
+                  success: false,
+                  error: (e as Error).message,
+                }),
+              );
+          });
+          break;
+        }
+
+        case "CLAIM_WINDOW": {
+          const uid = auth.currentUser?.uid;
+          if (!uid) {
+            sendResponse({ success: false });
+            return;
+          }
+
+          if (activeRestorations === 0) {
+            getWorkspaceWindowIndex(
+              message.payload.workspaceId,
+              message.payload.internalWindowId,
+            ).then((idx) => {
+              activeWindows.set(message.payload.windowId, {
+                workspaceId: message.payload.workspaceId,
+                internalWindowId: message.payload.internalWindowId,
+                workspaceName: message.payload.name,
+                index: idx,
+              });
+              saveActiveWindowsToStorage();
+              sendResponse({ success: true });
+            });
+          } else {
+            sendResponse({ success: false });
+          }
+          break;
+        }
+        case "UPDATE_WINDOW_NAME_CACHE": {
+          const { internalWindowId, newName } = message.payload;
+          ensureStateHydrated().then(async () => {
+            let updated = false;
+            for (const [winId, mapping] of activeWindows.entries()) {
+              if (mapping.internalWindowId === internalWindowId) {
+                activeWindows.set(winId, { ...mapping, windowName: newName });
+                updated = true;
+              }
+            }
+            if (updated) {
+              await saveActiveWindowsToStorage();
+              console.log("✅ Updated cache for window:", internalWindowId);
+            }
             sendResponse({ success: true });
           });
-          return true;
+          break;
         }
-        sendResponse({ success: false });
-        return false;
+        case "MOVE_INCOGNITO_TAB": {
+          sendResponse({ success: true });
+          break;
+        }
+        default:
+          sendResponse({ success: false, error: "Unknown message type" });
+          break;
       }
-      case "UPDATE_WINDOW_NAME_CACHE": {
-        const { internalWindowId, newName } = message.payload;
-        ensureStateHydrated().then(async () => {
-          let updated = false;
-          for (const [winId, mapping] of activeWindows.entries()) {
-            if (mapping.internalWindowId === internalWindowId) {
-              activeWindows.set(winId, { ...mapping, windowName: newName });
-              updated = true;
-            }
-          }
-          if (updated) {
-            await saveActiveWindowsToStorage();
-            console.log("✅ Updated cache for window:", internalWindowId);
-          }
-        });
-        return true;
-      }
-      case "MOVE_INCOGNITO_TAB": {
-        // Håndter flytning af incognito tabs hvis nødvendigt
-        return true;
-      }
-      default:
-        return false;
-    }
+    });
+
+    return true; // Keep the message channel open for the async response
   },
 );
 
@@ -1908,7 +2003,7 @@ async function handleOpenSpecificWindow(
   name: string,
   index: number,
 ) {
-  const uid = await waitForAuth(); // FIX: Wait for auth
+  const uid = auth.currentUser?.uid;
   if (!uid) return;
 
   // Tjek om vinduet allerede er åbent
@@ -2045,7 +2140,7 @@ async function handleCreateNewWindowInWorkspace(
   name: string,
   initialTab?: TabData & { id?: number; sourceWorkspaceId?: string },
 ) {
-  const uid = await waitForAuth(); // FIX: Wait for auth
+  const uid = auth.currentUser?.uid;
   if (!uid) return;
 
   activeRestorations++;
@@ -2143,7 +2238,7 @@ async function handleCreateNewWindowInWorkspace(
 }
 
 async function handleForceSync(windowId: number) {
-  const uid = await waitForAuth(); // FIX: Wait for auth
+  const uid = auth.currentUser?.uid;
   if (!uid) return;
 
   const mapping = activeWindows.get(windowId);
@@ -2190,7 +2285,7 @@ async function getWorkspaceWindowIndex(
   workspaceId: string,
   internalWindowId: string,
 ): Promise<number> {
-  const uid = await waitForAuth(); // FIX: Wait for auth
+  const uid = auth.currentUser?.uid;
   if (!uid) return 1;
 
   try {

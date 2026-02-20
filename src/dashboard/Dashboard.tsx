@@ -10,7 +10,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Components
 import { CreateItemModal } from "../components/CreateItemModal";
-import { LoginForm } from "../components/LoginForm";
 import { PasteModal } from "../components/PasteModal";
 import { ArchiveSidebar } from "../components/dashboard/ArchiveSidebar";
 import { CategoryMenu } from "../components/dashboard/CategoryMenu";
@@ -44,6 +43,7 @@ import {
 import { DashboardMessage } from "./types";
 
 // Utils
+import { AuthLayout } from "@/components/auth/AuthLayout";
 import { windowOrderCache } from "./utils";
 
 export interface PasteModalState {
@@ -460,9 +460,11 @@ export const Dashboard = () => {
 
   const handleCopySpace = async () => {
     if (!selectedWorkspace) return;
-    const allTabs = windows.flatMap((w) => w.tabs || []);
-    if (allTabs.length === 0) return;
-    const count = await LinkManager.copyTabsToClipboard(allTabs);
+    if (!windows || windows.length === 0) return;
+
+    // Bruger vores nye funktion der automatisk bygger strengen med "###"
+    const count = await LinkManager.copyWindowsToClipboard(windows);
+
     if (count > 0) {
       setHeaderCopyStatus("copied");
       setTimeout(() => setHeaderCopyStatus("idle"), 2000);
@@ -502,13 +504,9 @@ export const Dashboard = () => {
     return "Inbox (Global)";
   };
 
-  if (!user)
-    return (
-      <div className="flex h-screen items-center justify-center bg-slate-900">
-        <LoginForm />
-      </div>
-    );
-
+  if (!user) {
+    return <AuthLayout />;
+  }
   return (
     <div className="relative flex h-screen overflow-hidden bg-slate-900 font-sans text-slate-200">
       {restorationStatus && (
