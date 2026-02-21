@@ -100,13 +100,13 @@
 }
 
 /* Scrollbar styling */
-.custom-scrollbar::-webkit-scrollbar {
+::-webkit-scrollbar {
   width: 5px;
 }
-.custom-scrollbar::-webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: transparent;
 }
-.custom-scrollbar::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-thumb {
   background: var(--nexus-border-strong);
   border-radius: 10px;
 }
