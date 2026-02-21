@@ -23,9 +23,13 @@
   --color-warning: var(--nexus-warning);
   --color-info: var(--nexus-info);
 
+  /* Mode farver med kontrast-varianter */
   --color-mode-inbox: var(--nexus-mode-inbox);
+  --color-mode-inbox-high: var(--nexus-mode-inbox-high);
   --color-mode-incognito: var(--nexus-mode-incognito);
+  --color-mode-incognito-high: var(--nexus-mode-incognito-high);
   --color-mode-workspace: var(--nexus-mode-workspace);
+  --color-mode-workspace-high: var(--nexus-mode-workspace-high);
 }
 
 /* --- TEMA 1: ARCHITECT (MØRK - STANDARD) --- */
@@ -53,8 +57,11 @@
   --nexus-info: oklch(70% 0.12 210);
 
   --nexus-mode-inbox: oklch(75% 0.15 60);
+  --nexus-mode-inbox-high: oklch(85% 0.1 60);
   --nexus-mode-incognito: oklch(65% 0.18 300);
+  --nexus-mode-incognito-high: oklch(85% 0.1 300);
   --nexus-mode-workspace: oklch(75% 0.1 230);
+  --nexus-mode-workspace-high: oklch(85% 0.08 230);
 }
 
 /* --- TEMA 2: PASTEL (FORBEDRET KONTRAST, LUFTIG & ORANGE INBOX) --- */
@@ -93,8 +100,11 @@
   --nexus-info: oklch(68% 0.12 200);
 
   --nexus-mode-inbox: oklch(72% 0.14 55);
+  --nexus-mode-inbox-high: oklch(50% 0.14 55);
   --nexus-mode-incognito: oklch(72% 0.12 300);
+  --nexus-mode-incognito-high: oklch(50% 0.12 300);
   --nexus-mode-workspace: var(--nexus-action);
+  --nexus-mode-workspace-high: var(--nexus-action-hover);
 }
 
 /* --- TEMA 3: SERENE (VARM, ORGANISK & PAPIR-FEEL) --- */
@@ -124,8 +134,11 @@
   --nexus-info: oklch(60% 0.08 220);
 
   --nexus-mode-inbox: oklch(68% 0.13 50); /* Varm læder/kobber */
+  --nexus-mode-inbox-high: oklch(40% 0.13 50);
   --nexus-mode-incognito: oklch(50% 0.06 280);
+  --nexus-mode-incognito-high: oklch(30% 0.06 280);
   --nexus-mode-workspace: var(--nexus-action);
+  --nexus-mode-workspace-high: var(--nexus-action-hover);
 }
 
 /* --- TEMA 4: ZEN (DEEP PASTEL RAINBOW) --- */
@@ -161,10 +174,13 @@
   --nexus-mode-inbox: oklch(
     65% 0.14 55
   ); /* Baseret på #F7D9C4 (Pastel Fersken/Orange) */
+  --nexus-mode-inbox-high: oklch(45% 0.14 55);
   --nexus-mode-incognito: oklch(
     50% 0.1 300
   ); /* Dyb lilla for at indikere stealth */
+  --nexus-mode-incognito-high: oklch(35% 0.1 300);
   --nexus-mode-workspace: var(--nexus-action);
+  --nexus-mode-workspace-high: var(--nexus-action-hover);
 }
 
 /* --- GLOBALE STYLES (DIN ORIGINAL) --- */

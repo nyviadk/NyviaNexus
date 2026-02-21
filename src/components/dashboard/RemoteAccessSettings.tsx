@@ -63,6 +63,12 @@ interface ContactItem {
   viewEnabled: boolean;
 }
 
+// Præcis type til Firebase fejlhåndtering uden brug af "any"
+interface FirebaseError {
+  code: string;
+  message: string;
+}
+
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const RemoteAccessSettings = () => {
@@ -314,7 +320,7 @@ export const RemoteAccessSettings = () => {
           "Failed to fetch spaces from items:",
           spacesResult.reason,
         );
-        const err = spacesResult.reason as any;
+        const err = spacesResult.reason as FirebaseError;
         if (err.code === "permission-denied") hasPermissionError = true;
       }
 
@@ -328,7 +334,7 @@ export const RemoteAccessSettings = () => {
         }
       } else {
         console.error("Failed to fetch inbox:", inboxResult.reason);
-        const err = inboxResult.reason as any;
+        const err = inboxResult.reason as FirebaseError;
         if (err.code === "permission-denied") hasPermissionError = true;
       }
 
@@ -483,7 +489,7 @@ export const RemoteAccessSettings = () => {
               className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold shadow-lg transition-all duration-300 active:scale-95 ${
                 myUidCopied
                   ? "w-32 bg-success text-inverted shadow-success/20"
-                  : "w-24 bg-mode-incognito text-inverted shadow-mode-incognito/20 hover:bg-mode-incognito-high"
+                  : "hover:bg-mode-incognito-high w-24 bg-mode-incognito text-inverted shadow-mode-incognito/20"
               }`}
             >
               {myUidCopied ? (
@@ -584,7 +590,7 @@ export const RemoteAccessSettings = () => {
                   disabled={processingId === contact.uid}
                   className={`group flex cursor-pointer items-center justify-between gap-3 rounded-2xl border px-4 py-3 transition-all xl:min-w-44 ${
                     contact.isAllowed
-                      ? "border-mode-incognito/50 bg-mode-incognito/10 text-mode-incognito-high hover:border-mode-incognito hover:bg-mode-incognito/20"
+                      ? "text-mode-incognito-high border-mode-incognito/50 bg-mode-incognito/10 hover:border-mode-incognito hover:bg-mode-incognito/20"
                       : "border-subtle bg-surface-sunken text-low hover:border-strong hover:text-medium"
                   }`}
                   title={
@@ -932,7 +938,7 @@ export const RemoteAccessSettings = () => {
               className={`flex h-11.5 w-full min-w-30 cursor-pointer items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-bold shadow-lg transition-all duration-200 md:w-auto ${
                 !canAddContact
                   ? "cursor-not-allowed border border-subtle bg-surface-elevated text-strong shadow-none"
-                  : "bg-mode-incognito text-inverted shadow-mode-incognito/30 hover:scale-105 hover:bg-mode-incognito-high"
+                  : "hover:bg-mode-incognito-high bg-mode-incognito text-inverted shadow-mode-incognito/30 hover:scale-105"
               }`}
             >
               {isAdding ? (
