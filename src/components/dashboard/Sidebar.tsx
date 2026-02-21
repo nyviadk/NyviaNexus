@@ -594,7 +594,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </div>
 
-            <div ref={animationParent} className="space-y-0.5">
+            <div ref={animationParent} className="space-y-4">
               {filteredRootItems.map((item, index) => (
                 <SidebarItem
                   key={item.id}
