@@ -130,7 +130,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                   windowId: null,
                 })
               }
-              className="flex cursor-pointer items-center gap-2 rounded-xl border border-subtle bg-surface-elevated px-4 py-2.5 text-sm font-bold text-mode-incognito transition hover:border-mode-incognito hover:bg-mode-incognito/20 hover:text-mode-incognito-high"
+              className="hover:text-mode-incognito-high flex cursor-pointer items-center gap-2 rounded-xl border border-subtle bg-surface-elevated px-4 py-2.5 text-sm font-bold text-mode-incognito transition hover:border-mode-incognito hover:bg-mode-incognito/20"
               title="Indsæt links i nyt vindue"
             >
               <ClipboardPaste size={18} />
@@ -295,10 +295,10 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
               })
             }
             disabled={windows.length === 0}
-            className={`cursor-pointer rounded-xl px-6 py-2.5 text-sm font-bold shadow-lg transition ${
+            className={`min-w-max cursor-pointer rounded-xl px-6 py-2.5 text-sm font-bold shadow-lg transition ${
               windows.length === 0
                 ? "cursor-not-allowed bg-surface-elevated text-low shadow-none"
-                : "hover:bg-action-hover bg-action text-inverted shadow-action/20 active:scale-95"
+                : "bg-action text-inverted shadow-action/20 hover:bg-action-hover active:scale-95"
             }`}
           >
             Åbn Space
