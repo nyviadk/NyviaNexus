@@ -17,6 +17,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  ExternalLink,
   Fingerprint,
   FolderOpen,
   Globe,
@@ -29,6 +30,7 @@ import {
   ServerCrash,
   Share2,
   ShieldAlert,
+  Terminal,
   Trash2,
   Unlock,
   Users,
@@ -63,7 +65,10 @@ interface ContactItem {
   viewEnabled: boolean;
 }
 
-// Præcis type til Firebase fejlhåndtering uden brug af "any"
+interface FirebaseConfig {
+  projectId: string;
+}
+
 interface FirebaseError {
   code: string;
   message: string;
@@ -75,6 +80,7 @@ export const RemoteAccessSettings = () => {
   // --- STATE ---
   const [allowedViewers, setAllowedViewers] = useState<string[]>([]);
   const [savedTargets, setSavedTargets] = useState<SavedTarget[]>([]);
+  const [projectId, setProjectId] = useState<string | null>(null);
 
   // Inputs
   const [inputUid, setInputUid] = useState("");
@@ -84,6 +90,8 @@ export const RemoteAccessSettings = () => {
   const [myUidCopied, setMyUidCopied] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [showRulesOverlay, setShowRulesOverlay] = useState(false);
+  const [rulesCopied, setRulesCopied] = useState(false);
 
   // Ny state til at håndtere loading specifikt på kopier-knapper
   const [copyingId, setCopyingId] = useState<string | null>(null);
@@ -107,9 +115,19 @@ export const RemoteAccessSettings = () => {
     null,
   );
 
-  // --- DATA SYNC ---
+  // --- DATA SYNC & CONFIG ---
   useEffect(() => {
     if (!auth.currentUser) return;
+
+    // 1. Hent Projekt ID til Firebase Console Links
+    chrome.storage.local.get(["userFirebaseConfig"], (result) => {
+      const data = result as { userFirebaseConfig?: FirebaseConfig };
+      if (data.userFirebaseConfig?.projectId) {
+        setProjectId(data.userFirebaseConfig.projectId);
+      }
+    });
+
+    // 2. Lyt på brugerens indstillinger
     const unsub = onSnapshot(doc(db, "users", auth.currentUser.uid), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
@@ -132,6 +150,31 @@ export const RemoteAccessSettings = () => {
     });
     return () => unsub();
   }, []);
+
+  // --- GENERATED RULES ---
+  const generatedRules = useMemo(() => {
+    if (!auth.currentUser) return "";
+    const myUid = auth.currentUser.uid;
+
+    // Byg en liste over godkendte UIDs til rules snippet
+    const viewerIds =
+      allowedViewers.length > 0
+        ? allowedViewers.map((id) => `"${id}"`).join(", ")
+        : "";
+
+    return `// NyviaNexus: Sikkerhedsregler for din profil
+match /users/${myUid}/{document=**} {
+  // Du har altid fuld adgang
+  allow read, write: if request.auth.uid == "${myUid}";
+  
+  // Andre enheder du har godkendt må læse dine data
+  allow read: if request.auth.uid in [${viewerIds}];
+}`;
+  }, [auth.currentUser, allowedViewers]);
+
+  const rulesUrl = projectId
+    ? `https://console.firebase.google.com/project/${projectId}/firestore/databases/-default-/security/rules`
+    : "#";
 
   // --- MERGED CONTACT LIST ---
   const contacts = useMemo<ContactItem[]>(() => {
@@ -182,6 +225,12 @@ export const RemoteAccessSettings = () => {
   }, [inputUid, inputName, savedTargets]);
 
   // --- ACTIONS ---
+
+  const handleCopyRules = async () => {
+    await navigator.clipboard.writeText(generatedRules);
+    setRulesCopied(true);
+    setTimeout(() => setRulesCopied(false), 2000);
+  };
 
   const handleCopyMyUid = async () => {
     if (auth.currentUser) {
@@ -489,7 +538,7 @@ export const RemoteAccessSettings = () => {
               className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold shadow-lg transition-all duration-300 active:scale-95 ${
                 myUidCopied
                   ? "w-32 bg-success text-inverted shadow-success/20"
-                  : "hover:bg-mode-incognito-high w-24 bg-mode-incognito text-inverted shadow-mode-incognito/20"
+                  : "w-24 bg-mode-incognito text-inverted shadow-mode-incognito/20 hover:bg-mode-incognito-high"
               }`}
             >
               {myUidCopied ? (
@@ -590,7 +639,7 @@ export const RemoteAccessSettings = () => {
                   disabled={processingId === contact.uid}
                   className={`group flex cursor-pointer items-center justify-between gap-3 rounded-2xl border px-4 py-3 transition-all xl:min-w-44 ${
                     contact.isAllowed
-                      ? "text-mode-incognito-high border-mode-incognito/50 bg-mode-incognito/10 hover:border-mode-incognito hover:bg-mode-incognito/20"
+                      ? "border-mode-incognito/50 bg-mode-incognito/10 text-mode-incognito-high hover:border-mode-incognito hover:bg-mode-incognito/20"
                       : "border-subtle bg-surface-sunken text-low hover:border-strong hover:text-medium"
                   }`}
                   title={
@@ -606,7 +655,6 @@ export const RemoteAccessSettings = () => {
                       <Lock size={16} />
                     )}
                     <span className="text-xs font-bold tracking-wide uppercase">
-                      {/* Dynamisk tekst baseret på permission state */}
                       {contact.isAllowed
                         ? `Personen har adgang til dine faner`
                         : "Ingen adgang"}
@@ -938,7 +986,7 @@ export const RemoteAccessSettings = () => {
               className={`flex h-11.5 w-full min-w-30 cursor-pointer items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-bold shadow-lg transition-all duration-200 md:w-auto ${
                 !canAddContact
                   ? "cursor-not-allowed border border-subtle bg-surface-elevated text-strong shadow-none"
-                  : "hover:bg-mode-incognito-high bg-mode-incognito text-inverted shadow-mode-incognito/30 hover:scale-105"
+                  : "bg-mode-incognito text-inverted shadow-mode-incognito/30 hover:scale-105 hover:bg-mode-incognito-high"
               }`}
             >
               {isAdding ? (
@@ -951,6 +999,70 @@ export const RemoteAccessSettings = () => {
             </button>
           </form>
         </div>
+      </div>
+      {/* ---------------- SECURITY RULES REMINDER ---------------- */}
+      <div
+        onClick={() => setShowRulesOverlay(!showRulesOverlay)}
+        className="group relative cursor-pointer overflow-hidden rounded-2xl border border-warning/20 bg-warning/5 p-4 transition-all hover:border-warning/40 hover:bg-warning/10"
+      >
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="rounded-full bg-warning/20 p-2 text-warning">
+              <ShieldAlert size={18} />
+            </div>
+            <div className="space-y-0.5">
+              <p className="text-xs font-bold tracking-wide text-warning uppercase">
+                Husk Firestore Sikkerhedsregler
+              </p>
+              <p className="text-[10px] text-warning/70">
+                Uden de rigtige regler kan dine enheder ikke læse hinandens
+                data.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-[10px] font-bold text-warning uppercase">
+            {showRulesOverlay ? "Skjul" : "Se anbefalede rules"}
+            <ChevronDown
+              size={14}
+              className={`transition-transform duration-300 ${showRulesOverlay ? "rotate-180" : ""}`}
+            />
+          </div>
+        </div>
+
+        {showRulesOverlay && (
+          <div
+            className="animate-in fade-in slide-in-from-top-2 mt-4 space-y-4 duration-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="rounded-xl border border-subtle bg-surface-sunken p-3">
+              <div className="mb-2 flex items-center justify-between text-[10px] font-bold text-low uppercase">
+                <div className="flex items-center gap-2">
+                  <Terminal size={12} /> Din specifikke profil-regel
+                </div>
+                <button
+                  onClick={handleCopyRules}
+                  className="flex items-center gap-1 text-mode-incognito transition-colors hover:text-mode-incognito-high"
+                >
+                  {rulesCopied ? <Check size={12} /> : <Copy size={12} />}
+                  {rulesCopied ? "KOPIERET" : "KOPIER"}
+                </button>
+              </div>
+              <pre className="custom-scrollbar max-h-40 overflow-y-auto font-mono text-[9px] leading-tight text-medium">
+                {generatedRules}
+              </pre>
+            </div>
+
+            <a
+              href={rulesUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-warning p-3 text-[11px] font-bold text-inverted transition-all hover:scale-[1.02] active:scale-95"
+            >
+              ÅBN FIREBASE RULES CONSOLE
+              <ExternalLink size={14} />
+            </a>
+          </div>
+        )}
       </div>
     </div>
   );
