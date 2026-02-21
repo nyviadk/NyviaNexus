@@ -1056,7 +1056,7 @@ match /users/${myUid}/{document=**} {
               href={rulesUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-warning p-3 text-[11px] font-bold text-inverted transition-all hover:scale-[1.02] active:scale-95"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-warning p-3 font-bold text-inverted transition-all"
             >
               ÅBN FIREBASE RULES CONSOLE
               <ExternalLink size={14} />
