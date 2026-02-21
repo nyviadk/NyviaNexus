@@ -46,6 +46,7 @@ interface Props {
   onMoveItem: (id: string, direction: "up" | "down") => void;
   isFirst?: boolean;
   isLast?: boolean;
+  activeWorkspaceId?: string | null;
 }
 
 export const SidebarItem = ({
@@ -65,6 +66,7 @@ export const SidebarItem = ({
   onMoveItem,
   isFirst = false,
   isLast = false,
+  activeWorkspaceId = null,
 }: Props) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [tabDropStatus, setTabDropStatus] = useState<
@@ -76,9 +78,8 @@ export const SidebarItem = ({
   const [animationParent] = useAutoAnimate();
 
   const isOpen = folderStates[item.id] ?? true;
+  const isActive = item.id === activeWorkspaceId;
 
-  // Vi beholder den originale ref, men bruger den ikke til logik for at undgå fejl.
-  // Vi bruger relatedTarget i stedet for stabilitet.
   const dragCounter = useRef(0);
   const isFolder = item.type === "folder";
 
@@ -194,7 +195,6 @@ export const SidebarItem = ({
     e.dataTransfer.setData("nexus/item-id", item.id);
     e.dataTransfer.setData("itemId", item.id);
     e.dataTransfer.effectAllowed = "move";
-    // Vi bruger requestAnimationFrame for at sikre at drag-billedet er genereret før state opdateres
     requestAnimationFrame(() => onDragStateChange(item.id));
   };
 
@@ -215,13 +215,12 @@ export const SidebarItem = ({
     if (tabJson) {
       const tabData = JSON.parse(tabJson) as DraggedTabData;
       const isSourceSpace = tabData.sourceWorkspaceId === item.id;
-      // Hvis det er en mappe eller samme space, er det ugyldigt
       if (isFolder || isSourceSpace) {
         setTabDropStatus("invalid");
       } else {
         setTabDropStatus("valid");
       }
-      setIsDragOver(true); // VIGTIGT: Sæt dragOver til true for at vise farver
+      setIsDragOver(true);
       return;
     }
     if (isFolder) setIsDragOver(true);
@@ -232,7 +231,6 @@ export const SidebarItem = ({
     e.preventDefault();
     e.stopPropagation();
 
-    // Brug relatedTarget til at forhindre flickering når musen rammer child elements
     const currentTarget = e.currentTarget;
     const relatedTarget = e.relatedTarget as Node;
     if (currentTarget.contains(relatedTarget)) {
@@ -240,12 +238,10 @@ export const SidebarItem = ({
     }
 
     dragCounter.current--;
-    // Vi nulstiller kun, hvis vi faktisk forlader containeren
     setIsDragOver(false);
     setTabDropStatus(null);
   };
 
-  // Nødvendig for at tillade drop
   const onDragOver = (e: React.DragEvent) => {
     if (isReordering) return;
     e.preventDefault();
@@ -319,23 +315,24 @@ export const SidebarItem = ({
 
   if (isReordering) {
     containerClasses +=
-      "cursor-default border-dashed border-slate-600 bg-slate-800/40 ";
+      "cursor-default border-dashed border-strong bg-surface-elevated/40 ";
   } else {
     containerClasses += "cursor-pointer ";
     if (tabDropStatus === "valid") {
-      containerClasses +=
-        "bg-emerald-900/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)] scale-[1.02]";
+      containerClasses += "bg-success/20 border-success scale-[1.02]";
     } else if (tabDropStatus === "invalid") {
       containerClasses +=
-        "bg-red-900/40 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)] opacity-80 cursor-not-allowed";
+        "bg-danger/20 border-danger opacity-80 cursor-not-allowed";
     } else if (isDragOver) {
-      // Hvis vi dragger en mappe over en mappe (validt drop for items)
       containerClasses += isInvalidItemDrop
-        ? "bg-red-900/40 border-red-400"
-        : "bg-emerald-900/40 border-emerald-500/50 scale-[1.02]";
+        ? "bg-danger/20 border-danger"
+        : "bg-success/20 border-success scale-[1.02]";
+    } else if (isActive) {
+      // AKTIV: Bruger nu action-tokens for at matche temaets accentfarve.
+      containerClasses += "bg-action/10 border-action";
     } else {
       containerClasses +=
-        "border-transparent hover:bg-slate-700/80 hover:border-slate-600 active:scale-[0.98]";
+        "border-transparent hover:bg-surface-hover hover:border-strong active:scale-[0.98]";
     }
   }
 
@@ -390,26 +387,30 @@ export const SidebarItem = ({
         {isSyncing ? (
           <Loader2
             size={18}
-            className="pointer-events-none animate-spin text-blue-300"
+            className="pointer-events-none animate-spin text-action"
           />
         ) : isFolder ? (
           isOpen ? (
             <ChevronDown
               size={18}
-              className="pointer-events-none cursor-pointer text-slate-400 transition-transform"
+              className={`pointer-events-none cursor-pointer transition-transform ${isActive ? "text-action" : "text-low group-hover:text-high"}`}
             />
           ) : (
             <ChevronRight
               size={18}
-              className="pointer-events-none cursor-pointer text-slate-400 transition-transform"
+              className={`pointer-events-none cursor-pointer transition-transform ${isActive ? "text-action" : "text-low group-hover:text-high"}`}
             />
           )
         ) : (
           <Layout
             size={20}
             className={`${
-              tabDropStatus === "valid" ? "text-emerald-400" : "text-blue-300"
-            } pointer-events-none shrink-0 shadow-sm transition-colors`}
+              tabDropStatus === "valid"
+                ? "text-success"
+                : isActive
+                  ? "text-action"
+                  : "text-mode-workspace"
+            } pointer-events-none shrink-0 transition-colors`}
           />
         )}
 
@@ -418,11 +419,11 @@ export const SidebarItem = ({
             size={20}
             className={`${
               tabDropStatus === "valid" || (isDragOver && !isInvalidItemDrop)
-                ? "text-emerald-400"
+                ? "text-success"
                 : tabDropStatus === "invalid" ||
                     (isDragOver && isInvalidItemDrop)
-                  ? "text-red-400"
-                  : "text-amber-400"
+                  ? "text-danger"
+                  : "text-warning"
             } pointer-events-none shrink-0 fill-current transition-colors`}
           />
         )}
@@ -430,8 +431,10 @@ export const SidebarItem = ({
         <span
           className={`pointer-events-none flex-1 truncate text-sm font-medium ${
             isSyncing
-              ? "text-slate-400 italic"
-              : "text-slate-200 group-hover:text-white"
+              ? "text-low italic"
+              : isActive
+                ? "text-high"
+                : "text-medium group-hover:text-high"
           }`}
         >
           {item.name}
@@ -439,12 +442,11 @@ export const SidebarItem = ({
 
         {!isSyncing && (
           <div
-            className={`flex gap-1 rounded-lg border border-slate-700/50 bg-slate-800/80 px-1 shadow-sm backdrop-blur-sm transition-opacity ${
+            className={`flex gap-1 rounded-lg border border-subtle bg-surface-elevated/80 px-1 shadow-sm backdrop-blur-sm transition-opacity ${
               isReordering ? "opacity-100" : "opacity-0 group-hover:opacity-100"
             }`}
           >
             {isReordering ? (
-              // --- REORDERING BUTTONS ---
               <>
                 {!isFirst ? (
                   <button
@@ -452,23 +454,20 @@ export const SidebarItem = ({
                       e.stopPropagation();
                       onMoveItem(item.id, "up");
                     }}
-                    title="Flyt op"
-                    className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-white"
+                    className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-high"
                   >
                     <ArrowUp size={16} />
                   </button>
                 ) : (
                   <div className="w-6.5" />
                 )}
-
                 {!isLast ? (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       onMoveItem(item.id, "down");
                     }}
-                    title="Flyt ned"
-                    className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-white"
+                    className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-high"
                   >
                     <ArrowDown size={16} />
                   </button>
@@ -477,7 +476,6 @@ export const SidebarItem = ({
                 )}
               </>
             ) : (
-              // --- NORMAL ACTION BUTTONS ---
               <>
                 {isFolder && (
                   <>
@@ -487,8 +485,7 @@ export const SidebarItem = ({
                         if (!isOpen) onToggleFolder(item.id, true);
                         onAddChild?.(item.id, "folder");
                       }}
-                      title="Ny mappe"
-                      className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-blue-300"
+                      className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-action"
                     >
                       <FolderPlus size={18} />
                     </button>
@@ -498,8 +495,7 @@ export const SidebarItem = ({
                         if (!isOpen) onToggleFolder(item.id, true);
                         onAddChild?.(item.id, "workspace");
                       }}
-                      title="Nyt space"
-                      className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-blue-300"
+                      className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-action"
                     >
                       <Plus size={18} />
                     </button>
@@ -507,15 +503,13 @@ export const SidebarItem = ({
                 )}
                 <button
                   onClick={handleRename}
-                  title="Omdøb"
-                  className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-blue-300"
+                  className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-action"
                 >
                   <Edit3 size={18} />
                 </button>
                 <button
                   onClick={handleDelete}
-                  title="Slet"
-                  className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-600 hover:text-red-400"
+                  className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-danger"
                 >
                   <Trash2 size={18} />
                 </button>
@@ -535,10 +529,10 @@ export const SidebarItem = ({
               return (
                 <div key={child.id} className="relative pl-4">
                   <div
-                    className="absolute top-0 left-0 w-px bg-slate-400"
+                    className="absolute top-0 left-0 w-px bg-strong"
                     style={{ height: isLastChild ? "20px" : "100%" }}
                   />
-                  <div className="absolute top-5 left-0 h-px w-4 bg-slate-400" />
+                  <div className="absolute top-5 left-0 h-px w-4 bg-strong" />
                   <SidebarItem
                     item={child}
                     allItems={allItems}
@@ -556,15 +550,16 @@ export const SidebarItem = ({
                     onMoveItem={onMoveItem}
                     isFirst={isFirstChild}
                     isLast={isLastChild}
+                    activeWorkspaceId={activeWorkspaceId}
                   />
                 </div>
               );
             })
           ) : (
             <div className="relative pt-1 pl-4">
-              <div className="absolute top-0 left-0 h-3.5 w-px bg-slate-600" />
-              <div className="absolute top-3.5 left-0 h-px w-3 bg-slate-600" />
-              <div className="pl-2 text-[10px] font-light tracking-wide text-slate-500 italic select-none">
+              <div className="absolute top-0 left-0 h-3.5 w-px bg-strong" />
+              <div className="absolute top-3.5 left-0 h-px w-3 bg-strong" />
+              <div className="pl-2 text-[10px] font-light tracking-wide text-low italic select-none">
                 Tom
               </div>
             </div>

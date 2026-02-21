@@ -63,8 +63,8 @@ export const LogoutButton: React.FC<LogoutButtonProps> = ({
       disabled={isLoggingOut}
       className={`flex cursor-pointer items-center gap-2 rounded border border-transparent px-3 py-1.5 text-[10px] font-black uppercase transition-all ${
         isLoggingOut
-          ? "cursor-not-allowed bg-slate-800 text-slate-600"
-          : "text-slate-500 hover:border-red-900/30 hover:bg-red-950/10 hover:text-red-500"
+          ? "cursor-not-allowed bg-surface-elevated text-strong"
+          : "text-low hover:border-danger/30 hover:bg-danger/10 hover:text-danger"
       }`}
     >
       {isLoggingOut ? (

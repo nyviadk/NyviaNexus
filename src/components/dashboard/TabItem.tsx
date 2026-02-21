@@ -69,17 +69,20 @@ export const TabItem = React.memo(
 
     return (
       <div className="group relative h-full w-full min-w-65">
+        {/* Slet knap */}
         <button
           onClick={(e) => {
             e.stopPropagation();
             onDelete(tab);
           }}
-          className="absolute -top-2 -right-2 z-30 cursor-pointer rounded-full border border-slate-600 bg-slate-800 p-1.5 text-slate-300 opacity-0 shadow-xl transition group-hover:opacity-100 hover:text-red-400"
+          className="absolute -top-2 -right-2 z-30 cursor-pointer rounded-full border border-strong bg-surface-elevated p-1.5 text-medium opacity-0 shadow-xl transition group-hover:opacity-100 hover:text-danger"
         >
           <X size={14} />
         </button>
+
+        {/* Selection Checkbox */}
         <div
-          className="absolute -top-2 -left-2 z-20 cursor-pointer text-slate-500 hover:text-blue-400"
+          className="absolute -top-2 -left-2 z-20 cursor-pointer text-low hover:text-action"
           onClick={(e) => {
             e.stopPropagation();
             onSelect(tab);
@@ -88,12 +91,12 @@ export const TabItem = React.memo(
           {isSelected ? (
             <CheckSquare
               size={20}
-              className="cursor-pointer rounded bg-slate-900 text-blue-500 shadow-md"
+              className="cursor-pointer rounded bg-surface text-action shadow-md"
             />
           ) : (
             <Square
               size={20}
-              className="cursor-pointer rounded border border-slate-700 bg-slate-900 text-slate-500 opacity-0 shadow-md group-hover:opacity-100"
+              className="cursor-pointer rounded border border-subtle bg-surface text-low opacity-0 shadow-md group-hover:opacity-100"
             />
           )}
         </div>
@@ -105,24 +108,19 @@ export const TabItem = React.memo(
               e.preventDefault();
               e.stopPropagation();
               alert(
-                "🚧 Multidrag er ikke implementeret endnu.\n\nVi arbejder på sagen! Flyt venligst én fane ad gangen for nu.",
+                "🚧 Multidrag er ikke implementeret endnu.\n\nFlyt venligst én fane ad gangen.",
               );
               return;
             }
 
             e.dataTransfer.setData("nexus/tab", "true");
-
-            // VIGTIGT: Vi mapper 'id' hvis det findes, men vi stoler primært på 'uid'
             const runtimeTab = tab as RuntimeTabData;
-
             const tabData: DraggedTabPayload = {
               ...tab,
-              id: runtimeTab.id || undefined, // Kan være undefined hvis kilden er storage
+              id: runtimeTab.id || undefined,
               uid: tab.uid,
               sourceWorkspaceId: sourceWorkspaceId || "global",
             };
-
-            console.log("🔥 [Drag Start]", tabData.title, "UID:", tabData.uid);
 
             window.sessionStorage.setItem(
               "draggedTab",
@@ -130,18 +128,17 @@ export const TabItem = React.memo(
             );
             if (onDragStart) onDragStart();
           }}
-          className={`group flex h-full transform-gpu cursor-default flex-col overflow-hidden rounded-2xl border pt-2 pr-2 pb-4 pl-4 shadow-md transition-all active:cursor-grabbing ${
+          className={`group flex h-full transform-gpu cursor-default flex-col overflow-hidden rounded-2xl border pt-2 pr-2 pb-4 pl-4 transition-all active:cursor-grabbing ${
             isSelected
-              ? "border-blue-500 bg-slate-900 shadow-[0_0_15px_rgba(59,130,246,0.25)]"
-              : "border-slate-700/50 bg-[linear-gradient(90deg,var(--color-slate-900)_0%,rgb(30_41_59/50%)_25%,rgb(30_41_59/50%)_85%,rgb(20_28_45)_100%)] hover:border-slate-500 hover:shadow-lg"
+              ? "border-action bg-action/5 shadow-[0_0_15px_rgba(var(--tw-intent-action),0.1)]"
+              : "border-subtle bg-surface-elevated shadow-sm hover:border-action/50 hover:bg-surface-hover hover:shadow-md"
           }`}
         >
           <div className="flex min-w-0 flex-col gap-2">
             <div
-              className="group/link -ml-2 flex cursor-pointer flex-col gap-1 rounded-lg p-2 transition-colors hover:bg-slate-700/50"
+              className="group/link -ml-2 flex cursor-pointer flex-col gap-1 rounded-lg p-2 transition-colors hover:bg-surface-elevated/50"
               onClick={async (e) => {
                 e.stopPropagation();
-
                 const focusTab = async (t: chrome.tabs.Tab) => {
                   if (t.id && t.windowId) {
                     await chrome.windows.update(t.windowId, { focused: true });
@@ -152,25 +149,19 @@ export const TabItem = React.memo(
                 try {
                   const runtimeTab = tab as RuntimeTabData;
                   const runtimeId = runtimeTab.id;
-
-                  // 1. Check if ID exists directly
                   if (runtimeId) {
                     const existing = await chrome.tabs
                       .get(runtimeId)
                       .catch(() => null);
                     if (existing) {
                       await focusTab(existing);
-                      // Vi sletter IKKE hvis den allerede findes fysisk
                       return;
                     }
                   }
-
-                  // 2. Smart Match fallback
                   const matches = await chrome.tabs.query({ url: tab.url });
                   const exactMatches = matches.filter(
                     (t) => t.incognito === tab.isIncognito,
                   );
-
                   if (exactMatches.length > 0) {
                     const currentWin = await chrome.windows
                       .getCurrent()
@@ -178,9 +169,7 @@ export const TabItem = React.memo(
                     const bestMatch =
                       exactMatches.find((t) => t.windowId === currentWin?.id) ||
                       exactMatches[0];
-
                     await focusTab(bestMatch);
-                    // Vi sletter IKKE hvis den allerede findes fysisk (Smart Focus)
                     return;
                   }
                 } catch (err) {
@@ -220,26 +209,26 @@ export const TabItem = React.memo(
                 <Globe
                   size={18}
                   className={`${
-                    tab.isIncognito ? "text-purple-400" : "text-slate-500"
-                  } shrink-0 transition-colors group-hover/link:text-blue-400`}
+                    tab.isIncognito ? "text-mode-incognito" : "text-low"
+                  } shrink-0 transition-colors group-hover/link:text-action`}
                 />
-                <div className="pointer-events-none w-full truncate text-sm font-semibold text-slate-200 transition-colors group-hover/link:text-blue-200">
+                <div className="pointer-events-none w-full truncate text-sm font-semibold text-high transition-colors group-hover/link:text-high">
                   {tab.title}
                 </div>
                 <ExternalLink
                   size={16}
-                  className="shrink-0 text-blue-400 opacity-0 transition-opacity group-hover/link:opacity-100"
+                  className="shrink-0 text-action opacity-0 transition-opacity group-hover/link:opacity-100"
                 />
               </div>
 
-              <div className="pointer-events-none w-full truncate pl-8 font-mono text-[10px] text-slate-500 italic group-hover/link:text-blue-300/70">
+              <div className="pointer-events-none w-full truncate pl-8 font-mono text-[10px] text-low italic transition-colors group-hover/link:text-medium">
                 {tab.url}
               </div>
             </div>
 
             <div className="mt-1 flex min-h-6 flex-wrap gap-2 pl-8">
               {isProcessing && (
-                <div className="inline-flex w-fit animate-pulse cursor-wait items-center gap-1.5 rounded-full border border-slate-600/50 bg-slate-700/50 px-2.5 py-0.5 text-[10px] font-medium text-slate-400">
+                <div className="inline-flex w-fit animate-pulse cursor-wait items-center gap-1.5 rounded-full border border-strong bg-surface-elevated px-2.5 py-0.5 text-[10px] font-medium text-medium">
                   <Loader2 size={10} className="animate-spin" />
                   AI sorterer...
                 </div>
@@ -247,7 +236,7 @@ export const TabItem = React.memo(
 
               {isPending && (
                 <div
-                  className="inline-flex w-fit cursor-help items-center gap-1.5 rounded-full border border-slate-600/50 bg-slate-700/50 px-2.5 py-0.5 text-[10px] font-medium text-slate-400"
+                  className="inline-flex w-fit cursor-help items-center gap-1.5 rounded-full border border-strong bg-surface-elevated px-2.5 py-0.5 text-[10px] font-medium text-medium"
                   title="Analyseres næste gang ai kører"
                 >
                   <Clock size={10} />I kø til AI

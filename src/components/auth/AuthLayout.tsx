@@ -27,14 +27,14 @@ export const AuthLayout: React.FC = () => {
   const isShowGuide = !!setupUid;
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-slate-950 p-4 font-sans text-white">
+    <div className="flex min-h-screen w-full items-center justify-center bg-background p-4 font-sans text-high">
       <div className="flex w-full max-w-sm flex-col items-center">
         {/* Logo Sektion */}
         <div className="mb-8 text-center">
-          <h1 className="text-4xl font-black tracking-tighter text-blue-400 italic">
+          <h1 className="text-4xl font-black tracking-tighter text-action italic">
             NyviaNexus
           </h1>
-          <p className="text-sm font-medium text-slate-500">
+          <p className="text-sm font-medium text-low">
             {isShowGuide
               ? "Sikkerheds-konfiguration"
               : "AI-drevet tab management"}
@@ -42,7 +42,7 @@ export const AuthLayout: React.FC = () => {
         </div>
 
         {/* Card Content */}
-        <div className="w-full rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
+        <div className="w-full rounded-2xl border border-subtle bg-surface p-8 shadow-2xl">
           {isShowGuide && projectId ? (
             <SetupGuide
               uid={setupUid}

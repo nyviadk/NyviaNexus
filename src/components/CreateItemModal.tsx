@@ -65,16 +65,16 @@ export const CreateItemModal = ({
         // Luk hvis man klikker på backdrop (udenfor selve dialogen)
         if (e.target === dialogRef.current) handleClose();
       }}
-      className="open:animate-in open:fade-in open:zoom-in-95 m-auto bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm"
+      className="open:animate-in open:fade-in open:zoom-in-95 m-auto bg-transparent p-0 backdrop:bg-background/80 backdrop:backdrop-blur-sm"
     >
-      <div className="w-full max-w-sm rounded-2xl border border-slate-600 bg-slate-800 p-6 shadow-2xl">
+      <div className="w-full max-w-sm rounded-2xl border border-strong bg-surface-elevated p-6 shadow-2xl">
         <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-3 text-white">
+          <div className="flex items-center gap-3 text-high">
             <div
               className={`rounded-lg p-2 ${
                 type === "folder"
-                  ? "bg-amber-500/20 text-amber-400"
-                  : "bg-blue-500/20 text-blue-400"
+                  ? "bg-warning/20 text-warning"
+                  : "bg-mode-workspace/20 text-mode-workspace"
               }`}
             >
               {type === "folder" ? (
@@ -90,7 +90,7 @@ export const CreateItemModal = ({
           <button
             type="button"
             onClick={handleClose}
-            className="cursor-pointer rounded-lg p-1 text-slate-400 ring-blue-500 transition-colors outline-none hover:bg-slate-700 hover:text-white focus:ring-2"
+            className="cursor-pointer rounded-lg p-1 text-low ring-action transition-colors outline-none hover:bg-surface-hover hover:text-high focus:ring-2"
           >
             <X size={20} />
           </button>
@@ -105,7 +105,7 @@ export const CreateItemModal = ({
               placeholder={`Navn på ${
                 type === "folder" ? "mappe" : "space"
               }...`}
-              className="w-full rounded-xl border border-slate-600 bg-slate-900/50 px-4 py-3 text-sm text-white placeholder-slate-500 ring-blue-500/50 transition-all outline-none focus:ring-2"
+              className="w-full rounded-xl border border-subtle bg-surface-sunken px-4 py-3 text-sm text-high placeholder-low ring-action/50 transition-all outline-none focus:border-action focus:ring-2"
             />
           </div>
 
@@ -113,14 +113,14 @@ export const CreateItemModal = ({
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 cursor-pointer rounded-xl border border-slate-600 px-4 py-2.5 text-sm font-medium text-slate-300 ring-slate-500 transition-colors outline-none hover:bg-slate-700 hover:text-white focus:ring-2"
+              className="flex-1 cursor-pointer rounded-xl border border-subtle bg-surface px-4 py-2.5 text-sm font-medium text-medium ring-strong transition-colors outline-none hover:bg-surface-hover hover:text-high focus:ring-2"
             >
               Annuller
             </button>
             <button
               type="submit"
               disabled={loading || !name.trim()}
-              className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-500/20 ring-blue-400 transition-all outline-none hover:bg-blue-500 focus:ring-2 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+              className="ring-action-hover hover:bg-action-hover flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl bg-action px-4 py-2.5 text-sm font-bold text-inverted shadow-lg shadow-action/20 transition-all outline-none focus:ring-2 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading && <Loader2 size={16} className="animate-spin" />}
               Opret

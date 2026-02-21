@@ -173,7 +173,7 @@ export const TabGrid: React.FC<TabGridProps> = ({
         <>
           {/* Top Info Banner - Vises kun hvis der er indhold i Inbox/Incognito */}
           {hasContent && (
-            <div className="mb-6 flex items-center gap-2 px-1 text-xs text-slate-500">
+            <div className="mb-6 flex items-center gap-2 px-1 text-xs text-low">
               <Clock size={12} className="opacity-70" />
               <span className="font-medium tracking-wide uppercase opacity-70">
                 Grupperet efter seneste AI-analyse
@@ -194,7 +194,7 @@ export const TabGrid: React.FC<TabGridProps> = ({
                   <div key={label} className="mb-10 last:mb-0">
                     {/* Klikbar Header */}
                     <div
-                      className="group mb-4 flex w-fit cursor-pointer flex-col gap-0.5 rounded-lg py-1.5 pr-3 pl-1 transition-colors select-none hover:bg-slate-800/50"
+                      className="group mb-4 flex w-fit cursor-pointer flex-col gap-0.5 rounded-lg py-1.5 pr-3 pl-1 transition-colors select-none hover:bg-surface-hover"
                       onClick={() => toggleGroupSelection(groupTabs)}
                       title={
                         isGroupFullySelected
@@ -206,8 +206,8 @@ export const TabGrid: React.FC<TabGridProps> = ({
                         <h3
                           className={`text-sm font-bold tracking-wider uppercase transition-colors ${
                             isGroupFullySelected
-                              ? "text-blue-400"
-                              : "text-slate-400 group-hover:text-slate-200"
+                              ? "text-action"
+                              : "text-medium group-hover:text-high"
                           }`}
                         >
                           {label}
@@ -216,8 +216,8 @@ export const TabGrid: React.FC<TabGridProps> = ({
                         <span
                           className={`flex h-5 min-w-5 items-center justify-center rounded px-1.5 font-mono text-[10px] font-medium transition-colors ${
                             isGroupFullySelected
-                              ? "bg-blue-500/10 text-blue-400"
-                              : "bg-slate-800 text-slate-500 group-hover:bg-slate-700 group-hover:text-slate-300"
+                              ? "bg-action/10 text-action"
+                              : "bg-surface-elevated text-low group-hover:bg-surface-hover group-hover:text-medium"
                           }`}
                         >
                           {groupTabs.length}
@@ -226,7 +226,7 @@ export const TabGrid: React.FC<TabGridProps> = ({
 
                       {/* Hjælpetekst specifikt til "Arkiv" eller som generel info */}
                       {isArchive && (
-                        <span className="text-[10px] font-medium text-slate-600 italic group-hover:text-slate-500">
+                        <span className="text-[10px] font-medium text-low italic">
                           Venter på tidsstempling fra AI...
                         </span>
                       )}
@@ -283,20 +283,20 @@ export const TabGrid: React.FC<TabGridProps> = ({
                   });
                 }
               }}
-              className="group flex min-h-25 cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-slate-700/50 bg-slate-800/20 p-4 text-slate-500 transition-all hover:border-purple-500/50 hover:bg-purple-900/10 hover:text-purple-400 hover:shadow-lg active:scale-95"
+              className="group flex min-h-25 cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-subtle bg-surface/50 p-4 text-low transition-all hover:border-action/50 hover:bg-action/10 hover:text-action hover:shadow-lg active:scale-95"
               title="Vinduet er ikke åbent. Klik for at tilføje links til listen."
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-800/80 shadow-sm transition-transform group-hover:scale-110 group-hover:bg-purple-500/20">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-elevated shadow-sm transition-transform group-hover:scale-110 group-hover:bg-action/20">
                 <Plus
                   size={24}
-                  className="transition-colors group-hover:text-purple-400"
+                  className="transition-colors group-hover:text-action"
                 />
               </div>
               <div className="flex flex-col items-center">
                 <span className="text-sm font-bold">
                   Tilføj til dette vindue
                 </span>
-                <span className="text-[10px] font-medium text-slate-600 group-hover:text-purple-400/70">
+                <span className="text-[10px] font-medium text-low group-hover:text-action/70">
                   (Offline redigering)
                 </span>
               </div>

@@ -518,11 +518,11 @@ export const Dashboard = () => {
     return <AuthLayout />;
   }
   return (
-    <div className="relative flex h-screen overflow-hidden bg-slate-900 font-sans text-slate-200">
+    <div className="relative flex h-screen overflow-hidden bg-background font-sans text-high">
       {restorationStatus && (
-        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-slate-900/60 backdrop-blur-sm">
-          <Loader2 size={64} className="animate-spin text-blue-500" />
-          <div className="animate-pulse text-2xl font-bold text-white">
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-background/60 backdrop-blur-sm">
+          <Loader2 size={64} className="animate-spin text-action" />
+          <div className="animate-pulse text-2xl font-bold text-high">
             {restorationStatus}
           </div>
         </div>
@@ -552,10 +552,10 @@ export const Dashboard = () => {
         selectedWindowId={selectedWindowId}
       />
 
-      <main className="relative flex flex-1 flex-col overflow-hidden bg-slate-900">
+      <main className="relative flex flex-1 flex-col overflow-hidden bg-background">
         {isProcessingMove && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
-            <Loader2 className="animate-spin text-blue-500" size={48} />
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/40 backdrop-blur-sm">
+            <Loader2 className="animate-spin text-action" size={48} />
           </div>
         )}
 
@@ -623,7 +623,7 @@ export const Dashboard = () => {
             </div>
           </>
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-4 text-slate-600">
+          <div className="flex h-full flex-col items-center justify-center gap-4 text-low">
             <Monitor size={64} className="opacity-20" />
             <p className="text-xl font-medium">Vælg et space</p>
           </div>

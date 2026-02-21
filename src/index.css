@@ -1,19 +1,127 @@
 @import "tailwindcss";
 
-/* Dine egne styles herunder */
-body {
-  margin: 0;
-  background-color: #020617; /* slate-950 */
-  color: #f1f5f9;
+@theme {
+  /* Mapping af Tailwind klasser til vores semantiske slots */
+  --color-background: var(--nexus-bg);
+  --color-surface: var(--nexus-surface);
+  --color-surface-hover: var(--nexus-surface-hover);
+  --color-surface-elevated: var(--nexus-surface-elevated);
+  --color-surface-sunken: var(--nexus-surface-sunken);
+
+  --color-high: var(--nexus-text-high);
+  --color-medium: var(--nexus-text-medium);
+  --color-low: var(--nexus-text-low);
+  --color-inverted: var(--nexus-text-inverted);
+
+  --color-subtle: var(--nexus-border-subtle);
+  --color-strong: var(--nexus-border-strong);
+
+  --color-action: var(--nexus-action);
+  --color-action-hover: var(--nexus-action-hover);
+  --color-success: var(--nexus-success);
+  --color-danger: var(--nexus-danger);
+  --color-warning: var(--nexus-warning);
+  --color-info: var(--nexus-info);
+
+  --color-mode-inbox: var(--nexus-mode-inbox);
+  --color-mode-incognito: var(--nexus-mode-incognito);
+  --color-mode-workspace: var(--nexus-mode-workspace);
 }
 
-::-webkit-scrollbar {
-  width: 8px;
+/* --- TEMA 1: ARCHITECT (MØRK - STANDARD) --- */
+:root {
+  --h: 257;
+  --nexus-bg: oklch(14% 0.02 var(--h));
+  --nexus-surface: oklch(18% 0.03 var(--h));
+  --nexus-surface-hover: oklch(25% 0.04 var(--h));
+  --nexus-surface-elevated: oklch(22% 0.03 var(--h));
+  --nexus-surface-sunken: oklch(8% 0.02 var(--h));
+
+  --nexus-text-high: oklch(100% 0 0);
+  --nexus-text-medium: oklch(85% 0.02 var(--h));
+  --nexus-text-low: oklch(65% 0.03 var(--h));
+  --nexus-text-inverted: oklch(14% 0.02 var(--h));
+
+  --nexus-border-subtle: oklch(22% 0.03 var(--h));
+  --nexus-border-strong: oklch(40% 0.04 var(--h));
+
+  --nexus-action: oklch(60% 0.18 var(--h));
+  --nexus-action-hover: oklch(68% 0.18 var(--h));
+  --nexus-success: oklch(65% 0.15 160);
+  --nexus-danger: oklch(60% 0.2 25);
+  --nexus-warning: oklch(75% 0.15 75);
+  --nexus-info: oklch(70% 0.12 210);
+
+  --nexus-mode-inbox: oklch(75% 0.15 60);
+  --nexus-mode-incognito: oklch(65% 0.18 300);
+  --nexus-mode-workspace: oklch(75% 0.1 230);
 }
-::-webkit-scrollbar-track {
-  background: #0f172a;
+
+/* --- TEMA 2: PASTEL (FORBEDRET KONTRAST, LUFTIG & ORANGE INBOX) --- */
+.theme-pastel {
+  --h: 195; /* Master Hue (Mint/Blå) */
+
+  /* BAGGRUND: Sat til absolut hvid for at fjerne det grålige filter */
+  --nexus-bg: oklch(100% 0 0);
+
+  /* OVERFLADER: Rene hvide flader med ekstremt subtile nuancer til interaktion */
+  --nexus-surface: oklch(100% 0 0);
+  --nexus-surface-elevated: oklch(100% 0 0);
+  --nexus-surface-hover: oklch(98.5% 0.005 var(--h));
+  --nexus-surface-sunken: oklch(97.5% 0.008 var(--h));
+
+  /* TEKST-KONTRAST: Trukket ned til 15% lysstyrke for at gøre UI'et sprødt */
+  --nexus-text-high: oklch(15% 0.04 var(--h));
+  --nexus-text-medium: oklch(35% 0.03 var(--h));
+  --nexus-text-low: oklch(50% 0.03 var(--h));
+  --nexus-text-inverted: oklch(100% 0 0);
+
+  /* GRÆNSER: Lidt mere definerede for at kompensere for den hvide baggrund */
+  --nexus-border-subtle: oklch(95% 0.01 var(--h));
+  --nexus-border-strong: oklch(90% 0.02 var(--h));
+
+  /* SKYGGER: Bløde og tonede (fjernet hård sort) */
+  --shadow-sm: 0 1px 2px oklch(20% 0.04 var(--h) / 0.02);
+  --shadow-md: 0 4px 12px -2px oklch(20% 0.04 var(--h) / 0.06);
+  --shadow-lg: 0 12px 24px -6px oklch(20% 0.04 var(--h) / 0.04);
+
+  /* INTENTS: Text-Safe pasteller */
+  --nexus-action: oklch(60% 0.14 var(--h));
+  --nexus-action-hover: oklch(52% 0.16 var(--h));
+  --nexus-success: oklch(62% 0.12 165);
+  --nexus-danger: oklch(58% 0.14 25);
+  --nexus-warning: oklch(68% 0.14 85);
+  --nexus-info: oklch(68% 0.12 200);
+
+  /* MODE FARVER: HER ER DIN ORANGE TILBAGE */
+  --nexus-mode-inbox: oklch(72% 0.14 55); /* Varm, klar pastel orange */
+  --nexus-mode-incognito: oklch(72% 0.12 300); /* Blød, klar lilla */
+  --nexus-mode-workspace: var(--nexus-action);
 }
-::-webkit-scrollbar-thumb {
-  background: #334155;
+
+/* Scrollbar styling */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--nexus-border-strong);
   border-radius: 10px;
+}
+
+dialog {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: auto;
+  overflow: visible !important; /* Sørger for at shadow-2xl ikke bliver klippet */
+  outline: none !important;
+}
+
+dialog::backdrop {
+  /* En ensartet backdrop på tværs af hele systemet */
+  background-color: color-mix(in oklch, var(--nexus-bg), transparent 20%);
+  backdrop-filter: blur(4px);
 }

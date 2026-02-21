@@ -58,17 +58,14 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
   const handleStartRename = (win: WorkspaceWindow, e: React.MouseEvent) => {
     e.stopPropagation();
     setEditingId(win.id);
-    setEditName(win.name || ""); // Brug eksisterende navn eller tom streng
+    setEditName(win.name || "");
   };
 
   const handleSaveRename = async () => {
-    // Guard clause: Hvis vi ikke redigerer noget, stop her.
-    // Dette beskytter mod race conditions hvis onBlur og Enter rammer samtidigt.
     if (!editingId || !selectedWorkspace) return;
 
     const currentEditingId = editingId;
     const trimmed = editName.trim();
-    // Hvis tomt, gemmer vi null/undefined så den falder tilbage til "Vindue X"
 
     await NexusService.renameWindow(
       selectedWorkspace.id,
@@ -95,26 +92,25 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
         const isSourceWindow = selectedWindowId === win.id;
         const isEditing = editingId === win.id;
 
-        let borderClass = "border-slate-700 hover:border-slate-500";
-        let bgClass = "bg-slate-800";
+        // VI SKIFTER FRA HARDKODET SLATE TIL DINE TEMA-TOKENS
+        let borderClass = "border-subtle hover:border-strong";
+        let bgClass = "bg-surface-elevated";
         let shadowClass = "";
 
         if (isDropTarget) {
           if (isSourceWindow) {
-            // RØD: Forsøger at droppe i samme vindue (Invalid)
-            bgClass = "bg-red-900/20";
-            borderClass = "border-red-500/50";
+            bgClass = "bg-danger/20";
+            borderClass = "border-danger";
           } else {
-            // GRØN: Validt drop target
-            bgClass = "bg-emerald-900/20";
-            borderClass = "border-emerald-500/50 border-dashed scale-[1.02]";
-            shadowClass = "shadow-lg shadow-emerald-900/20";
+            bgClass = "bg-success/20";
+            borderClass = "border-success border-dashed scale-[1.02]";
+            shadowClass = "shadow-lg shadow-success/10";
           }
         } else if (isSourceWindow) {
-          // BLÅ: Det aktive vindue
-          bgClass = "bg-blue-600/10";
-          borderClass = "border-blue-500/50";
-          shadowClass = "shadow-lg";
+          // AKTIV: Bruger nu din Action-farve i stedet for Info for at sikre tema-konsistens
+          bgClass = "bg-action/10";
+          borderClass = "border-action";
+          shadowClass = "shadow-md shadow-action/5";
         }
 
         return (
@@ -154,21 +150,18 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
                       onKeyDown={handleKeyDown}
-                      onBlur={handleSaveRename} // Gemmer når fokus mistes
+                      onBlur={handleSaveRename}
                       onClick={(e) => e.stopPropagation()}
-                      className="w-32 rounded border border-blue-500 bg-slate-900 px-1 py-0.5 text-xs text-white outline-none"
+                      className="w-32 rounded border border-action bg-surface px-1 py-0.5 text-xs text-high outline-none"
                       placeholder={`Vindue ${idx + 1}`}
                     />
                     <button
-                      // onMouseDown bruges i stedet for onClick her, fordi onBlur ellers
-                      // trigger før onClick når man trykker på knappen, hvilket kan skabe race conditions.
-                      // onMouseDown sker før blur.
                       onMouseDown={(e) => {
                         e.stopPropagation();
-                        e.preventDefault(); // Forhindrer input i at miste fokus før vi gemmer manuelt
+                        e.preventDefault();
                         handleSaveRename();
                       }}
-                      className="cursor-pointer rounded bg-green-500/20 p-0.5 text-green-400 hover:bg-green-500/30"
+                      className="cursor-pointer rounded bg-success/20 p-0.5 text-success hover:bg-success/30"
                     >
                       <Check size={14} />
                     </button>
@@ -177,22 +170,23 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                   <>
                     <span
                       className={`text-xs font-bold ${
-                        isDropTarget && !isSourceWindow
-                          ? "text-emerald-400"
-                          : "text-slate-300"
+                        isSourceWindow
+                          ? "text-high"
+                          : isDropTarget && !isSourceWindow
+                            ? "text-success"
+                            : "text-medium group-hover:text-high"
                       }`}
                     >
                       {win.name || `Vindue ${idx + 1}`}
                     </span>
 
-                    <span className="mt-1 text-[10px] text-slate-500">
+                    <span className="mt-1 text-[10px] text-low">
                       {win.tabs?.length || 0} tabs
                     </span>
                   </>
                 )}
               </div>
 
-              {/* Handlingsknapper */}
               {!isEditing && (
                 <div className="flex items-center gap-1">
                   <button
@@ -208,7 +202,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                         },
                       });
                     }}
-                    className="cursor-pointer rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-blue-500/20 hover:text-blue-400"
+                    className="cursor-pointer rounded-lg p-1.5 text-low transition-colors hover:bg-surface-hover hover:text-action"
                     title="Åbn dette vindue"
                   >
                     <ExternalLink size={18} />
@@ -226,7 +220,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                           },
                         });
                     }}
-                    className="cursor-pointer rounded-lg p-1.5 text-slate-400 opacity-0 transition-all group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-400"
+                    className="cursor-pointer rounded-lg p-1.5 text-low opacity-0 transition-all group-hover:opacity-100 hover:bg-danger/20 hover:text-danger"
                     title="Slet vindue"
                   >
                     <Trash2 size={18} />
@@ -238,7 +232,6 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
         );
       })}
 
-      {/* Forbedret Plus-knap med drop-to-create og loading state */}
       <button
         onDragOver={(e) => {
           e.preventDefault();
@@ -264,17 +257,17 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
         disabled={isCreating}
         className={`flex h-14 w-14 cursor-pointer items-center justify-center rounded-xl border border-dashed transition-all duration-200 ${
           isPlusOver
-            ? "scale-110 border-emerald-500 bg-emerald-500/10 text-emerald-400 shadow-xl shadow-emerald-900/20"
-            : "border-slate-700 text-slate-500 hover:border-blue-500 hover:text-blue-400"
+            ? "scale-110 border-success bg-success/10 text-success shadow-xl shadow-success/20"
+            : "border-strong text-low hover:border-action hover:text-action"
         } ${
           isCreating
             ? "cursor-wait opacity-50"
             : "cursor-pointer active:scale-95"
         }`}
-        title="Tilføj nyt vindue (eller træk en fane herhen)"
+        title="Tilføj nyt vindue"
       >
         {isCreating ? (
-          <Loader2 size={28} className="animate-spin text-blue-400" />
+          <Loader2 size={28} className="animate-spin text-action" />
         ) : (
           <PlusCircle size={28} className={isPlusOver ? "animate-pulse" : ""} />
         )}

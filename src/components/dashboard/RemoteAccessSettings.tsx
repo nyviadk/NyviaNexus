@@ -459,22 +459,22 @@ export const RemoteAccessSettings = () => {
   return (
     <div className="mx-auto flex h-full max-w-5xl flex-col gap-8">
       {/* ---------------- TOP: IDENTITY CARD ---------------- */}
-      <div className="relative shrink-0 overflow-hidden rounded-3xl border border-slate-700/50 bg-linear-to-r from-slate-900 via-slate-800 to-slate-900 p-6 shadow-2xl">
-        <div className="pointer-events-none absolute top-0 right-0 h-64 w-64 translate-x-1/2 -translate-y-1/2 rounded-full bg-purple-500/10 blur-3xl"></div>
+      <div className="relative shrink-0 overflow-hidden rounded-3xl border border-subtle bg-surface p-6 shadow-2xl">
+        <div className="pointer-events-none absolute top-0 right-0 h-64 w-64 translate-x-1/2 -translate-y-1/2 rounded-full bg-mode-incognito/10 blur-3xl"></div>
         <div className="relative z-10 flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
           <div className="space-y-1">
-            <h4 className="flex items-center gap-2 text-sm font-bold tracking-widest text-white uppercase">
+            <h4 className="flex items-center gap-2 text-sm font-bold tracking-widest text-high uppercase">
               <Fingerprint size={18} /> Dit Nexus ID
             </h4>
-            <p className="max-w-md text-xs leading-relaxed text-slate-400">
+            <p className="max-w-md text-xs leading-relaxed text-medium">
               Dette er din unikke nøgle. Del den med dine andre enheder for at
               oprette forbindelse.
             </p>
           </div>
           <div className="flex w-full gap-2 md:w-auto">
-            <div className="flex min-w-70 flex-1 items-center gap-3 rounded-xl border border-slate-700/50 bg-slate-950/50 px-4 py-3 md:flex-none">
-              <Globe size={16} className="text-slate-500" />
-              <code className="flex-1 truncate text-sm text-purple-100">
+            <div className="flex min-w-70 flex-1 items-center gap-3 rounded-xl border border-subtle bg-surface-sunken px-4 py-3 md:flex-none">
+              <Globe size={16} className="text-low" />
+              <code className="flex-1 truncate text-sm text-high">
                 {auth.currentUser?.uid}
               </code>
             </div>
@@ -482,8 +482,8 @@ export const RemoteAccessSettings = () => {
               onClick={handleCopyMyUid}
               className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold shadow-lg transition-all duration-300 active:scale-95 ${
                 myUidCopied
-                  ? "w-32 bg-green-500 text-white shadow-green-500/20"
-                  : "w-24 bg-purple-600 text-white shadow-purple-500/20 hover:bg-purple-500"
+                  ? "w-32 bg-success text-inverted shadow-success/20"
+                  : "w-24 bg-mode-incognito text-inverted shadow-mode-incognito/20 hover:bg-mode-incognito-high"
               }`}
             >
               {myUidCopied ? (
@@ -503,19 +503,19 @@ export const RemoteAccessSettings = () => {
       {/* ---------------- MIDDLE: CONTACT LIST ---------------- */}
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="mb-4 flex items-center gap-2 px-1">
-          <Users size={16} className="text-purple-400" />
-          <h4 className="text-xs font-bold tracking-wider text-slate-300 uppercase">
+          <Users size={16} className="text-mode-incognito" />
+          <h4 className="text-xs font-bold tracking-wider text-medium uppercase">
             Dine Forbindelser
           </h4>
-          <span className="rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] font-bold text-slate-500">
+          <span className="rounded-full border border-subtle bg-surface-elevated px-2 py-0.5 text-[10px] font-bold text-low">
             {contacts.length}
           </span>
         </div>
 
         <div className="custom-scrollbar flex-1 space-y-3 overflow-y-auto pr-2 pb-10">
           {contacts.length === 0 && (
-            <div className="flex h-48 flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-slate-800/50 bg-slate-900/20 text-slate-600">
-              <div className="rounded-full bg-slate-800/50 p-4">
+            <div className="flex h-48 flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-subtle bg-surface-sunken/50 text-low">
+              <div className="rounded-full bg-surface-elevated p-4">
                 <Users size={32} className="opacity-50" />
               </div>
               <p className="text-sm font-medium">Ingen forbindelser fundet.</p>
@@ -531,15 +531,15 @@ export const RemoteAccessSettings = () => {
                   onClick={() => handleToggleRow(contact)}
                   className={`group flex flex-1 cursor-pointer items-center gap-4 rounded-2xl border p-3 transition-all select-none ${
                     activeExpandedUid === contact.uid
-                      ? "border-purple-500/50 bg-slate-800 shadow-lg shadow-purple-900/10"
-                      : "border-slate-800 bg-slate-900/40 hover:border-slate-600 hover:bg-slate-800/60"
+                      ? "border-mode-incognito/50 bg-surface-elevated shadow-lg shadow-mode-incognito/10"
+                      : "border-subtle bg-surface hover:border-strong hover:bg-surface-hover"
                   }`}
                 >
                   <div
                     className={`shrink-0 rounded-xl p-3 transition-colors ${
                       activeExpandedUid === contact.uid
-                        ? "bg-purple-500/20 text-purple-400"
-                        : "bg-slate-800 text-slate-500 group-hover:bg-slate-700 group-hover:text-purple-400"
+                        ? "bg-mode-incognito/20 text-mode-incognito"
+                        : "bg-surface-elevated text-low group-hover:bg-surface-hover group-hover:text-mode-incognito"
                     }`}
                   >
                     {activeExpandedUid === contact.uid ? (
@@ -553,21 +553,21 @@ export const RemoteAccessSettings = () => {
                       <h3
                         className={`truncate text-sm font-bold transition-colors ${
                           activeExpandedUid === contact.uid
-                            ? "text-white"
-                            : "text-slate-200 group-hover:text-white"
+                            ? "text-high"
+                            : "text-medium group-hover:text-high"
                         }`}
                       >
                         {contact.name}
                       </h3>
                     </div>
-                    <p className="mt-0.5 max-w-xs truncate text-[10px] text-slate-500">
+                    <p className="mt-0.5 max-w-xs truncate text-[10px] text-low">
                       {contact.uid}
                     </p>
                   </div>
                   <div
-                    className={`pr-2 text-slate-600 transition-transform duration-300 ${
+                    className={`pr-2 text-strong transition-transform duration-300 ${
                       activeExpandedUid === contact.uid
-                        ? "rotate-180 text-purple-400"
+                        ? "rotate-180 text-mode-incognito"
                         : "group-hover:translate-y-0.5"
                     }`}
                   >
@@ -584,8 +584,8 @@ export const RemoteAccessSettings = () => {
                   disabled={processingId === contact.uid}
                   className={`group flex cursor-pointer items-center justify-between gap-3 rounded-2xl border px-4 py-3 transition-all xl:min-w-44 ${
                     contact.isAllowed
-                      ? "border-purple-500/30 bg-purple-950/20 text-purple-400 hover:border-purple-500/50 hover:bg-purple-900/30"
-                      : "border-slate-800 bg-slate-900/40 text-slate-500 hover:border-slate-600 hover:text-slate-300"
+                      ? "border-mode-incognito/50 bg-mode-incognito/10 text-mode-incognito-high hover:border-mode-incognito hover:bg-mode-incognito/20"
+                      : "border-subtle bg-surface-sunken text-low hover:border-strong hover:text-medium"
                   }`}
                   title={
                     contact.isAllowed
@@ -611,8 +611,8 @@ export const RemoteAccessSettings = () => {
                   <div
                     className={`relative h-4 w-8 rounded-full transition-colors ${
                       contact.isAllowed
-                        ? "bg-purple-500"
-                        : "bg-slate-700 group-hover:bg-slate-600"
+                        ? "bg-mode-incognito"
+                        : "bg-surface-elevated group-hover:bg-strong"
                     }`}
                   >
                     <div
@@ -627,7 +627,7 @@ export const RemoteAccessSettings = () => {
                 <button
                   onClick={() => handleDeleteContact(contact.uid)}
                   disabled={processingId === contact.uid}
-                  className="flex w-13 shrink-0 cursor-pointer items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/40 p-3 text-slate-600 transition-colors hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"
+                  className="flex w-13 shrink-0 cursor-pointer items-center justify-center rounded-2xl border border-subtle bg-surface-sunken p-3 text-strong transition-colors hover:border-danger/30 hover:bg-danger/10 hover:text-danger"
                   title="Slet forbindelse"
                 >
                   {processingId === contact.uid ? (
@@ -640,15 +640,15 @@ export const RemoteAccessSettings = () => {
 
               {/* --- DRAWER (Expanded Content) --- */}
               {activeExpandedUid === contact.uid && (
-                <div className="animate-in slide-in-from-top-2 rounded-2xl border border-slate-800/60 bg-slate-950/50 p-4 shadow-inner duration-300 md:p-6">
+                <div className="animate-in slide-in-from-top-2 rounded-2xl border border-subtle/60 bg-surface-sunken/50 p-4 shadow-inner duration-300 md:p-6">
                   {/* LOADER */}
                   {fetchStatus === "loading" && (
                     <div className="flex flex-col items-center justify-center gap-3 py-12">
                       <Loader2
-                        className="animate-spin text-purple-500"
+                        className="animate-spin text-mode-incognito"
                         size={32}
                       />
-                      <span className="animate-pulse text-xs font-bold tracking-wider text-purple-400 uppercase">
+                      <span className="animate-pulse text-xs font-bold tracking-wider text-mode-incognito uppercase">
                         Synkroniserer data...
                       </span>
                     </div>
@@ -656,18 +656,18 @@ export const RemoteAccessSettings = () => {
 
                   {/* ERROR: PERMISSION */}
                   {fetchStatus === "error_perm" && (
-                    <div className="flex flex-col items-center justify-center gap-4 py-8 text-red-400">
-                      <div className="rounded-full border border-red-500/20 bg-red-500/10 p-3">
+                    <div className="flex flex-col items-center justify-center gap-4 py-8 text-danger">
+                      <div className="rounded-full border border-danger/20 bg-danger/10 p-3">
                         <ShieldAlert size={32} />
                       </div>
                       <div className="space-y-1 text-center">
                         <p className="text-sm font-bold uppercase">
                           Mangler adgang
                         </p>
-                        <p className="mx-auto max-w-xs text-xs text-slate-500">
+                        <p className="mx-auto max-w-xs text-xs text-low">
                           {contact.name} skal aktivere{" "}
-                          <strong className="text-slate-400">"Deling"</strong>{" "}
-                          på deres enhed.
+                          <strong className="text-medium">"Deling"</strong> på
+                          deres enhed.
                         </p>
                       </div>
                     </div>
@@ -675,12 +675,15 @@ export const RemoteAccessSettings = () => {
 
                   {/* ERROR: EMPTY */}
                   {fetchStatus === "error_empty" && (
-                    <div className="flex flex-col items-center justify-center gap-3 py-8 text-slate-300">
-                      <div className="rounded-full bg-purple-900/40 p-3">
-                        <ServerCrash size={24} />
+                    <div className="flex flex-col items-center justify-center gap-3 py-8 text-medium">
+                      <div className="rounded-full bg-mode-incognito/20 p-3">
+                        <ServerCrash
+                          size={24}
+                          className="text-mode-incognito"
+                        />
                       </div>
                       <p className="text-sm font-bold">Ingen data fundet</p>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-low">
                         Kunne ikke finde aktive spaces eller faner.
                       </p>
                     </div>
@@ -691,7 +694,7 @@ export const RemoteAccessSettings = () => {
                     <div className="flex flex-col gap-6">
                       {/* 1. SPACES */}
                       <div className="space-y-3">
-                        <div className="flex items-center gap-2 px-1 text-xs font-bold tracking-wider text-slate-400 uppercase">
+                        <div className="flex items-center gap-2 px-1 text-xs font-bold tracking-wider text-medium uppercase">
                           <Layers size={14} /> Spaces ({remoteSpaces.length})
                         </div>
                         {remoteSpaces.length > 0 ? (
@@ -705,11 +708,11 @@ export const RemoteAccessSettings = () => {
                               return (
                                 <div
                                   key={space.id}
-                                  className="group flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900 p-3 transition hover:border-slate-600"
+                                  className="group flex items-center justify-between rounded-xl border border-subtle bg-surface p-3 transition hover:border-strong"
                                 >
                                   <div className="flex items-center gap-3 overflow-hidden">
-                                    <div className="h-8 w-2 shrink-0 rounded-full bg-purple-500/50"></div>
-                                    <span className="truncate pr-2 text-sm font-medium text-slate-300">
+                                    <div className="h-8 w-2 shrink-0 rounded-full bg-mode-incognito/50"></div>
+                                    <span className="truncate pr-2 text-sm font-medium text-medium">
                                       {space.name}
                                     </span>
                                   </div>
@@ -718,8 +721,8 @@ export const RemoteAccessSettings = () => {
                                     disabled={isLoading}
                                     className={`cursor-pointer rounded-lg p-2 transition ${
                                       isEmptyState
-                                        ? "bg-orange-500/10 text-orange-400 hover:bg-orange-500/20"
-                                        : "text-slate-500 hover:bg-slate-700 hover:text-white"
+                                        ? "bg-warning/10 text-warning hover:bg-warning/20"
+                                        : "text-low hover:bg-surface-hover hover:text-high"
                                     }`}
                                     title={
                                       isEmptyState
@@ -730,12 +733,12 @@ export const RemoteAccessSettings = () => {
                                     {isLoading ? (
                                       <Loader2
                                         size={16}
-                                        className="animate-spin text-purple-400"
+                                        className="animate-spin text-mode-incognito"
                                       />
                                     ) : isCopiedState ? (
                                       <Check
                                         size={16}
-                                        className="text-green-500"
+                                        className="text-success"
                                       />
                                     ) : isEmptyState ? (
                                       <span className="text-[10px] font-bold">
@@ -750,7 +753,7 @@ export const RemoteAccessSettings = () => {
                             })}
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-800 bg-slate-900/30 p-4 text-xs text-slate-500">
+                          <div className="flex items-center gap-2 rounded-xl border border-dashed border-subtle bg-surface-sunken p-4 text-xs text-low">
                             <Layers size={14} className="opacity-50" />
                             <span>Ingen offentlige spaces fundet.</span>
                           </div>
@@ -761,8 +764,8 @@ export const RemoteAccessSettings = () => {
                         {/* 2. INBOX TABS */}
                         {remoteInbox.length > 0 && (
                           <div className="space-y-2">
-                            <div className="flex items-center justify-between border-b border-slate-800 px-1 pb-2">
-                              <div className="flex items-center gap-2 text-xs font-bold tracking-wider text-purple-400 uppercase">
+                            <div className="flex items-center justify-between border-b border-subtle px-1 pb-2">
+                              <div className="flex items-center gap-2 text-xs font-bold tracking-wider text-mode-inbox uppercase">
                                 <Inbox size={14} /> Inbox ({remoteInbox.length})
                               </div>
                               <button
@@ -771,8 +774,8 @@ export const RemoteAccessSettings = () => {
                                 }
                                 className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-bold transition ${
                                   copyStatus === "inbox_empty"
-                                    ? "bg-orange-500/10 text-orange-400 hover:bg-orange-500/20"
-                                    : "bg-purple-500/10 text-purple-400 hover:bg-purple-500 hover:text-white"
+                                    ? "bg-warning/10 text-warning hover:bg-warning/20"
+                                    : "bg-mode-inbox/10 text-mode-inbox hover:bg-mode-inbox hover:text-inverted"
                                 }`}
                               >
                                 {copyStatus === "inbox" ? (
@@ -789,18 +792,18 @@ export const RemoteAccessSettings = () => {
                                     : "Kopier"}
                               </button>
                             </div>
-                            <div className="custom-scrollbar max-h-48 overflow-y-auto rounded-xl border border-slate-800/50 bg-slate-900/50 p-2">
+                            <div className="custom-scrollbar max-h-48 overflow-y-auto rounded-xl border border-subtle/50 bg-surface-elevated/50 p-2">
                               {remoteInbox.map((tab, i) => (
                                 <div
                                   key={i}
-                                  className="group flex items-center gap-3 truncate rounded-lg p-2 text-xs text-slate-400 transition-colors hover:bg-slate-800"
+                                  className="group flex items-center gap-3 truncate rounded-lg p-2 text-xs text-medium transition-colors hover:bg-surface-hover"
                                 >
                                   <img
                                     src={tab.favIconUrl || ""}
-                                    className="h-4 w-4 shrink-0 rounded-sm bg-slate-800"
+                                    className="h-4 w-4 shrink-0 rounded-sm bg-surface-sunken"
                                     alt=""
                                   />
-                                  <span className="flex-1 truncate group-hover:text-slate-300">
+                                  <span className="flex-1 truncate group-hover:text-high">
                                     {tab.title}
                                   </span>
                                 </div>
@@ -812,8 +815,8 @@ export const RemoteAccessSettings = () => {
                         {/* 3. INCOGNITO TABS */}
                         {remoteIncognito.length > 0 && (
                           <div className="space-y-2">
-                            <div className="flex items-center justify-between border-b border-slate-800 px-1 pb-2">
-                              <div className="flex items-center gap-2 text-xs font-bold tracking-wider text-purple-400 uppercase">
+                            <div className="flex items-center justify-between border-b border-subtle px-1 pb-2">
+                              <div className="flex items-center gap-2 text-xs font-bold tracking-wider text-mode-incognito uppercase">
                                 <VenetianMask size={14} /> Incognito (
                                 {remoteIncognito.length})
                               </div>
@@ -826,8 +829,8 @@ export const RemoteAccessSettings = () => {
                                 }
                                 className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-bold transition ${
                                   copyStatus === "incognito_empty"
-                                    ? "bg-orange-500/10 text-orange-400 hover:bg-orange-500/20"
-                                    : "bg-purple-500/10 text-purple-400 hover:bg-purple-500 hover:text-white"
+                                    ? "bg-warning/10 text-warning hover:bg-warning/20"
+                                    : "bg-mode-incognito/10 text-mode-incognito hover:bg-mode-incognito hover:text-inverted"
                                 }`}
                               >
                                 {copyStatus === "incognito" ? (
@@ -844,18 +847,18 @@ export const RemoteAccessSettings = () => {
                                     : "Kopier"}
                               </button>
                             </div>
-                            <div className="custom-scrollbar max-h-48 overflow-y-auto rounded-xl border border-slate-800/50 bg-slate-900/50 p-2">
+                            <div className="custom-scrollbar max-h-48 overflow-y-auto rounded-xl border border-subtle/50 bg-surface-elevated/50 p-2">
                               {remoteIncognito.map((tab, i) => (
                                 <div
                                   key={i}
-                                  className="group flex items-center gap-3 truncate rounded-lg p-2 text-xs text-slate-400 transition-colors hover:bg-slate-800"
+                                  className="group flex items-center gap-3 truncate rounded-lg p-2 text-xs text-medium transition-colors hover:bg-surface-hover"
                                 >
                                   <img
                                     src={tab.favIconUrl || ""}
-                                    className="h-4 w-4 shrink-0 rounded-sm bg-slate-800"
+                                    className="h-4 w-4 shrink-0 rounded-sm bg-surface-sunken"
                                     alt=""
                                   />
-                                  <span className="flex-1 truncate group-hover:text-slate-300">
+                                  <span className="flex-1 truncate group-hover:text-high">
                                     {tab.title}
                                   </span>
                                 </div>
@@ -865,11 +868,11 @@ export const RemoteAccessSettings = () => {
                         )}
                       </div>
 
-                      <div className="mt-2 flex justify-center border-t border-slate-800/50 pt-4">
-                        <div className="flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900 px-3 py-1.5 text-[10px] text-slate-500">
-                          <Share2 size={10} className="text-purple-500" />
+                      <div className="mt-2 flex justify-center border-t border-subtle/50 pt-4">
+                        <div className="flex items-center gap-2 rounded-full border border-subtle bg-surface px-3 py-1.5 text-[10px] text-low">
+                          <Share2 size={10} className="text-mode-incognito" />
                           Data-snapshot fra{" "}
-                          <span className="font-bold text-slate-300">
+                          <span className="font-bold text-medium">
                             {contact.name}
                           </span>
                         </div>
@@ -886,39 +889,39 @@ export const RemoteAccessSettings = () => {
       {/* ---------------- BOTTOM: ADD CONTACT FORM ---------------- */}
       <div className="shrink-0 space-y-3">
         <div className="flex items-center gap-2 px-1">
-          <Plus size={16} className="text-purple-400" />
-          <h4 className="text-xs font-bold tracking-wider text-slate-300 uppercase">
+          <Plus size={16} className="text-mode-incognito" />
+          <h4 className="text-xs font-bold tracking-wider text-medium uppercase">
             Opret Ny Forbindelse
           </h4>
         </div>
 
-        <div className="rounded-3xl border border-slate-800 bg-slate-900/30 p-4">
+        <div className="rounded-3xl border border-subtle bg-surface-sunken/30 p-4">
           <form
             onSubmit={handleAddContact}
             className="flex flex-col items-start gap-4 md:flex-row md:items-end"
           >
             <div className="w-full flex-1 space-y-1.5">
-              <label className="ml-1 text-[10px] font-bold text-slate-500 uppercase">
-                Navn <span className="text-purple-400">*</span>
+              <label className="ml-1 text-[10px] font-bold text-low uppercase">
+                Navn <span className="text-mode-incognito">*</span>
               </label>
               <input
                 value={inputName}
                 onChange={(e) => setInputName(e.target.value)}
                 placeholder="F.eks. Arbejds PC"
-                className="w-full rounded-xl border border-slate-700/50 bg-slate-950/50 px-4 py-3 text-sm text-white transition-all outline-none placeholder:text-slate-600 focus:border-purple-500 focus:bg-slate-900"
+                className="w-full rounded-xl border border-subtle/50 bg-surface-sunken px-4 py-3 text-sm text-high transition-all outline-none placeholder:text-low focus:border-mode-incognito focus:bg-surface"
                 required
               />
             </div>
 
             <div className="relative w-full flex-2 space-y-1.5">
-              <label className="ml-1 text-[10px] font-bold text-slate-500 uppercase">
-                User ID (UID) <span className="text-purple-400">*</span>
+              <label className="ml-1 text-[10px] font-bold text-low uppercase">
+                User ID (UID) <span className="text-mode-incognito">*</span>
               </label>
               <input
                 value={inputUid}
                 onChange={(e) => setInputUid(e.target.value)}
                 placeholder="Indsæt ID..."
-                className={`w-full rounded-xl border border-slate-700/50 bg-slate-950/50 px-4 py-3 text-sm text-white transition-all outline-none placeholder:text-slate-600 focus:border-purple-500 focus:bg-slate-900`}
+                className={`w-full rounded-xl border border-subtle/50 bg-surface-sunken px-4 py-3 text-sm text-high transition-all outline-none placeholder:text-low focus:border-mode-incognito focus:bg-surface`}
                 required
               />
             </div>
@@ -928,8 +931,8 @@ export const RemoteAccessSettings = () => {
               disabled={isAdding || !canAddContact}
               className={`flex h-11.5 w-full min-w-30 cursor-pointer items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-bold shadow-lg transition-all duration-200 md:w-auto ${
                 !canAddContact
-                  ? "cursor-not-allowed border border-slate-700 bg-slate-800 text-slate-600 shadow-none"
-                  : "bg-purple-600 text-white shadow-purple-900/30 hover:scale-105 hover:bg-purple-500"
+                  ? "cursor-not-allowed border border-subtle bg-surface-elevated text-strong shadow-none"
+                  : "bg-mode-incognito text-inverted shadow-mode-incognito/30 hover:scale-105 hover:bg-mode-incognito-high"
               }`}
             >
               {isAdding ? (

@@ -90,12 +90,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const [folderStates, setFolderStates] = useState<Record<string, boolean>>({});
 
-  // --- REORDERING STATE ---
   const [isReordering, setIsReordering] = useState(false);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [localItems, setLocalItems] = useState<NexusItem[]>([]);
 
-  // --- ANIMATION HOOK ---
   const [animationParent] = useAutoAnimate();
 
   useEffect(() => {
@@ -143,15 +141,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       setLocalItems(items);
       setIsReordering(false);
     } else {
-      // Sorter items først, så nye items (order=0/undefined) bliver lagt først i arrayet.
-      // Dette sikrer, at når vi tildeler index, så beholder de deres "Nr 1" plads.
       const sortedBeforeInit = [...items].sort(
         (a, b) => (a.order || 0) - (b.order || 0),
       );
 
       const initialized = sortedBeforeInit.map((item, idx) => ({
         ...item,
-        order: idx, // Tildel fast rækkefølge baseret på den visuelle sortering
+        order: idx,
       }));
 
       setLocalItems(initialized);
@@ -240,14 +236,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 
   return (
-    <aside className="relative z-20 flex w-96 shrink-0 flex-col overflow-hidden border-r border-slate-700/50 bg-linear-to-b from-slate-900 via-slate-800/60 to-slate-900 shadow-2xl">
-      <div className="flex items-center gap-3 border-b border-slate-700/30 bg-slate-900/10 p-6 text-xl font-black tracking-tighter text-white uppercase backdrop-blur-sm">
+    <aside className="relative z-20 flex w-96 shrink-0 flex-col overflow-hidden border-r border-subtle bg-surface shadow-2xl">
+      <div className="flex items-center gap-3 border-b border-subtle bg-surface-sunken/10 p-6 text-xl font-black tracking-tighter text-high uppercase backdrop-blur-sm">
         NyviaNexus
       </div>
 
       {chromeWindows.length > 0 && (
-        <div className="border-b border-slate-700/30 bg-slate-900/20 px-4 py-3 backdrop-blur-sm">
-          <div className="mb-2 px-1 text-[10px] font-bold tracking-widest text-slate-500 uppercase">
+        <div className="border-b border-subtle bg-surface-sunken/20 px-4 py-3 backdrop-blur-sm">
+          <div className="mb-2 px-1 text-[10px] font-bold tracking-widest text-low uppercase">
             Åbne Vinduer
           </div>
           <div className="space-y-1.5">
@@ -258,16 +254,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               );
               const mapping = mappingEntry ? mappingEntry[1] : null;
 
-              // --- LABEL LOGIK ---
-              let label = "Ukendt"; // Dette er som udgangspunkt Space Navnet
-              let subLabel = ""; // Dette er som udgangspunkt Vindues Indeks/Code
+              let label = "Ukendt";
+              let subLabel = "";
 
               const isInbox =
                 !mapping ||
                 (mapping && mapping.workspaceId === "global") ||
                 cWin.type === "popup";
 
-              // 1. Bestem Space Navn (Basic Label)
               if (isInbox) {
                 label = cWin.incognito ? "Incognito Inbox" : "Inbox";
                 subLabel = "Global";
@@ -281,18 +275,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   label = "Slettet Space";
                 }
 
-                // 2. Tjek for Custom Window Name
                 const customWindowName =
                   (mapping as any).windowName || (mapping as any).name;
 
-                // 3. PRIORITERING LOGIK:
-                // Hvis der er et Custom Name, skal det være "Main Headline" (label),
-                // og Space Navnet rykkes ned som "Sub Headline" (subLabel).
                 if (customWindowName) {
-                  subLabel = label; // Space navnet bliver sekundært
-                  label = customWindowName; // Custom navnet bliver primært (stor grøn)
+                  subLabel = label;
+                  label = customWindowName;
                 } else {
-                  // Standard adfærd: Ingen custom navn -> Vis indeks
                   if (mapping.index !== undefined) {
                     if (mapping.index === 99) {
                       subLabel = "Opretter...";
@@ -305,7 +294,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }
               }
 
-              // Logic to determine if Dashboard View matches Physical Window Context
               let isContextMatch = false;
               if (isInbox) {
                 if (cWin.incognito) {
@@ -314,13 +302,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   isContextMatch = viewMode === "inbox";
                 }
               } else if (mapping && mapping.workspaceId) {
-                // Vi er kun i et "Context Match", hvis vi er i rigtigt space
-                // OG dashboardet kigger på netop DETTE vindue.
                 const isSameWorkspace =
                   viewMode === "workspace" &&
                   selectedWorkspace?.id === mapping.workspaceId;
 
-                // Tjekker om dashboardet aktuelt viser dette specifikke vindue
                 const isSameWindow =
                   selectedWindowId === mapping.internalWindowId;
 
@@ -337,8 +322,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }}
                   className={`flex items-center justify-between rounded-lg p-2 text-xs transition-all duration-200 ${
                     isCurrent
-                      ? "cursor-default border border-green-500/30 bg-green-500/10 shadow-[0_0_10px_rgba(34,197,94,0.1)]"
-                      : "cursor-pointer border border-transparent bg-slate-700/30 hover:border-slate-600 hover:bg-slate-700/50"
+                      ? "cursor-default border border-success/30 bg-success/10 shadow-[0_0_10px_rgba(34,197,94,0.1)]"
+                      : "cursor-pointer border border-transparent bg-surface-elevated/30 hover:border-strong hover:bg-surface-hover"
                   }`}
                 >
                   <div className="flex min-w-0 flex-col truncate">
@@ -348,14 +333,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           <VenetianMask
                             size={12}
                             className={
-                              isCurrent ? "text-green-400" : "text-purple-400"
+                              isCurrent ? "text-success" : "text-mode-incognito"
                             }
                           />
                         ) : (
                           <InboxIcon
                             size={12}
                             className={
-                              isCurrent ? "text-green-400" : "text-orange-400"
+                              isCurrent ? "text-success" : "text-mode-inbox"
                             }
                           />
                         )
@@ -363,20 +348,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <Monitor
                           size={12}
                           className={
-                            isCurrent ? "text-green-400" : "text-blue-400"
+                            isCurrent ? "text-success" : "text-mode-workspace"
                           }
                         />
                       )}
                       <span
                         className={`truncate font-bold ${
-                          isCurrent ? "text-green-400" : "text-slate-300"
+                          isCurrent ? "text-success" : "text-medium"
                         }`}
                       >
                         {label}
                       </span>
                     </div>
                     {subLabel && (
-                      <span className="pl-5 text-[10px] text-slate-500">
+                      <span className="pl-5 text-[10px] text-low">
                         {subLabel}
                       </span>
                     )}
@@ -407,13 +392,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               }
                             }
                           }}
-                          className="group flex cursor-pointer items-center justify-center rounded bg-slate-700/50 p-1 text-slate-300 transition-all hover:bg-blue-500 hover:text-white"
+                          className="group flex cursor-pointer items-center justify-center rounded bg-surface-elevated/50 p-1 text-medium transition-all hover:bg-action hover:text-inverted"
                           title="Gå til dette space/vindue i Dashboardet"
                         >
                           <Eye size={12} />
                         </button>
                       )}
-                      <div className="ml-2 shrink-0 rounded bg-green-500/20 px-1.5 py-0.5 text-[9px] font-black tracking-wider text-green-500 uppercase shadow-[0_0_5px_rgba(34,197,94,0.2)]">
+                      <div className="ml-2 shrink-0 rounded bg-success/20 px-1.5 py-0.5 text-[9px] font-black tracking-wider text-success uppercase shadow-[0_0_5px_rgba(34,197,94,0.2)]">
                         HER
                       </div>
                     </div>
@@ -425,23 +410,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      <div className="scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent flex-1 space-y-6 overflow-y-auto p-4">
+      {/* Rulbar container */}
+      <div className="scrollbar-thin scrollbar-thumb-strong scrollbar-track-transparent flex-1 space-y-6 overflow-y-auto p-4">
         {aiHealth === "down" && (
-          <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 shadow-lg shadow-amber-900/20">
-            <AlertTriangle
-              size={18}
-              className="mt-0.5 shrink-0 text-amber-500"
-            />
+          <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/10 p-3 shadow-lg shadow-warning/20">
+            <AlertTriangle size={18} className="mt-0.5 shrink-0 text-warning" />
             <div>
-              <h4 className="text-xs font-bold tracking-wide text-amber-500 uppercase">
+              <h4 className="text-xs font-bold tracking-wide text-warning uppercase">
                 AI Service Offline
               </h4>
-              <p className="mt-1 text-[10px] leading-relaxed text-amber-200/70">
+              <p className="mt-1 text-[10px] leading-relaxed text-warning/70">
                 Automatisk sortering er sat på pause. Dine faner vil blive
                 kategoriseret, så snart servicen er oppe igen.
               </p>
               <a
-                className="mt-1 block text-[10px] leading-relaxed text-amber-200/70 underline hover:text-amber-200"
+                className="mt-1 block text-[10px] leading-relaxed text-warning/70 underline hover:text-warning"
                 href="https://statusgator.com/services/cerebras"
                 target="_blank"
                 rel="noreferrer"
@@ -460,13 +443,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
           <button
             onClick={() => setModalType("settings")}
-            className="cursor-pointer rounded-xl border border-slate-600 bg-slate-800/50 p-2 text-slate-400 transition-colors hover:border-slate-500 hover:text-blue-400"
+            className="cursor-pointer rounded-xl border border-strong bg-surface-elevated/50 p-2 text-medium transition-colors hover:border-strong hover:text-info"
           >
             <Settings size={22} />
           </button>
           <button
             onClick={() => setModalType("remote-access")}
-            className="cursor-pointer rounded-xl border border-slate-600 bg-slate-800/50 p-2 text-slate-400 transition-colors hover:border-slate-500 hover:text-purple-400"
+            className="cursor-pointer rounded-xl border border-strong bg-surface-elevated/50 p-2 text-medium transition-colors hover:border-strong hover:text-mode-incognito"
           >
             <Share2 size={22} />
           </button>
@@ -476,14 +459,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {activeDragId && !isAlreadyAtRoot && !isReordering && (
             <div
               onDragOver={(e) => e.preventDefault()}
-              // Robust hover logic - tjek relatedTarget
               onDragEnter={() => {
                 setIsDragOverRoot(true);
               }}
               onDragLeave={(e) => {
                 const currentTarget = e.currentTarget;
                 const relatedTarget = e.relatedTarget as Node;
-                // Hvis musen går ind i et child element, så tæl det ikke som leave
                 if (currentTarget.contains(relatedTarget)) return;
                 setIsDragOverRoot(false);
               }}
@@ -503,12 +484,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
               className={`flex items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-4 transition-all ${
                 isDragOverRoot
-                  ? "scale-[1.02] border-blue-400 bg-blue-600/20 text-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.2)]"
-                  : "border-slate-600/50 bg-slate-700/20 text-slate-500 hover:border-slate-500"
+                  ? "scale-[1.02] border-action bg-action/10 text-action shadow-[0_0_20px_rgba(59,130,246,0.2)]"
+                  : "border-strong/50 bg-surface-elevated/20 text-low hover:border-strong"
               }`}
             >
               {isSyncingRoot ? (
-                <Loader2 size={24} className="animate-spin text-blue-400" />
+                <Loader2 size={24} className="animate-spin text-action" />
               ) : (
                 <ArrowUpCircle
                   size={24}
@@ -522,7 +503,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between px-2 text-[10px] font-bold tracking-widest text-slate-400 uppercase">
+            <div className="flex items-center justify-between px-2 text-[10px] font-bold tracking-widest text-medium uppercase">
               Spaces
               <div className="flex gap-2">
                 {isReordering ? (
@@ -530,7 +511,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <button
                       onClick={handleSaveOrder}
                       disabled={isSavingOrder}
-                      className="cursor-pointer text-green-400 transition-transform hover:scale-110 disabled:opacity-50"
+                      className="cursor-pointer text-success transition-transform hover:scale-110 disabled:opacity-50"
                       title="Gem rækkefølge"
                     >
                       {isSavingOrder ? (
@@ -542,7 +523,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <button
                       onClick={handleToggleReordering}
                       disabled={isSavingOrder}
-                      className="cursor-pointer text-slate-400 transition-transform hover:scale-110 hover:text-white disabled:opacity-50"
+                      className="cursor-pointer text-medium transition-transform hover:scale-110 hover:text-high disabled:opacity-50"
                       title="Annuller"
                     >
                       <X size={18} />
@@ -578,7 +559,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       }}
                       className="cursor-pointer transition-transform hover:scale-110"
                     >
-                      <LifeBuoy size={18} className="hover:text-red-400" />
+                      <LifeBuoy size={18} className="hover:text-danger" />
                     </button>
                     <button
                       onClick={handleToggleReordering}
@@ -587,7 +568,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     >
                       <ArrowRightLeft
                         size={18}
-                        className="rotate-90 hover:text-white"
+                        className="rotate-90 hover:text-high"
                       />
                     </button>
                     <button
@@ -597,7 +578,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       }}
                       className="cursor-pointer transition-transform hover:scale-110"
                     >
-                      <FolderPlus size={18} className="hover:text-white" />
+                      <FolderPlus size={18} className="hover:text-high" />
                     </button>
                     <button
                       onClick={() => {
@@ -606,7 +587,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       }}
                       className="cursor-pointer transition-transform hover:scale-110"
                     >
-                      <PlusCircle size={18} className="hover:text-white" />
+                      <PlusCircle size={18} className="hover:text-high" />
                     </button>
                   </>
                 )}
@@ -639,6 +620,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onMoveItem={handleMoveItem}
                   isFirst={index === 0}
                   isLast={index === filteredRootItems.length - 1}
+                  activeWorkspaceId={selectedWorkspace?.id}
                 />
               ))}
             </div>
@@ -663,14 +645,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 );
               }
             }}
-            // Robust hover logic for Inbox
             onDragEnter={() => {
               setIsInboxDragOver(true);
             }}
             onDragLeave={(e) => {
               const currentTarget = e.currentTarget;
               const relatedTarget = e.relatedTarget as Node;
-              // Hvis musen går ind i et child element (som ikonet), så tæl det ikke som leave
               if (currentTarget.contains(relatedTarget)) return;
               setIsInboxDragOver(false);
               setInboxDropStatus(null);
@@ -701,7 +681,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }}
             className="group"
           >
-            <label className="mb-2 block px-2 text-[10px] font-bold tracking-widest text-slate-400 uppercase transition-colors group-hover:text-slate-300">
+            <label className="mb-2 block px-2 text-[10px] font-bold tracking-widest text-medium uppercase transition-colors group-hover:text-high">
               Opsamling
             </label>
 
@@ -712,25 +692,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
               className={`mb-2 flex cursor-pointer items-center gap-2 rounded-xl border p-2 text-sm backdrop-blur-sm transition-all ${
                 viewMode === "inbox"
-                  ? "border-orange-500/50 bg-orange-600/20 text-orange-400 shadow-lg"
+                  ? "text-mode-inbox-high border-mode-inbox/50 bg-mode-inbox/10 shadow-lg"
                   : inboxDropStatus === "invalid" && isInboxDragOver
-                    ? "scale-[0.98] border-red-500/50 bg-red-900/20 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+                    ? "scale-[0.98] border-danger/50 bg-danger/10 text-danger shadow-[0_0_15px_rgba(239,68,68,0.2)]"
                     : inboxDropStatus === "valid" && isInboxDragOver
-                      ? "scale-[1.02] border-emerald-500/50 bg-emerald-900/40 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+                      ? "scale-[1.02] border-success/50 bg-success/20 text-success shadow-[0_0_15px_rgba(16,185,129,0.2)]"
                       : isInboxDragOver
-                        ? "border-slate-500 bg-slate-700/50 text-slate-200"
-                        : "border-transparent text-slate-400 hover:bg-slate-700/30 hover:text-slate-200"
+                        ? "border-strong bg-surface-elevated/50 text-high"
+                        : "border-transparent text-medium hover:bg-surface-hover hover:text-high"
               }`}
             >
               {isInboxSyncing ? (
-                <Loader2 size={20} className="animate-spin text-blue-400" />
+                <Loader2 size={20} className="animate-spin text-action" />
               ) : inboxDropStatus === "invalid" && isInboxDragOver ? (
                 <XCircle
                   size={20}
-                  className="pointer-events-none text-red-500"
+                  className="pointer-events-none text-danger"
                 />
               ) : (
-                <InboxIcon size={20} className="pointer-events-none" />
+                <InboxIcon
+                  size={20}
+                  className={`pointer-events-none ${viewMode === "inbox" ? "text-mode-inbox" : ""}`}
+                />
               )}
               <span className="pointer-events-none font-medium">
                 {inboxDropStatus === "invalid" && isInboxDragOver
@@ -752,26 +735,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
               className={`flex cursor-pointer items-center gap-2 rounded-xl border p-2 text-sm backdrop-blur-sm transition-all ${
                 viewMode === "incognito"
-                  ? "border-purple-500/50 bg-purple-900/40 text-purple-400 shadow-lg"
+                  ? "text-mode-incognito-high border-mode-incognito/50 bg-mode-incognito/10 shadow-lg"
                   : inboxDropStatus === "invalid" && isInboxDragOver
                     ? "cursor-not-allowed opacity-30 grayscale"
-                    : "border-transparent text-slate-400 hover:bg-slate-700/30 hover:text-slate-200"
+                    : "border-transparent text-medium hover:bg-surface-hover hover:text-high"
               }`}
             >
-              <VenetianMask size={20} />
+              <VenetianMask
+                size={20}
+                className={`${viewMode === "incognito" ? "text-mode-incognito" : ""}`}
+              />
               <span>Incognito ({getFilteredInboxTabs(true).length})</span>
             </div>
           </nav>
         )}
       </div>
 
-      <div className="flex flex-col gap-3 border-t border-slate-700/30 bg-slate-900/30 p-4 text-sm backdrop-blur-md">
-        <div className="flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase">
+      <div className="flex flex-col gap-3 border-t border-subtle bg-surface-sunken/30 p-4 text-sm backdrop-blur-md">
+        <div className="flex items-center gap-2 text-[10px] font-bold text-success uppercase">
           <Activity size={14} className="animate-pulse" /> Live Sync
         </div>
         <button
           onClick={() => auth.signOut()}
-          className="flex cursor-pointer items-center gap-2 text-slate-500 transition-colors hover:text-red-500"
+          className="flex cursor-pointer items-center gap-2 text-low transition-colors hover:text-danger"
         >
           <LogoutButton activeMappings={activeMappings} />
         </button>

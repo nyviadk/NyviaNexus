@@ -55,27 +55,27 @@ service cloud.firestore {
   return (
     <div className="flex flex-col gap-6">
       <div className="space-y-2">
-        <div className="flex items-center gap-2 text-emerald-400">
+        <div className="flex items-center gap-2 text-success">
           <Shield size={18} />
           <h2 className="text-sm font-bold tracking-widest uppercase">
             Beskyt din data
           </h2>
         </div>
-        <p className="text-[11px] leading-relaxed text-slate-400">
+        <p className="text-[11px] leading-relaxed text-medium">
           Kontoen er oprettet! For at sikre dit privatliv skal du indsætte disse
           regler i din Firestore Database.
         </p>
       </div>
 
       {/* Kode-boks */}
-      <div className="rounded-xl border border-slate-800 bg-black/50 p-4">
-        <div className="mb-3 flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
+      <div className="rounded-xl border border-subtle bg-surface-sunken p-4">
+        <div className="mb-3 flex items-center justify-between text-[10px] font-bold text-low uppercase">
           <div className="flex items-center gap-2">
             <Terminal size={14} /> Firestore Rules
           </div>
           <button
             onClick={copyToClipboard}
-            className="cursor-pointer text-blue-400 transition-colors hover:text-blue-300"
+            className="hover:text-action-hover cursor-pointer text-action transition-colors"
           >
             {copied ? (
               <Check size={12} className="mr-1 inline" />
@@ -85,18 +85,18 @@ service cloud.firestore {
             {copied ? "KOPIERET" : "KOPIER"}
           </button>
         </div>
-        <pre className="custom-scrollbar max-h-32 overflow-y-auto font-mono text-[9px] leading-tight text-slate-300">
+        <pre className="custom-scrollbar max-h-32 overflow-y-auto font-mono text-[9px] leading-tight text-medium">
           {firestoreRules}
         </pre>
       </div>
 
       {/* Direkte Link og Checkbox Sektion */}
-      <div className="space-y-4 rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
+      <div className="space-y-4 rounded-xl border border-action/20 bg-action/10 p-4">
         <a
           href={rulesUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex w-full items-center justify-between gap-2 rounded-lg bg-blue-600 p-3 text-[11px] font-bold text-white transition-all hover:bg-blue-500"
+          className="hover:bg-action-hover flex w-full items-center justify-between gap-2 rounded-lg bg-action p-3 text-[11px] font-bold text-inverted transition-all"
         >
           ÅBN REGLER I FIREBASE CONSOLE
           <ExternalLink size={14} />
@@ -106,7 +106,7 @@ service cloud.firestore {
           <div className="relative flex items-center pt-0.5">
             <input
               type="checkbox"
-              className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-slate-600 bg-slate-800 transition-all checked:border-emerald-500 checked:bg-emerald-500"
+              className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-strong bg-surface-elevated transition-all checked:border-success checked:bg-success"
               checked={hasConfirmed}
               onChange={(e) => setHasConfirmed(e.target.checked)}
             />
@@ -115,7 +115,7 @@ service cloud.firestore {
               className="pointer-events-none absolute top-1.5 left-0.5 text-white opacity-0 transition-opacity peer-checked:opacity-100"
             />
           </div>
-          <span className="text-[10px] leading-snug text-slate-400 select-none">
+          <span className="text-[10px] leading-snug text-medium select-none">
             Jeg bekræfter, at jeg har indsat og <b>publiceret</b> reglerne i min
             Firebase Console.
           </span>
@@ -125,10 +125,10 @@ service cloud.firestore {
       <button
         onClick={handleFinalize}
         disabled={!hasConfirmed}
-        className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg p-3 text-sm font-bold text-white transition-all ${
+        className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg p-3 text-sm font-bold transition-all ${
           hasConfirmed
-            ? "bg-emerald-600 shadow-lg shadow-emerald-900/20 hover:bg-emerald-500 active:scale-95"
-            : "cursor-not-allowed bg-slate-800 text-slate-500 opacity-50"
+            ? "bg-success text-inverted shadow-lg shadow-success/20 hover:bg-success/80 active:scale-95"
+            : "cursor-not-allowed bg-surface-elevated text-strong opacity-50"
         }`}
       >
         {!hasConfirmed && <AlertTriangle size={14} />}

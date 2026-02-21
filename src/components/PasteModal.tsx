@@ -359,16 +359,16 @@ export const PasteModal = ({
       onCancel={onClose}
       onMouseDown={handleBackdropMouseDown}
       onMouseUp={handleBackdropMouseUp}
-      className="open:animate-in open:fade-in open:zoom-in-95 m-auto bg-transparent p-0 backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm"
+      className="open:animate-in open:fade-in open:zoom-in-95 m-auto bg-transparent p-0 backdrop:bg-background/80 backdrop:backdrop-blur-sm"
     >
       <div
-        className="flex max-h-[85vh] w-xl flex-col overflow-hidden rounded-2xl border border-slate-600 bg-slate-800 shadow-2xl"
+        className="flex max-h-[85vh] w-xl flex-col overflow-hidden rounded-2xl border border-strong bg-surface shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-700 bg-slate-900/50 p-4">
+        <div className="flex items-center justify-between border-b border-subtle bg-surface-elevated p-4">
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-purple-600/20 p-2 text-purple-400">
+            <div className="rounded-lg bg-mode-incognito/20 p-2 text-mode-incognito">
               {isCreatingNew ? (
                 previewStats.length > 1 ? (
                   <Layers size={20} />
@@ -380,20 +380,19 @@ export const PasteModal = ({
               )}
             </div>
             <div>
-              <h3 className="font-bold text-slate-200">
+              <h3 className="font-bold text-high">
                 {isCreatingNew
                   ? previewStats.length > 1
                     ? "Batch Import (Flere Vinduer)"
                     : "Importer til Nyt Vindue"
                   : "Importer Links"}
               </h3>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-low">
                 {isCreatingNew ? (
                   "Brug '###' til at opdele i flere vinduer"
                 ) : (
                   <>
-                    Tilføj til{" "}
-                    <span className="text-slate-300">{windowName}</span>
+                    Tilføj til <span className="text-medium">{windowName}</span>
                   </>
                 )}
               </p>
@@ -401,7 +400,7 @@ export const PasteModal = ({
           </div>
           <button
             onClick={onClose}
-            className="cursor-pointer text-slate-500 transition hover:text-white"
+            className="cursor-pointer text-low transition hover:text-high"
           >
             <X size={20} />
           </button>
@@ -418,7 +417,7 @@ export const PasteModal = ({
                 ? "Indsæt links her...\n\n###\n\nIndsæt links til næste vindue her..."
                 : "Indsæt liste af links her..."
             }
-            className="custom-scrollbar min-h-64 flex-1 resize-none rounded-xl border border-slate-700 bg-slate-900/50 p-4 font-mono text-sm leading-relaxed text-slate-300 outline-none placeholder:text-slate-600 focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50"
+            className="custom-scrollbar min-h-64 flex-1 resize-none rounded-xl border border-subtle bg-surface-sunken p-4 font-mono text-sm leading-relaxed text-high outline-none placeholder:text-low focus:border-mode-incognito/50 focus:ring-1 focus:ring-mode-incognito/50"
           />
 
           {/* Controls Bar */}
@@ -429,25 +428,25 @@ export const PasteModal = ({
                 onClick={() => setUniqueOnly(!uniqueOnly)}
                 className={`flex flex-1 cursor-pointer items-center justify-between rounded-lg border p-3 transition-all select-none ${
                   uniqueOnly
-                    ? "border-blue-500/50 bg-blue-900/20"
-                    : "border-slate-700/50 bg-slate-900 hover:border-slate-600"
+                    ? "border-action/50 bg-action/10"
+                    : "border-subtle bg-surface hover:border-strong"
                 }`}
               >
                 <div className="flex flex-col">
                   <span
                     className={`text-xs font-bold ${
-                      uniqueOnly ? "text-blue-400" : "text-slate-400"
+                      uniqueOnly ? "text-action" : "text-medium"
                     }`}
                   >
                     Kun Unikke (Pr. Vindue)
                   </span>
-                  <span className="text-[10px] text-slate-500">
+                  <span className="text-[10px] text-low">
                     Dubletter i samme vindue fjernes
                   </span>
                 </div>
                 <div
                   className={`transition-colors ${
-                    uniqueOnly ? "text-blue-400" : "text-slate-600"
+                    uniqueOnly ? "text-action" : "text-strong"
                   }`}
                 >
                   {uniqueOnly ? (
@@ -465,31 +464,31 @@ export const PasteModal = ({
                 onClick={() => setUseEmptyWindow(!useEmptyWindow)}
                 className={`flex flex-1 cursor-pointer items-center justify-between rounded-lg border p-3 transition-all select-none ${
                   useEmptyWindow
-                    ? "border-emerald-500/50 bg-emerald-900/20"
-                    : "border-slate-700/50 bg-slate-900 hover:border-slate-600"
+                    ? "border-success/50 bg-success/10"
+                    : "border-subtle bg-surface hover:border-strong"
                 }`}
               >
                 <div className="flex flex-col">
                   <span
                     className={`text-xs font-bold ${
-                      useEmptyWindow ? "text-emerald-400" : "text-slate-400"
+                      useEmptyWindow ? "text-success" : "text-medium"
                     }`}
                   >
                     Brug Tomt Vindue
                   </span>
-                  <span className="text-[10px] text-slate-500">
+                  <span className="text-[10px] text-low">
                     Genbrug lukket/tomt vindue hvis muligt
                   </span>
                 </div>
                 <div
                   className={`transition-colors ${
-                    useEmptyWindow ? "text-emerald-400" : "text-slate-600"
+                    useEmptyWindow ? "text-success" : "text-strong"
                   }`}
                 >
                   {useEmptyWindow ? (
                     <Maximize size={24} />
                   ) : (
-                    <div className="h-6 w-6 rounded-full border-2 border-slate-600"></div>
+                    <div className="h-6 w-6 rounded-full border-2 border-strong"></div>
                   )}
                 </div>
               </div>
@@ -498,18 +497,18 @@ export const PasteModal = ({
         </div>
 
         {/* Footer */}
-        <div className="flex justify-between gap-2 border-t border-slate-700 bg-slate-900/50 p-4">
+        <div className="flex justify-between gap-2 border-t border-subtle bg-surface-elevated p-4">
           {/* Stats Display */}
-          <div className="custom-scrollbar flex max-h-48 min-h-12.5 flex-1 flex-col overflow-y-auto rounded-lg border border-slate-700/50 bg-slate-900">
+          <div className="custom-scrollbar flex max-h-48 min-h-12.5 flex-1 flex-col overflow-y-auto rounded-lg border border-subtle bg-surface-sunken">
             {previewStats.length === 0 ? (
               // EMPTY STATE - Centreret indhold
-              <div className="flex h-full items-center justify-center gap-2 p-3 text-slate-500">
+              <div className="flex h-full items-center justify-center gap-2 p-3 text-low">
                 <LinkIcon size={18} />
                 <span className="text-sm font-bold">0 links fundet</span>
               </div>
             ) : previewStats.length === 1 && !isCreatingNew ? (
               // SINGLE / LEGACY VIEW - Centreret indhold
-              <div className="flex h-full items-center justify-center gap-2 p-3 text-green-400">
+              <div className="flex h-full items-center justify-center gap-2 p-3 text-success">
                 <LinkIcon size={18} />
                 <span className="text-sm font-bold">
                   {previewStats[0].count}{" "}
@@ -522,24 +521,22 @@ export const PasteModal = ({
                 {previewStats.map((stat) => (
                   <div
                     key={stat.index}
-                    className="flex w-full items-center rounded px-3 py-1 text-sm transition-colors hover:bg-slate-800/50"
+                    className="flex w-full items-center rounded px-3 py-1 text-sm transition-colors hover:bg-surface-hover"
                   >
                     {/* Left: Count & Icon (Fixed width for alignment) */}
-                    <div className="flex w-24 items-center justify-end gap-2 font-bold text-green-400">
+                    <div className="flex w-24 items-center justify-end gap-2 font-bold text-success">
                       <span>{stat.count}</span>
-                      <span className="text-xs font-normal tracking-wide text-green-400/80 uppercase">
+                      <span className="text-xs font-normal tracking-wide text-success/80 uppercase">
                         {stat.count === 1 ? "link" : "links"}
                       </span>
                       <LinkIcon size={14} className="ml-1 opacity-70" />
                     </div>
 
                     {/* Middle: Separator */}
-                    <div className="mx-3 text-lg font-light text-slate-600">
-                      |
-                    </div>
+                    <div className="mx-3 text-lg font-light text-strong">|</div>
 
                     {/* Right: Window Name (DYNAMIC) */}
-                    <div className="flex flex-1 items-center gap-2 truncate font-medium text-purple-400">
+                    <div className="flex flex-1 items-center gap-2 truncate font-medium text-mode-incognito">
                       <Layers size={14} className="opacity-70" />
                       <span className="truncate">{stat.dynamicTitle}</span>
                     </div>
@@ -552,7 +549,7 @@ export const PasteModal = ({
           <div className="flex items-center justify-end gap-3">
             <button
               onClick={onClose}
-              className="cursor-pointer px-4 py-2 text-sm font-medium text-slate-400 transition hover:text-white"
+              className="cursor-pointer px-4 py-2 text-sm font-medium text-low transition hover:text-high"
             >
               Annuller
             </button>
@@ -561,8 +558,8 @@ export const PasteModal = ({
               disabled={totalLinks === 0 || isSaving}
               className={`flex h-fit cursor-pointer items-center gap-2 rounded-xl px-6 py-2 text-sm font-bold shadow-lg transition ${
                 totalLinks > 0 && !isSaving
-                  ? "bg-purple-600 text-white shadow-purple-900/20 hover:bg-purple-500 active:scale-95"
-                  : "cursor-not-allowed bg-slate-700 text-slate-500"
+                  ? "bg-mode-incognito text-inverted shadow-mode-incognito/20 hover:bg-mode-incognito-high active:scale-95"
+                  : "cursor-not-allowed bg-surface-elevated text-low"
               }`}
             >
               {isSaving ? (

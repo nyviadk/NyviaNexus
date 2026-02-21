@@ -149,7 +149,7 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
 
   if (state === "loading") {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-slate-950 font-mono text-xs tracking-widest text-slate-500 uppercase">
+      <div className="flex h-screen w-full items-center justify-center bg-background font-mono text-xs tracking-widest text-low uppercase">
         Starter Nexus...
       </div>
     );
@@ -162,15 +162,15 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
 
   if (state === "needs_setup") {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-slate-950 p-6 font-sans text-white">
-        <div className="relative z-20 flex min-h-125 w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-slate-700/50 bg-linear-to-b from-slate-900 via-slate-800/60 to-slate-900 shadow-2xl">
-          <div className="border-b border-slate-700/30 bg-slate-900/10 p-8 backdrop-blur-sm">
-            <h1 className="text-4xl font-black tracking-tighter text-white italic">
+      <div className="flex h-screen w-full items-center justify-center bg-background p-6 font-sans text-high">
+        <div className="relative z-20 flex min-h-125 w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-subtle bg-[linear-gradient(180deg,var(--tw-bg-surface)_0%,var(--tw-bg-surface-elevated)_100%)] shadow-2xl">
+          <div className="border-b border-subtle bg-surface-sunken/50 p-8 backdrop-blur-sm">
+            <h1 className="text-4xl font-black tracking-tighter text-high italic">
               NyviaNexus
             </h1>
             <div className="mt-2 flex items-center gap-2">
-              <Activity size={14} className="text-blue-500" />
-              <p className="text-[11px] font-bold tracking-widest text-slate-500 uppercase">
+              <Activity size={14} className="text-action" />
+              <p className="text-[11px] font-bold tracking-widest text-low uppercase">
                 Systemopstart
               </p>
             </div>
@@ -180,10 +180,10 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
             {view === "landing" ? (
               <div className="space-y-8">
                 <div className="space-y-3">
-                  <h2 className="text-xl font-bold text-slate-100">
+                  <h2 className="text-xl font-bold text-high">
                     {`Velkommen til :}`}
                   </h2>
-                  <p className="text-sm leading-relaxed text-slate-400">
+                  <p className="text-sm leading-relaxed text-medium">
                     Nexus hjælper dig med at organisere din hverdag i Chrome.
                     For at sikre fuldt ejerskab over dine data, kører systemet
                     på din egen private infrastruktur.
@@ -191,29 +191,29 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
                 </div>
 
                 <div className="grid grid-cols-1 gap-4">
-                  <div className="flex items-start gap-4 rounded-xl border border-slate-700/30 bg-slate-900/20 p-4">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-400">
+                  <div className="flex items-start gap-4 rounded-xl border border-subtle bg-surface p-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-info/10 text-info">
                       <Database size={20} />
                     </div>
                     <div>
-                      <h3 className="text-sm font-bold text-cyan-400/90">
+                      <h3 className="text-sm font-bold text-info">
                         Privat database
                       </h3>
-                      <p className="mt-1 text-xs leading-normal text-slate-500">
+                      <p className="mt-1 text-xs leading-normal text-low">
                         Al din historik og dine workspaces gemmes direkte i dit
                         eget Firebase-projekt.
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-start gap-4 rounded-xl border border-slate-700/30 bg-slate-900/20 p-4">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+                  <div className="flex items-start gap-4 rounded-xl border border-subtle bg-surface p-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-success/10 text-success">
                       <Server size={20} />
                     </div>
                     <div>
-                      <h3 className="text-sm font-bold text-emerald-400/90">
+                      <h3 className="text-sm font-bold text-success">
                         Fuld datakontrol
                       </h3>
-                      <p className="mt-1 text-xs leading-normal text-slate-500">
+                      <p className="mt-1 text-xs leading-normal text-low">
                         Du har den fulde råderet. Ingen tredjepart har adgang
                         til dine personlige data.
                       </p>
@@ -223,7 +223,7 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
 
                 <button
                   onClick={() => setView("input")}
-                  className="w-full cursor-pointer rounded-xl bg-blue-600 py-4 text-sm font-bold text-white shadow-lg shadow-blue-900/20 hover:bg-blue-500 active:scale-[0.98]"
+                  className="hover:bg-action-hover w-full cursor-pointer rounded-xl bg-action py-4 text-sm font-bold text-inverted shadow-lg shadow-action/20 active:scale-[0.98]"
                 >
                   Begynd opsætning
                 </button>
@@ -232,35 +232,33 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
               <div className="space-y-6">
                 <button
                   onClick={() => setView("landing")}
-                  className="group flex cursor-pointer items-center gap-2 text-[10px] font-bold text-slate-500 hover:text-white"
+                  className="group flex cursor-pointer items-center gap-2 text-[10px] font-bold text-low hover:text-medium"
                 >
                   <ChevronLeft size={14} /> GÅ TILBAGE
                 </button>
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between px-1">
-                    <label className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">
+                    <label className="text-[10px] font-bold tracking-widest text-medium uppercase">
                       Firebase Konfiguration
                     </label>
                     <a
                       href="https://console.firebase.google.com"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="cursor-pointer text-[10px] font-bold text-blue-400 hover:text-blue-300 hover:underline"
+                      className="hover:text-action-hover cursor-pointer text-[10px] font-bold text-action hover:underline"
                     >
                       Hent nøgler her
                     </a>
                   </div>
 
                   {/* Lokations-instruktion tilføjet herunder */}
-                  <div className="flex items-center gap-3 rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2">
-                    <MapPin size={14} className="text-blue-400" />
-                    <p className="text-[10px] leading-tight text-slate-400">
-                      <strong className="text-blue-400 uppercase">
-                        Vigtigt:
-                      </strong>{" "}
+                  <div className="flex items-center gap-3 rounded-lg border border-info/20 bg-info/10 px-3 py-2">
+                    <MapPin size={14} className="text-info" />
+                    <p className="text-[10px] leading-tight text-medium">
+                      <strong className="text-info uppercase">Vigtigt:</strong>{" "}
                       Sørg for at vælge{" "}
-                      <span className="text-white">
+                      <span className="text-high">
                         "europe-west1 (Belgium)"
                       </span>{" "}
                       som lokation for din Firestore database.
@@ -268,10 +266,10 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
                   </div>
 
                   <textarea
-                    className={`h-48 w-full resize-none rounded-xl border bg-black/40 p-4 font-mono text-[11px] backdrop-blur-sm outline-none ${
+                    className={`h-48 w-full resize-none rounded-xl border bg-surface-sunken p-4 font-mono text-[11px] backdrop-blur-sm outline-none ${
                       error
-                        ? "border-red-500/50 text-red-200"
-                        : "border-slate-700 text-slate-300 focus:border-blue-500/50 focus:bg-black/60"
+                        ? "border-danger/50 text-danger"
+                        : "border-subtle text-high focus:border-action/50 focus:bg-surface-sunken/80"
                     }`}
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
@@ -285,13 +283,13 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
                 </div>
 
                 {parsedPreview && !isValidating && (
-                  <div className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
-                    <ShieldCheck size={18} className="text-emerald-400" />
+                  <div className="flex items-center gap-3 rounded-xl border border-success/30 bg-success/10 px-4 py-3">
+                    <ShieldCheck size={18} className="text-success" />
                     <div className="flex flex-col">
-                      <span className="text-[10px] font-black tracking-wider text-emerald-400 uppercase">
+                      <span className="text-[10px] font-black tracking-wider text-success uppercase">
                         Konfiguration genkendt
                       </span>
-                      <span className="font-mono text-[10px] text-slate-400 italic">
+                      <span className="font-mono text-[10px] text-medium italic">
                         Projektid: {parsedPreview.projectId}
                       </span>
                     </div>
@@ -299,9 +297,9 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
                 )}
 
                 {error && (
-                  <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
-                    <AlertCircle size={18} className="text-red-500" />
-                    <p className="text-xs font-bold text-red-400">{error}</p>
+                  <div className="flex items-center gap-3 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3">
+                    <AlertCircle size={18} className="text-danger" />
+                    <p className="text-xs font-bold text-danger">{error}</p>
                   </div>
                 )}
 
@@ -310,8 +308,8 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
                   disabled={!parsedPreview || isValidating}
                   className={`flex w-full items-center justify-center gap-2 rounded-xl py-4 text-sm font-bold ${
                     parsedPreview && !isValidating
-                      ? "cursor-pointer bg-white text-black hover:bg-slate-200 active:scale-[0.98]"
-                      : "cursor-not-allowed bg-slate-800 text-slate-600 opacity-50"
+                      ? "cursor-pointer bg-high text-inverted hover:bg-medium active:scale-[0.98]"
+                      : "cursor-not-allowed bg-surface-elevated text-strong opacity-50"
                   }`}
                 >
                   {isValidating ? (
@@ -328,7 +326,8 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
           </div>
         </div>
 
-        <div className="pointer-events-none fixed inset-0 z-10 bg-[radial-gradient(circle_at_top_left,rgba(30,41,59,0.4),transparent)]" />
+        {/* Theming friendly background radial: Vi peger den på surface-sunken som er mørk i dark-mode og næsten hvid i light */}
+        <div className="pointer-events-none fixed inset-0 z-10 bg-[radial-gradient(circle_at_top_left,var(--tw-bg-surface-elevated),transparent)] opacity-40" />
       </div>
     );
   }

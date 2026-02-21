@@ -146,16 +146,16 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   }, []);
 
   return (
-    <div className="animate-in fade-in relative flex flex-1 flex-col overflow-hidden bg-slate-800 p-6 duration-200">
+    <div className="animate-in fade-in relative flex flex-1 flex-col overflow-hidden bg-surface duration-200">
       <div className="absolute top-4 right-4 z-10 flex items-center gap-4">
         {/* STATUS */}
         <div
           className={`flex items-center gap-1.5 text-xs font-bold tracking-wide uppercase transition-colors ${
             status === "saved"
-              ? "text-green-400"
+              ? "text-success"
               : status === "syncing"
-                ? "text-amber-400"
-                : "text-blue-400"
+                ? "text-warning"
+                : "text-action"
           }`}
         >
           {status === "syncing" ? (
@@ -170,7 +170,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
             </>
           ) : status === "typing" ? (
             <>
-              <div className="h-2 w-2 animate-pulse rounded-full bg-blue-400" />
+              <div className="h-2 w-2 animate-pulse rounded-full bg-action" />
               <span>Skriver...</span>
             </>
           ) : (
@@ -181,21 +181,21 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
           )}
         </div>
 
-        <div className="mx-2 h-4 w-px bg-slate-600" />
+        <div className="mx-2 h-4 w-px bg-strong" />
 
         <button
           onClick={onCopyLink}
-          className="flex cursor-pointer items-center gap-1 text-slate-400 hover:text-blue-400"
+          className="flex cursor-pointer items-center gap-1 text-low hover:text-action"
         >
           {linkCopyStatus ? (
-            <span className="text-xs text-green-400">Kopieret</span>
+            <span className="text-xs text-success">Kopieret</span>
           ) : (
             <Link size={18} />
           )}
         </button>
         <button
           onClick={onClose}
-          className="cursor-pointer text-slate-500 hover:text-slate-300"
+          className="cursor-pointer text-low hover:text-medium"
         >
           <X size={24} />
         </button>
@@ -207,17 +207,17 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         value={title}
         onChange={(e) => handleTitleChange(e.target.value)}
         placeholder="Overskrift..."
-        className="mt-6 mb-4 w-full shrink-0 bg-transparent text-3xl font-bold text-slate-100 placeholder-slate-600 outline-none"
+        className="mt-6 mb-4 w-full shrink-0 bg-transparent px-6 text-3xl font-bold text-high placeholder-low outline-none"
       />
 
       {/* EDITOR CONTAINER - Denne div styrer scrollbaren */}
-      <div className="custom-scrollbar relative -mx-6 flex-1 overflow-y-auto px-6">
+      <div className="custom-scrollbar relative flex-1 overflow-y-auto px-6 pb-6">
         <Editor
           value={content}
           onValueChange={handleContentChange}
           highlight={(code) => code}
           // VIGTIGT: Vi bruger padding prop her for at sikre tekst og cursor flugter
-          padding={10}
+          padding={0}
           insertSpaces={false}
           tabSize={1}
           ignoreTabKey={false}
@@ -227,7 +227,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
             fontSize: 16,
             lineHeight: 1.5, // Eksplicit line-height
             backgroundColor: "transparent",
-            color: "#cbd5e1", // text-slate-300
+            color: "var(--color-medium)", // Skiftet fra hardcodet hex for tema-understøttelse
             tabSize: 8,
           }}
           textareaClassName="focus:outline-none"
@@ -366,17 +366,17 @@ export const NotesModal: React.FC<NotesModalProps> = ({
       onCancel={onClose}
       onMouseDown={handleBackdropMouseDown}
       onMouseUp={handleBackdropMouseUp}
-      className="open:animate-in open:fade-in open:zoom-in-95 m-auto flex h-[80vh] w-[80vw] overflow-hidden rounded-xl border border-slate-500 bg-slate-700 p-0 text-slate-200 shadow-2xl backdrop:bg-slate-900/80 backdrop:backdrop-blur-sm focus:outline-none"
+      className="open:animate-in open:fade-in open:zoom-in-95 m-auto flex h-[80vh] w-[80vw] overflow-hidden rounded-xl border border-subtle bg-surface p-0 text-medium shadow-2xl backdrop:bg-background/80 backdrop:backdrop-blur-sm focus:outline-none"
     >
       <div className="flex h-full w-full" onClick={(e) => e.stopPropagation()}>
-        <div className="flex w-64 flex-col border-r border-slate-600 bg-slate-800/50">
-          <div className="flex items-center justify-between border-b border-slate-600 p-4">
-            <span className="truncate pr-2 font-semibold text-slate-200">
+        <div className="flex w-64 flex-col border-r border-subtle bg-surface-elevated">
+          <div className="flex items-center justify-between border-b border-subtle p-4">
+            <span className="truncate pr-2 font-semibold text-high">
               {workspaceName}
             </span>
             <button
               onClick={handleCreateNote}
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded bg-blue-600 text-white hover:bg-blue-500"
+              className="hover:bg-action-hover flex h-7 w-7 cursor-pointer items-center justify-center rounded bg-action text-inverted"
             >
               <Plus size={16} />
             </button>
@@ -388,19 +388,19 @@ export const NotesModal: React.FC<NotesModalProps> = ({
                 onClick={() => setActiveNoteId(note.id)}
                 className={`group relative mb-1 flex cursor-pointer flex-col rounded-lg p-3 transition-colors ${
                   activeNoteId === note.id
-                    ? "bg-blue-600/20 ring-1 ring-blue-500"
-                    : "hover:bg-slate-700/50"
+                    ? "bg-action/20 ring-1 ring-action"
+                    : "hover:bg-surface-hover"
                 }`}
               >
-                <div className="truncate pr-6 text-sm font-medium text-slate-200">
+                <div className="truncate pr-6 text-sm font-medium text-high">
                   {note.title || "Uden titel"}
                 </div>
-                <div className="mt-1 text-[10px] text-slate-500">
+                <div className="mt-1 text-[10px] text-low">
                   {formatTimeAgo(note.updatedAt)}
                 </div>
                 <button
                   onClick={(e) => handleDeleteNote(e, note.id)}
-                  className="absolute top-2 right-2 cursor-pointer opacity-0 group-hover:opacity-100 hover:text-red-400"
+                  className="absolute top-2 right-2 cursor-pointer opacity-0 group-hover:opacity-100 hover:text-danger"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -421,7 +421,7 @@ export const NotesModal: React.FC<NotesModalProps> = ({
             linkCopyStatus={linkCopyStatus}
           />
         ) : (
-          <div className="flex flex-1 items-center justify-center bg-slate-800 text-slate-500">
+          <div className="flex flex-1 items-center justify-center bg-surface-sunken text-low">
             {notes.length === 0 ? "Opret en ny note..." : "Indlæser..."}
           </div>
         )}

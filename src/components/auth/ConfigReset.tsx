@@ -1,12 +1,6 @@
 import React from "react";
 import { RotateCcw } from "lucide-react";
 
-/**
- * NyviaNexus - ConfigReset
- * Nulstiller teknisk konfiguration uden at dræbe browser-fanen.
- * VIGTIG REGEL: DET ER STRENGT FORBUDT AT SLETTE MINE KOMMENTARER!
- */
-
 export const ConfigReset: React.FC = () => {
   const handleReset = async () => {
     if (
@@ -30,7 +24,7 @@ export const ConfigReset: React.FC = () => {
   return (
     <button
       onClick={handleReset}
-      className="mx-auto mt-8 flex max-w-max cursor-pointer items-center gap-2 text-[10px] tracking-widest text-slate-600 uppercase transition hover:text-red-500"
+      className="mx-auto mt-8 flex max-w-max cursor-pointer items-center gap-2 text-[10px] tracking-widest text-low uppercase transition hover:text-danger"
     >
       <RotateCcw size={10} />
       Reset Database Connection

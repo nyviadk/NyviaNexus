@@ -105,19 +105,19 @@ export const CategoryMenu = ({
     <div
       ref={menuRef}
       style={{ top: topPos, left: position.x }}
-      className={`animate-in fade-in zoom-in-95 fixed z-100 w-56 rounded-xl border border-slate-600 bg-slate-800 p-2 shadow-2xl duration-100 ${
+      className={`animate-in fade-in zoom-in-95 fixed z-100 w-56 rounded-xl border border-strong bg-surface-elevated p-2 shadow-2xl duration-100 ${
         isNearBottom ? "origin-bottom-left" : "origin-top-left"
       }`}
     >
-      <div className="mb-1 px-2 py-1 text-[10px] font-bold text-slate-500 uppercase">
-        Vælg Kategori
+      <div className="mb-1 px-2 py-1 text-[10px] font-bold text-low uppercase">
+        Vælg kategori
       </div>
       <div className="custom-scrollbar mb-2 max-h-64 space-y-1 overflow-y-auto">
         {categories.map((cat: UserCategory) => (
           <button
             key={cat.id}
             onClick={() => updateCategory(cat.name, true)}
-            className="group flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-slate-200 hover:bg-slate-700"
+            className="group flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-medium hover:bg-surface-hover hover:text-high"
           >
             <div
               className="h-2.5 w-2.5 shrink-0 rounded-full shadow-sm"
@@ -125,22 +125,22 @@ export const CategoryMenu = ({
             />
             <span className="truncate">{cat.name}</span>
             {cat.id.startsWith("ai-") && (
-              <span className="ml-auto text-[9px] tracking-tighter text-slate-500 uppercase opacity-50 group-hover:opacity-100">
+              <span className="ml-auto text-[9px] tracking-tighter text-low uppercase opacity-50 group-hover:opacity-100">
                 AI
               </span>
             )}
           </button>
         ))}
         {categories.length === 0 && (
-          <div className="px-2 text-xs text-slate-500 italic">
+          <div className="px-2 text-xs text-low italic">
             Ingen kategorier fundet
           </div>
         )}
       </div>
-      <div className="border-t border-slate-700 pt-1">
+      <div className="border-t border-subtle pt-1">
         <button
           onClick={() => updateCategory(null, false)}
-          className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-slate-400 hover:bg-slate-700 hover:text-blue-400"
+          className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-medium hover:bg-surface-hover hover:text-action"
         >
           <Unlock size={14} /> Lås op / Reset AI
         </button>

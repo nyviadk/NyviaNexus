@@ -133,19 +133,19 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   }, [items, filter]);
 
   return (
-    <div className="flex h-full w-80 flex-col border-l border-slate-800 bg-slate-900 shadow-xl transition-all">
+    <div className="flex h-full w-80 flex-col border-l border-subtle bg-surface shadow-xl transition-all">
       {/* Header */}
-      <div className="flex flex-col border-b border-slate-800 bg-slate-900">
+      <div className="flex flex-col border-b border-subtle bg-surface">
         <div className="flex items-center justify-between p-4 pb-2">
-          <div className="flex items-center gap-2 text-slate-200">
-            <Archive size={18} className="text-blue-400" />
-            <h3 className="text-sm font-bold tracking-wider uppercase">
+          <div className="flex items-center gap-2 text-medium">
+            <Archive size={18} className="text-action" />
+            <h3 className="text-sm font-bold tracking-wider text-high uppercase">
               Arkiv
             </h3>
           </div>
           <button
             onClick={onOpenNotes}
-            className="flex cursor-pointer items-center gap-1.5 rounded-md bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-slate-700 hover:text-white"
+            className="flex cursor-pointer items-center gap-1.5 rounded-md bg-surface-elevated px-2.5 py-1.5 text-xs font-medium text-medium transition-colors hover:bg-surface-hover hover:text-high"
           >
             <NotebookPen size={14} />
             <span>Noter</span>
@@ -158,8 +158,8 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
             onClick={() => setFilter("readLater")}
             className={`flex-1 cursor-pointer border-b-2 pb-2 text-xs font-medium transition-colors ${
               filter === "readLater"
-                ? "border-blue-500 text-blue-500"
-                : "border-transparent text-slate-500 hover:text-slate-300"
+                ? "border-action text-action"
+                : "border-transparent text-low hover:text-medium"
             }`}
           >
             Læseliste ({items.filter((i) => i.readLater).length})
@@ -168,8 +168,8 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
             onClick={() => setFilter("links")}
             className={`flex-1 cursor-pointer border-b-2 pb-2 text-xs font-medium transition-colors ${
               filter === "links"
-                ? "border-blue-500 text-blue-500"
-                : "border-transparent text-slate-500 hover:text-slate-300"
+                ? "border-action text-action"
+                : "border-transparent text-low hover:text-medium"
             }`}
           >
             Links ({items.filter((i) => !i.readLater).length})
@@ -178,8 +178,8 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
             onClick={() => setFilter("all")}
             className={`flex-1 cursor-pointer border-b-2 pb-2 text-xs font-medium transition-colors ${
               filter === "all"
-                ? "border-slate-400 text-slate-200"
-                : "border-transparent text-slate-500 hover:text-slate-300"
+                ? "border-strong text-high"
+                : "border-transparent text-low hover:text-medium"
             }`}
           >
             Alle
@@ -190,7 +190,7 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
       {/* Input Area */}
       <div className="p-4 pb-2">
         <form onSubmit={handleSubmit} className="relative flex items-center">
-          <div className="absolute left-3 text-slate-500">
+          <div className="absolute left-3 text-low">
             {filter === "readLater" ? (
               <BookOpen size={14} />
             ) : (
@@ -204,12 +204,12 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
             placeholder={
               filter === "readLater" ? "Gem til læseliste..." : "Gem link..."
             }
-            className="w-full rounded-md border border-slate-700 bg-slate-800 py-2 pr-8 pl-9 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            className="w-full rounded-md border border-subtle bg-surface-sunken py-2 pr-8 pl-9 text-sm text-high placeholder-low focus:border-action focus:ring-1 focus:ring-action focus:outline-none"
           />
           <button
             type="submit"
             disabled={!inputValue.trim() || isAdding}
-            className="absolute right-1.5 flex h-6 w-6 cursor-pointer items-center justify-center rounded bg-slate-700 text-slate-300 hover:bg-blue-600 hover:text-white disabled:opacity-50"
+            className="absolute right-1.5 flex h-6 w-6 cursor-pointer items-center justify-center rounded bg-surface-elevated text-medium hover:bg-action hover:text-inverted disabled:opacity-50"
           >
             <Plus size={14} />
           </button>
@@ -219,7 +219,7 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
       {/* Scrollable List */}
       <div className="custom-scrollbar flex-1 overflow-y-auto p-4 pt-2">
         {filteredItems.length === 0 && (
-          <div className="mt-10 flex flex-col items-center justify-center text-center text-slate-600">
+          <div className="mt-10 flex flex-col items-center justify-center text-center text-low">
             <p className="text-xs italic">Ingen items i denne visning</p>
           </div>
         )}
@@ -229,11 +229,11 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
             <div
               key={item.id}
               onClick={() => handleItemClick(item.url)}
-              className="group relative flex cursor-pointer flex-col gap-2 rounded-lg border border-slate-800 bg-slate-800/30 p-3 transition-colors hover:border-slate-700 hover:bg-slate-800 hover:shadow-md"
+              className="group relative flex cursor-pointer flex-col gap-2 rounded-lg border border-subtle bg-surface-elevated/30 p-3 transition-colors hover:border-strong hover:bg-surface-elevated hover:shadow-md"
             >
               {/* Top Row: Icon + Title */}
               <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded bg-slate-800">
+                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded bg-surface-sunken">
                   <img
                     src={getFaviconUrl(item.url)}
                     alt=""
@@ -242,24 +242,24 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                   />
                 </div>
                 <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-xs font-medium text-slate-300 group-hover:text-white">
+                  <span className="truncate text-xs font-medium text-medium group-hover:text-high">
                     {item.title || item.url}
                   </span>
-                  <span className="truncate text-[10px] text-slate-500">
+                  <span className="truncate text-[10px] text-low">
                     {new URL(item.url).hostname}
                   </span>
                 </div>
               </div>
 
               {/* Bottom Row: Actions */}
-              <div className="absolute top-2 right-2 flex items-center gap-1 rounded-md bg-slate-900/90 p-1 opacity-0 shadow-sm transition-all group-hover:opacity-100">
+              <div className="absolute top-2 right-2 flex items-center gap-1 rounded-md border border-subtle bg-surface p-1 opacity-0 shadow-sm transition-all group-hover:opacity-100">
                 <button
                   onClick={(e) => handleToggleReadLater(e, item)}
                   title={item.readLater ? "Markér som læst" : "Læs senere"}
-                  className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-slate-400 hover:bg-slate-700 hover:text-slate-300"
+                  className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-medium hover:bg-surface-hover hover:text-high"
                 >
                   {item.readLater ? (
-                    <CheckCircle2 size={14} />
+                    <CheckCircle2 size={14} className="text-success" />
                   ) : (
                     <BookOpen size={14} />
                   )}
@@ -268,7 +268,7 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                 <button
                   onClick={(e) => handleDelete(e, item)}
                   title="Slet"
-                  className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-slate-500 hover:bg-red-500/20 hover:text-red-400"
+                  className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-low hover:bg-danger/20 hover:text-danger"
                 >
                   <Trash2 size={14} />
                 </button>

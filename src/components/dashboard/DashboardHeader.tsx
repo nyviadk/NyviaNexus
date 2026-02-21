@@ -62,13 +62,13 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   inboxData,
 }) => {
   return (
-    <header className="flex items-end justify-between border-b border-slate-800 bg-slate-800/30 p-8 pb-4">
+    <header className="flex items-end justify-between border-b border-subtle bg-surface-hover/30 p-8 pb-4">
       <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <h2 className="flex items-center gap-3 text-4xl font-bold tracking-tight text-white">
+          <h2 className="flex items-center gap-3 text-4xl font-bold tracking-tight text-high">
             {viewMode === "incognito" ? (
               <>
-                <VenetianMask size={36} className="text-purple-500" />
+                <VenetianMask size={36} className="text-mode-incognito" />
                 <span>Incognito</span>
               </>
             ) : viewMode === "inbox" ? (
@@ -78,7 +78,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             )}
           </h2>
           {isViewingCurrent && viewMode === "workspace" && (
-            <span className="rounded-full border border-blue-500/20 bg-blue-600/20 px-2.5 py-1 text-[10px] font-bold tracking-widest text-blue-400 uppercase">
+            <span className="rounded-full border border-action/20 bg-action/20 px-2.5 py-1 text-[10px] font-bold tracking-widest text-action uppercase">
               <Monitor size={12} className="mr-1 inline" /> Dette Vindue
             </span>
           )}
@@ -105,15 +105,15 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
               disabled={totalTabsInSpace === 0}
               className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-bold transition ${
                 totalTabsInSpace === 0
-                  ? "cursor-not-allowed border-slate-800 bg-slate-800 text-slate-600"
-                  : "cursor-pointer border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500 hover:text-white"
+                  ? "cursor-not-allowed border-subtle bg-surface-elevated text-strong"
+                  : "cursor-pointer border-subtle bg-surface-elevated text-medium hover:border-strong hover:text-high"
               }`}
               title="Kopier alle tabs i dette space"
             >
               {headerCopyStatus === "copied" ? (
                 <>
-                  <Check size={18} className="text-green-500" />
-                  <span className="text-green-500">Kopieret!</span>
+                  <Check size={18} className="text-success" />
+                  <span className="text-success">Kopieret!</span>
                 </>
               ) : (
                 <>
@@ -130,13 +130,13 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                   windowId: null,
                 })
               }
-              className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm font-bold text-purple-400 transition hover:border-purple-500 hover:bg-purple-900/20 hover:text-purple-300"
+              className="flex cursor-pointer items-center gap-2 rounded-xl border border-subtle bg-surface-elevated px-4 py-2.5 text-sm font-bold text-mode-incognito transition hover:border-mode-incognito hover:bg-mode-incognito/20 hover:text-mode-incognito-high"
               title="Indsæt links i nyt vindue"
             >
               <ClipboardPaste size={18} />
               <span>Indsæt</span>
             </button>
-            <div className="mx-1 h-8 w-px bg-slate-700"></div>
+            <div className="mx-1 h-8 w-px bg-subtle"></div>
           </>
         )}
 
@@ -150,10 +150,10 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             const allU = list.map((t: TabData) => t.uid);
             setSelectedUrls(selectedUrls.length === allU.length ? [] : allU);
           }}
-          className={`cursor-pointer rounded-xl border bg-slate-800 p-2.5 transition ${
+          className={`cursor-pointer rounded-xl border bg-surface-elevated p-2.5 transition ${
             selectedUrls.length > 0
-              ? "border-blue-500 text-blue-400"
-              : "border-slate-700 hover:text-blue-400"
+              ? "border-action text-action"
+              : "border-subtle hover:text-action"
           }`}
         >
           <CheckSquare size={24} />
@@ -210,7 +210,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 setSelectedUrls([]);
               }
             }}
-            className="flex cursor-pointer items-center gap-2 rounded-xl bg-red-600/20 px-4 py-2.5 text-sm font-bold text-red-400 transition hover:bg-red-600 hover:text-white"
+            className="flex cursor-pointer items-center gap-2 rounded-xl bg-danger/20 px-4 py-2.5 text-sm font-bold text-danger transition hover:bg-danger hover:text-inverted"
           >
             <Trash2 size={20} /> Slet ({selectedUrls.length})
           </button>
@@ -243,7 +243,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 await updateDoc(ref, { tabs: tabsToKeep });
               }
             }}
-            className="flex cursor-pointer items-center gap-2 rounded-xl bg-orange-600/20 px-4 py-2.5 text-sm font-bold text-orange-400 transition hover:bg-orange-600 hover:text-white"
+            className="flex cursor-pointer items-center gap-2 rounded-xl bg-mode-inbox/20 px-4 py-2.5 text-sm font-bold text-mode-inbox transition hover:bg-mode-inbox hover:text-inverted"
           >
             <Eraser size={20} /> Ryd Inbox
           </button>
@@ -276,7 +276,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 await updateDoc(ref, { tabs: tabsToKeep });
               }
             }}
-            className="flex cursor-pointer items-center gap-2 rounded-xl bg-purple-600/20 px-4 py-2.5 text-sm font-bold text-purple-400 transition hover:bg-purple-600 hover:text-white"
+            className="flex cursor-pointer items-center gap-2 rounded-xl bg-mode-incognito/20 px-4 py-2.5 text-sm font-bold text-mode-incognito transition hover:bg-mode-incognito hover:text-inverted"
           >
             <Eraser size={20} /> Ryd Incognito
           </button>
@@ -297,8 +297,8 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             disabled={windows.length === 0}
             className={`cursor-pointer rounded-xl px-6 py-2.5 text-sm font-bold shadow-lg transition ${
               windows.length === 0
-                ? "cursor-not-allowed bg-slate-800 text-slate-500 shadow-none"
-                : "bg-blue-600 text-white shadow-blue-600/20 hover:bg-blue-500 active:scale-95"
+                ? "cursor-not-allowed bg-surface-elevated text-low shadow-none"
+                : "hover:bg-action-hover bg-action text-inverted shadow-action/20 active:scale-95"
             }`}
           >
             Åbn Space
