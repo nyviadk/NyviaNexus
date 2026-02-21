@@ -13,7 +13,7 @@ import {
 } from "firebase/firestore";
 import { auth, db, configureFirebase } from "../lib/firebase";
 import { AiService } from "../services/aiService";
-import { initializeContextMenus } from "./contextMenus";
+import { handleMenuClick, initializeContextMenus } from "./contextMenus";
 
 // --- TYPES & INTERFACES ---
 
@@ -1402,6 +1402,13 @@ chrome.tabs.onRemoved.addListener(
         });
       }
     }
+  }),
+);
+
+// Tilføjet lytter for Context Menu klik for at sikre den via the Shield
+chrome.contextMenus.onClicked.addListener(
+  createSafeListener(async (info, tab) => {
+    await handleMenuClick(info, tab);
   }),
 );
 

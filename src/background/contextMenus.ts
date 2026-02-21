@@ -26,7 +26,6 @@ export const initializeContextMenus = () => {
   chrome.runtime.onInstalled.addListener(setupMenus);
   chrome.runtime.onStartup.addListener(setupMenus);
 
-  chrome.contextMenus.onClicked.addListener(handleMenuClick);
   setupContextMenuUpdaters();
 };
 
@@ -38,8 +37,8 @@ const setupMenus = () => {
       title: "Send to Notes",
       contexts: ["selection"],
     });
-
     // 2. Read It Later: KUN Page og Link
+
     chrome.contextMenus.create({
       id: "nexus-read-later",
       title: "Read It Later",
@@ -104,7 +103,7 @@ const updateMenuTitles = async (windowId: number) => {
   }
 };
 
-const handleMenuClick = async (
+export const handleMenuClick = async (
   info: chrome.contextMenus.OnClickData,
   tab?: chrome.tabs.Tab,
 ) => {
@@ -171,7 +170,6 @@ const handleSendToNotes = async (
       // --- EKSISTERENDE NOTE ---
       const noteDoc = snap.docs[0];
       const currentContent = noteDoc.data().content || "";
-
       // 1. TOTAL DUBLET TJEK: Har vi både citat og url?
       if (
         currentContent.includes(quote) &&
@@ -180,9 +178,9 @@ const handleSendToNotes = async (
         console.log("Nexus: Citat og kilde findes allerede. Ignorerer.");
         return;
       }
-
       // 2. EDGE CASE TJEK: Har vi citat, men mangler kilde?
       // (F.eks. hvis brugeren slettede kilden manuelt)
+
       if (
         currentContent.includes(quote) &&
         !currentContent.includes(sourceUrl)
@@ -199,7 +197,6 @@ const handleSendToNotes = async (
         });
         return;
       }
-
       // 3. NORMAL MERGE LOGIC (Nyt citat)
       const expectedFooter = `Kilde:\n${sourceUrl}\n${BOX_BORDER}`;
       let updatedContent = "";
