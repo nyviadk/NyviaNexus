@@ -128,6 +128,45 @@
   --nexus-mode-workspace: var(--nexus-action);
 }
 
+/* --- TEMA 4: ZEN (DEEP PASTEL RAINBOW) --- */
+.theme-zen {
+  --h: 280; /* Blød lavendel base for rolig helhed */
+  --nexus-bg: oklch(
+    98.5% 0.01 var(--h)
+  ); /* Ligesom Serene: Off-white men med køligere snert */
+
+  /* OVERFLADER: Papir-feel ligesom Serene */
+  --nexus-surface: oklch(98.5% 0.01 var(--h));
+  --nexus-surface-elevated: oklch(100% 0 0);
+  --nexus-surface-hover: oklch(95% 0.03 var(--h));
+  --nexus-surface-sunken: oklch(92% 0.04 var(--h));
+
+  /* TEKST: Mørk aubergine/slate for at sikre kontrast mod de bløde overflader */
+  --nexus-text-high: oklch(25% 0.04 var(--h));
+  --nexus-text-medium: oklch(45% 0.05 var(--h));
+  --nexus-text-low: oklch(60% 0.04 var(--h));
+  --nexus-text-inverted: oklch(98.5% 0.01 var(--h));
+
+  --nexus-border-subtle: oklch(92% 0.03 var(--h));
+  --nexus-border-strong: oklch(82% 0.05 var(--h));
+
+  /* INTENTS: Tonet ned i lightness (~55-65%) fra den originale lyse palette for at sikre at knapper, tags osv. fungerer i UI'et */
+  --nexus-action: oklch(55% 0.12 240); /* Baseret på #C6DEF1 (Pastel Blå) */
+  --nexus-action-hover: oklch(48% 0.12 240);
+  --nexus-success: oklch(60% 0.12 165); /* Baseret på #C9E4DE (Pastel Mint) */
+  --nexus-danger: oklch(55% 0.15 340); /* Baseret på #F2C6DE (Pastel Pink) */
+  --nexus-warning: oklch(70% 0.14 80); /* Baseret på #FAEDCB (Pastel Gul) */
+  --nexus-info: oklch(60% 0.12 300); /* Baseret på #DBCDF0 (Pastel Lilla) */
+
+  --nexus-mode-inbox: oklch(
+    65% 0.14 55
+  ); /* Baseret på #F7D9C4 (Pastel Fersken/Orange) */
+  --nexus-mode-incognito: oklch(
+    50% 0.1 300
+  ); /* Dyb lilla for at indikere stealth */
+  --nexus-mode-workspace: var(--nexus-action);
+}
+
 /* --- GLOBALE STYLES (DIN ORIGINAL) --- */
 
 /* Scrollbar styling */
@@ -140,6 +179,14 @@
 ::-webkit-scrollbar-thumb {
   background: var(--nexus-border-strong);
   border-radius: 10px;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* Dialog styling */

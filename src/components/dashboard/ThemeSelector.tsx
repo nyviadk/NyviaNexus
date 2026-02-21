@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from "react";
-import { Check } from "lucide-react";
 import {
   applyThemeToDOM,
   getSavedTheme,
   ThemeId,
   THEMES,
 } from "@/theme-config";
+import React, { useEffect, useState } from "react";
 
 export const ThemeSelector: React.FC = () => {
   const [currentTheme, setCurrentTheme] = useState<ThemeId>("architect");
@@ -21,44 +20,39 @@ export const ThemeSelector: React.FC = () => {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-      {THEMES.map((theme) => {
-        const Icon = theme.icon;
-        const isActive = currentTheme === theme.id;
+    <div className="flex flex-col gap-2">
+      <p className="px-1 text-[10px] font-bold tracking-widest text-low uppercase">
+        Visuel arkitektur
+      </p>
 
-        return (
-          <button
-            key={theme.id}
-            onClick={() => handleThemeChange(theme.id)}
-            className={`group relative flex cursor-pointer flex-col items-start gap-3 rounded-2xl border p-4 transition-all ${
-              isActive
-                ? "border-action bg-action/10 shadow-lg shadow-action/5"
-                : "border-subtle bg-surface-sunken hover:border-strong"
-            }`}
-          >
-            <div
-              className={`rounded-lg p-2 transition-transform group-hover:scale-110 ${
+      {/* Scrollbar-skjult horisontal container til mange temaer */}
+      <div className="no-scrollbar flex w-full items-center gap-1 overflow-x-auto rounded-2xl border border-subtle bg-surface-sunken p-1.5">
+        {THEMES.map((theme) => {
+          const Icon = theme.icon;
+          const isActive = currentTheme === theme.id;
+
+          return (
+            <button
+              key={theme.id}
+              onClick={() => handleThemeChange(theme.id)}
+              className={`flex min-w-fit flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2.5 transition-all duration-200 ${
                 isActive
-                  ? "bg-action text-inverted"
-                  : "bg-surface-elevated text-low"
+                  ? "border-strong bg-surface-elevated text-action shadow-sm ring-1 ring-black/5"
+                  : "text-low hover:bg-surface-hover hover:text-medium"
               }`}
             >
-              <Icon size={20} />
-            </div>
-            <div className="text-left">
-              <p className="text-sm font-bold text-high">{theme.name}</p>
-              <p className="text-[10px] font-medium tracking-tighter text-low uppercase">
-                {theme.label}
-              </p>
-            </div>
-            {isActive && (
-              <div className="absolute top-3 right-3 text-action">
-                <Check size={16} />
+              <Icon
+                size={16}
+                className={isActive ? "text-action" : "text-low"}
+              />
+              <div className="flex flex-col items-start leading-none">
+                <span className="font-bold">{theme.name}</span>
+                <span className="text-xs">{theme.label}</span>
               </div>
-            )}
-          </button>
-        );
-      })}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 };
