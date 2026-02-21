@@ -18,7 +18,6 @@ import {
 import { getCategoryStyle, getContrastYIQ } from "../../dashboard/utils";
 import { TabData, UserCategory } from "../../types";
 
-// Udvidet prop definition
 type ExtendedTabItemProps = TabItemProps & {
   selectionCount?: number;
   onConsume?: (tab: TabData) => Promise<void> | void;
@@ -69,7 +68,6 @@ export const TabItem = React.memo(
 
     return (
       <div className="group relative h-full w-full min-w-65">
-        {/* Slet knap */}
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -80,7 +78,6 @@ export const TabItem = React.memo(
           <X size={14} />
         </button>
 
-        {/* Selection Checkbox */}
         <div
           className="absolute -top-2 -left-2 z-20 cursor-pointer text-low hover:text-action"
           onClick={(e) => {
@@ -130,13 +127,13 @@ export const TabItem = React.memo(
           }}
           className={`group flex h-full transform-gpu cursor-default flex-col overflow-hidden rounded-2xl border pt-2 pr-2 pb-4 pl-4 transition-all active:cursor-grabbing ${
             isSelected
-              ? "border-action bg-action/5 shadow-[0_0_15px_rgba(var(--tw-intent-action),0.1)]"
+              ? "border-action bg-action/10 shadow-lg"
               : "border-subtle bg-surface-elevated shadow-sm hover:border-action/50 hover:bg-surface-hover hover:shadow-md"
           }`}
         >
           <div className="flex min-w-0 flex-col gap-2">
             <div
-              className="group/link -ml-2 flex cursor-pointer flex-col gap-1 rounded-lg p-2 transition-colors hover:bg-surface-elevated/50"
+              className="group/link -ml-2 flex cursor-pointer flex-col gap-1 rounded-lg p-2 transition-colors hover:bg-surface/50"
               onClick={async (e) => {
                 e.stopPropagation();
                 const focusTab = async (t: chrome.tabs.Tab) => {
@@ -176,10 +173,6 @@ export const TabItem = React.memo(
                   console.warn("Smart-focus failed:", err);
                 }
 
-                // Hvis vi når hertil, opretter vi en NY fane.
-
-                // Hvis dette er Inbox (onConsume findes), skal vi slette fanen fra Firestore FØRST.
-                // Dette forhindrer Race Condition hvor background scriptet ser den nye fane OG den gamle i databasen samtidig.
                 if (onConsume) {
                   try {
                     await onConsume(tab);
@@ -188,12 +181,9 @@ export const TabItem = React.memo(
                       "Failed to consume tab before opening:",
                       consumeErr,
                     );
-                    // Vi fortsætter alligevel, så brugeren får sin fane,
-                    // men logger fejlen.
                   }
                 }
 
-                // Nu åbner vi den fysiske fane
                 if (tab.isIncognito) {
                   chrome.windows.create({
                     url: tab.url,
@@ -228,7 +218,7 @@ export const TabItem = React.memo(
 
             <div className="mt-1 flex min-h-6 flex-wrap gap-2 pl-8">
               {isProcessing && (
-                <div className="inline-flex w-fit animate-pulse cursor-wait items-center gap-1.5 rounded-full border border-strong bg-surface-elevated px-2.5 py-0.5 text-[10px] font-medium text-medium">
+                <div className="inline-flex w-fit animate-pulse cursor-wait items-center gap-1.5 rounded-full border border-strong bg-surface px-2.5 py-0.5 text-[10px] font-medium text-medium">
                   <Loader2 size={10} className="animate-spin" />
                   AI sorterer...
                 </div>
@@ -236,7 +226,7 @@ export const TabItem = React.memo(
 
               {isPending && (
                 <div
-                  className="inline-flex w-fit cursor-help items-center gap-1.5 rounded-full border border-strong bg-surface-elevated px-2.5 py-0.5 text-[10px] font-medium text-medium"
+                  className="inline-flex w-fit cursor-help items-center gap-1.5 rounded-full border border-strong bg-surface px-2.5 py-0.5 text-[10px] font-medium text-medium"
                   title="Analyseres næste gang ai kører"
                 >
                   <Clock size={10} />I kø til AI

@@ -69,7 +69,6 @@
   --nexus-surface-elevated: oklch(100% 0 0);
   --nexus-surface-hover: oklch(98.5% 0.005 var(--h));
   --nexus-surface-sunken: oklch(97.5% 0.008 var(--h));
-
   /* TEKST-KONTRAST: Trukket ned til 15% lysstyrke for at gøre UI'et sprødt */
   --nexus-text-high: oklch(15% 0.04 var(--h));
   --nexus-text-medium: oklch(35% 0.03 var(--h));
@@ -93,11 +92,43 @@
   --nexus-warning: oklch(68% 0.14 85);
   --nexus-info: oklch(68% 0.12 200);
 
-  /* MODE FARVER: HER ER DIN ORANGE TILBAGE */
-  --nexus-mode-inbox: oklch(72% 0.14 55); /* Varm, klar pastel orange */
-  --nexus-mode-incognito: oklch(72% 0.12 300); /* Blød, klar lilla */
+  --nexus-mode-inbox: oklch(72% 0.14 55);
+  --nexus-mode-incognito: oklch(72% 0.12 300);
   --nexus-mode-workspace: var(--nexus-action);
 }
+
+/* --- TEMA 3: SERENE (VARM, ORGANISK & PAPIR-FEEL) --- */
+.theme-serene {
+  --h: 50; /* Varm sand/beige hue */
+  --nexus-bg: oklch(98.5% 0.01 var(--h)); /* Meget lys off-white baggrund */
+
+  /* OVERFLADER: Elevated er sat til hvid for at poppe på den sandfarvede baggrund */
+  --nexus-surface: oklch(98.5% 0.01 var(--h));
+  --nexus-surface-elevated: oklch(100% 0 0);
+  --nexus-surface-hover: oklch(96% 0.02 var(--h));
+  --nexus-surface-sunken: oklch(94% 0.02 var(--h));
+
+  --nexus-text-high: oklch(20% 0.02 var(--h));
+  --nexus-text-medium: oklch(40% 0.03 var(--h));
+  --nexus-text-low: oklch(55% 0.03 var(--h));
+  --nexus-text-inverted: oklch(98.5% 0.01 var(--h));
+
+  --nexus-border-subtle: oklch(93% 0.02 var(--h));
+  --nexus-border-strong: oklch(85% 0.04 var(--h));
+
+  --nexus-action: oklch(45% 0.1 150); /* Dæmpet skovgrøn */
+  --nexus-action-hover: oklch(40% 0.1 150);
+  --nexus-success: oklch(55% 0.12 145);
+  --nexus-danger: oklch(55% 0.14 30); /* Terracotta */
+  --nexus-warning: oklch(75% 0.12 85);
+  --nexus-info: oklch(60% 0.08 220);
+
+  --nexus-mode-inbox: oklch(68% 0.13 50); /* Varm læder/kobber */
+  --nexus-mode-incognito: oklch(50% 0.06 280);
+  --nexus-mode-workspace: var(--nexus-action);
+}
+
+/* --- GLOBALE STYLES (DIN ORIGINAL) --- */
 
 /* Scrollbar styling */
 ::-webkit-scrollbar {
@@ -111,17 +142,17 @@
   border-radius: 10px;
 }
 
+/* Dialog styling */
 dialog {
   background: transparent !important;
   border: none !important;
   padding: 0 !important;
   margin: auto;
-  overflow: visible !important; /* Sørger for at shadow-2xl ikke bliver klippet */
+  overflow: visible !important;
   outline: none !important;
 }
 
 dialog::backdrop {
-  /* En ensartet backdrop på tværs af hele systemet */
   background-color: color-mix(in oklch, var(--nexus-bg), transparent 20%);
   backdrop-filter: blur(4px);
 }

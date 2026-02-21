@@ -2,27 +2,20 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { applyThemeToDOM, getSavedTheme } from "./theme-config";
 
 /**
  * NyviaNexus - Popup Entry Point
- * Vi henter temaet fra storage FØR vi renderer for at undgå flickering.
  */
 async function initPopup() {
   const rootElement = document.getElementById("root");
   if (!rootElement) return;
 
-  // 1. Hent temaet (Husk at bruge 'nexus_theme' så det matcher din Selector)
-  const res = await chrome.storage.local.get(["nexus_theme"]);
-  const theme = res.nexus_theme || "architect";
+  // 1. Hent og aktivér tema med det samme (fjerner flicker)
+  const theme = await getSavedTheme();
+  applyThemeToDOM(theme);
 
-  // 2. Sæt klassen på HTML-elementet med det samme
-  if (theme === "pastel") {
-    document.documentElement.classList.add("theme-pastel");
-  } else {
-    document.documentElement.classList.remove("theme-pastel");
-  }
-
-  // 3. Render React appen
+  // 2. Render React appen
   ReactDOM.createRoot(rootElement).render(
     <React.StrictMode>
       <App />
@@ -30,5 +23,4 @@ async function initPopup() {
   );
 }
 
-// Start sekvensen
 initPopup();

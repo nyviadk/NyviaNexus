@@ -3,18 +3,29 @@ import ReactDOM from "react-dom/client";
 import { Dashboard } from "./Dashboard";
 import "../index.css";
 import { FirebaseGuard } from "@/components/FirebaseGuard";
+import { applyThemeToDOM, getSavedTheme } from "@/theme-config";
 
-// TEMA INITIALISERING: Kør straks for at undgå flicker
-chrome.storage.local.get(["nexus_theme"], (res) => {
-  if (res.nexus_theme === "pastel") {
-    document.documentElement.classList.add("theme-pastel");
-  }
-});
+/**
+ * Initialiserer Dashboardet
+ * Vi henter temaet async før render for at sikre, at UI'et ikke "blinker"
+ */
+async function initDashboard() {
+  const rootElement = document.getElementById("dashboard-root");
+  if (!rootElement) return;
 
-ReactDOM.createRoot(document.getElementById("dashboard-root")!).render(
-  <React.StrictMode>
-    <FirebaseGuard>
-      <Dashboard />
-    </FirebaseGuard>
-  </React.StrictMode>,
-);
+  // 1. Hent og aktivér det gemte tema (Architect, Pastel eller Serene)
+  const theme = await getSavedTheme();
+  applyThemeToDOM(theme);
+
+  // 2. Render applikationen
+  ReactDOM.createRoot(rootElement).render(
+    <React.StrictMode>
+      <FirebaseGuard>
+        <Dashboard />
+      </FirebaseGuard>
+    </React.StrictMode>,
+  );
+}
+
+// Start initialiseringen
+initDashboard();
