@@ -1,8 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { Dashboard } from "./Dashboard";
+import { Dashboard } from "../features/dashboard/Dashboard";
 import "../index.css";
-import { FirebaseGuard } from "@/components/FirebaseGuard";
+import { FirebaseGuard } from "@/features/auth/FirebaseGuard";
 import { applyThemeToDOM, getSavedTheme } from "@/theme-config";
 
 /**

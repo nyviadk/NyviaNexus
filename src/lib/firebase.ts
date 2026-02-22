@@ -1,7 +1,7 @@
 import { initializeApp, getApp, getApps, FirebaseApp } from "firebase/app";
 import { getFirestore, Firestore } from "firebase/firestore";
 import { getAuth, Auth } from "firebase/auth";
-import { FirebaseConfig } from "../components/FirebaseGuard";
+import { FirebaseConfig } from "../features/auth/FirebaseGuard";
 
 // Vi bruger "let" i stedet for Proxies.
 // ES6 Modules gør, at når disse får en værdi i configureFirebase,

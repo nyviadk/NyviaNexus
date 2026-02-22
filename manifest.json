@@ -7,7 +7,7 @@
   },
   "options_page": "dashboard.html",
   "background": {
-    "service_worker": "src/background/main.ts",
+    "service_worker": "src/features/background/main.ts",
     "type": "module"
   },
   "permissions": [
