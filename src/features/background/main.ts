@@ -279,7 +279,7 @@ function updateRestorationStatus(status: string) {
 }
 
 // Send to notes / archive logic
-initializeContextMenus();
+initializeContextMenus(createSafeListener);
 
 /**
  * Konverterer sikkert Firestore Timestamp (eller lignende objekter fra cache) til millisekunder.

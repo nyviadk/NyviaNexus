@@ -21,15 +21,22 @@ const BOX_DIVIDER = "-----"; // 5 stk
 
 const workspaceNameCache: Record<string, string> = {};
 
-// --- INITIALIZATION ---
-export const initializeContextMenus = () => {
-  chrome.runtime.onInstalled.addListener(setupMenus);
-  chrome.runtime.onStartup.addListener(setupMenus);
+// Definerer typen for vores Safe Listener Wrapper fra background.ts
+type SafeListenerWrapper = <T extends any[]>(
+  fn: (...args: T) => Promise<void> | void,
+) => (...args: T) => Promise<void> | void;
 
-  setupContextMenuUpdaters();
+// --- INITIALIZATION ---
+export const initializeContextMenus = (
+  createSafeListener: SafeListenerWrapper,
+) => {
+  chrome.runtime.onInstalled.addListener(createSafeListener(setupMenus));
+  chrome.runtime.onStartup.addListener(createSafeListener(setupMenus));
+
+  setupContextMenuUpdaters(createSafeListener);
 };
 
-const setupMenus = () => {
+const setupMenus = async () => {
   chrome.contextMenus.removeAll(() => {
     // 1. Send to Notes: KUN ved selection
     chrome.contextMenus.create({
@@ -47,16 +54,24 @@ const setupMenus = () => {
   });
 };
 
-const setupContextMenuUpdaters = () => {
-  chrome.windows.onFocusChanged.addListener(async (windowId) => {
-    if (windowId === chrome.windows.WINDOW_ID_NONE) return;
-    updateMenuTitles(windowId);
-  });
+const setupContextMenuUpdaters = (createSafeListener: SafeListenerWrapper) => {
+  // NU WRAPPER VI DEM LIGESOM DE ANDRE TING! 🛡️
+  chrome.windows.onFocusChanged.addListener(
+    createSafeListener(async (windowId: number) => {
+      if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+      await updateMenuTitles(windowId);
+    }),
+  );
 
-  chrome.tabs.onActivated.addListener(async (activeInfo) => {
-    const tab = await chrome.tabs.get(activeInfo.tabId);
-    if (tab.windowId) updateMenuTitles(tab.windowId);
-  });
+  // FIX: Inline type i stedet for at lede efter chrome.tabs.TabActiveInfo
+  chrome.tabs.onActivated.addListener(
+    createSafeListener(
+      async (activeInfo: { tabId: number; windowId: number }) => {
+        const tab = await chrome.tabs.get(activeInfo.tabId);
+        if (tab.windowId) await updateMenuTitles(tab.windowId);
+      },
+    ),
+  );
 };
 
 // --- HELPERS ---
