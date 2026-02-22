@@ -927,11 +927,13 @@ async function processAiQueue() {
   }
 }
 
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === "process_ai_next" || alarm.name === "retry_ai_queue") {
-    processAiQueue();
-  }
-});
+chrome.alarms.onAlarm.addListener(
+  createSafeListener(async (alarm) => {
+    if (alarm.name === "process_ai_next" || alarm.name === "retry_ai_queue") {
+      await processAiQueue();
+    }
+  }),
+);
 
 // FIX: Added 'force' parameter to bypass recentQueueAdds check
 async function addToAiQueue(items: QueueItem[], force: boolean = false) {
