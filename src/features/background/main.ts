@@ -33,6 +33,7 @@ export interface TabData {
   favIconUrl: string;
   isIncognito?: boolean;
   aiData?: AiData;
+  clearedTracking: string | null;
 }
 
 // Definerer strukturen af et vindue, som det ser ud i Firestore
@@ -298,6 +299,69 @@ function getTimestampMillis(
   }
 
   return 0;
+}
+
+// --- URL CLEANER LOGIC ---
+
+const TRACKING_PARAMS: Set<string> = new Set([
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_term",
+  "utm_content",
+  "gclid",
+  "gbraid",
+  "wbraid",
+  "_ga",
+  "_gl",
+  "fbclid",
+  "igshid",
+  "twclid",
+  "msclkid",
+  "mc_cid",
+  "mc_eid",
+  "_hsenc",
+  "_hsmi",
+  "ref",
+  "ref_src",
+  "ref_url",
+]);
+
+function cleanUrlAndGetTracking(rawUrl: string): {
+  cleanUrl: string;
+  removedParams: string;
+} {
+  try {
+    const urlObj = new URL(rawUrl);
+    const params = new URLSearchParams(urlObj.search);
+    let hasChanges = false;
+    const removed: string[] = [];
+    const keysToDelete: string[] = [];
+
+    params.forEach((value, key) => {
+      if (TRACKING_PARAMS.has(key.toLowerCase())) {
+        keysToDelete.push(key);
+        removed.push(`${key}=${value}`);
+      }
+    });
+
+    for (const key of keysToDelete) {
+      params.delete(key);
+      hasChanges = true;
+    }
+
+    if (!hasChanges) {
+      return { cleanUrl: rawUrl, removedParams: "" };
+    }
+
+    urlObj.search = params.toString();
+    return {
+      cleanUrl: urlObj.toString(),
+      removedParams: `?${removed.join("&")}`,
+    };
+  } catch (e) {
+    return { cleanUrl: rawUrl, removedParams: "" };
+  }
 }
 
 // --- PERSISTENCE HELPERS ---
@@ -1043,16 +1107,21 @@ async function registerNewInboxWindow(windowId: number) {
 
     for (const t of tabs) {
       if (t.id && t.url && !isDash(t.url) && !t.url.startsWith("chrome")) {
-        const uid = getOrAssignUid(t.id, t.url);
+        // Tjek for tracking før vi gemmer URL
+        const urlInfo = cleanUrlAndGetTracking(t.url);
+        const urlToSave = urlInfo.cleanUrl;
+
+        const uid = getOrAssignUid(t.id, urlToSave);
 
         if (!currentTabs.some((ct) => ct.uid === uid)) {
           tabsToAdd.push({
             uid: uid,
             title: t.title || "Ny fane",
-            url: t.url,
+            url: urlToSave,
             favIconUrl: t.favIconUrl || "",
             isIncognito: t.incognito,
             aiData: { status: "pending" },
+            clearedTracking: urlInfo.removedParams || null,
           });
         }
       }
@@ -1144,7 +1213,11 @@ async function saveToFirestore(
 
       for (const t of tabs) {
         if (t.id && t.url && !t.url.startsWith("chrome") && !isDash(t.url)) {
-          const uid = getOrAssignUid(t.id, t.url);
+          // Tjek og rens URL inden vi gemmer
+          const urlInfo = cleanUrlAndGetTracking(t.url);
+          const urlToSave = urlInfo.cleanUrl;
+
+          const uid = getOrAssignUid(t.id, urlToSave);
           let aiData = existingAiData.get(uid) || { status: "pending" };
 
           if (
@@ -1153,7 +1226,7 @@ async function saveToFirestore(
           ) {
             tabsToQueue.push({
               uid,
-              url: t.url,
+              url: urlToSave,
               title: t.title || "Ny fane",
               tabId: t.id,
               attempts: 0,
@@ -1164,10 +1237,11 @@ async function saveToFirestore(
           validTabs.push({
             uid: uid,
             title: t.title || "Ny fane",
-            url: t.url,
+            url: urlToSave,
             favIconUrl: t.favIconUrl || "",
             isIncognito: false,
             aiData: aiData,
+            clearedTracking: urlInfo.removedParams || null,
           });
         }
       }
@@ -1247,10 +1321,32 @@ chrome.tabs.onUpdated.addListener(
 
     const isUrlChange = change.url !== undefined;
     const isStatusComplete = change.status === "complete";
-    const isTitleChange = change.title !== undefined;
+    const isTitleChange =
+      change.title !== undefined || change.title !== tab.title;
 
+    // Kun reager hvis der sker noget relevant
     if (isUrlChange || isStatusComplete || isTitleChange) {
-      const url = tab.url;
+      // 1. Tjek om URL'en indeholder tracking
+      const urlInfo = cleanUrlAndGetTracking(tab.url);
+      const url = urlInfo.cleanUrl;
+      const clearedTracking = urlInfo.removedParams;
+
+      // 2. Hvis vi har fjernet tracking, opdater adressebaren usynligt
+      if (clearedTracking && tabId) {
+        chrome.scripting
+          .executeScript({
+            target: { tabId },
+            func: (cleanUrl) => {
+              // Ændrer adressebaren on-the-fly uden at genindlæse
+              window.history.replaceState(null, "", cleanUrl);
+            },
+            args: [url],
+          })
+          .catch(() => {
+            /* Ignorer fejl for sikre sider (chrome://) */
+          });
+      }
+
       const uidTab = getOrAssignUid(tabId, url);
       const title = tab.title || "Indlæser...";
       const mapping = activeWindows.get(tab.windowId);
@@ -1292,11 +1388,18 @@ chrome.tabs.onUpdated.addListener(
                 const hasNoAiData =
                   !tabs[idx].aiData || tabs[idx].aiData?.status === "pending";
 
-                if (oldUrl !== url || isStatusComplete || hasNoAiData) {
+                if (
+                  oldUrl !== url ||
+                  isStatusComplete ||
+                  isTitleChange ||
+                  hasNoAiData
+                ) {
                   tabs[idx].url = url;
                   tabs[idx].title = title;
                   tabs[idx].favIconUrl =
                     tab.favIconUrl || tabs[idx].favIconUrl || "";
+                  if (clearedTracking)
+                    tabs[idx].clearedTracking = clearedTracking;
 
                   if (oldUrl !== url || hasNoAiData) {
                     tabs[idx].aiData = { status: "pending" };
@@ -1313,6 +1416,7 @@ chrome.tabs.onUpdated.addListener(
                   url,
                   favIconUrl: tab.favIconUrl || "",
                   aiData: { status: "pending" },
+                  clearedTracking: clearedTracking || null,
                 });
                 await updateDoc(winRef, { tabs });
                 triggerAi();
@@ -1332,10 +1436,16 @@ chrome.tabs.onUpdated.addListener(
             const idx = tabs.findIndex((t) => t.uid === uidTab);
 
             if (idx !== -1) {
-              if (tabs[idx].url !== url || !tabs[idx].aiData) {
+              if (
+                tabs[idx].url !== url ||
+                tabs[idx].title !== title ||
+                !tabs[idx].aiData
+              ) {
                 tabs[idx].url = url;
                 tabs[idx].title = title;
                 tabs[idx].aiData = { status: "pending" };
+                if (clearedTracking)
+                  tabs[idx].clearedTracking = clearedTracking;
                 await updateDoc(inboxRef, { tabs });
                 triggerAi();
               }
@@ -1347,6 +1457,7 @@ chrome.tabs.onUpdated.addListener(
                 favIconUrl: tab.favIconUrl || "",
                 isIncognito: tab.incognito,
                 aiData: { status: "pending" },
+                clearedTracking: clearedTracking || null,
               });
               await updateDoc(inboxRef, {
                 tabs,

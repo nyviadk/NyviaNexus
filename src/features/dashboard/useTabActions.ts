@@ -51,7 +51,15 @@ export const useTabActions = (
   };
 
   const getCleanData = (tab: DraggedTabPayload): TabData => {
-    const { uid, title, url, favIconUrl, isIncognito, aiData } = tab;
+    const {
+      uid,
+      title,
+      url,
+      favIconUrl,
+      isIncognito,
+      aiData,
+      clearedTracking,
+    } = tab;
     return {
       uid,
       title,
@@ -59,6 +67,7 @@ export const useTabActions = (
       favIconUrl: favIconUrl || "",
       isIncognito: !!isIncognito,
       aiData: aiData || { status: "pending" },
+      clearedTracking: clearedTracking ?? null,
     };
   };
 

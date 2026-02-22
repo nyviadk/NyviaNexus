@@ -8,6 +8,7 @@ import {
   Square,
   Tag,
   X,
+  Eraser,
 } from "lucide-react";
 import React from "react";
 import {
@@ -212,8 +213,23 @@ export const TabItem = React.memo(
                 />
               </div>
 
-              <div className="pointer-events-none w-full truncate pl-8 font-mono text-[10px] text-low italic transition-colors group-hover/link:text-medium">
-                {tab.url}
+              {/* OPBYGNING AF URL LINJEN MED TRACKING VISKELÆDER */}
+              <div className="flex w-full items-center gap-1.5 pl-8 text-low transition-colors group-hover/link:text-medium">
+                <div className="pointer-events-none truncate font-mono text-[10px] italic">
+                  {tab.url}
+                </div>
+                {tab.clearedTracking && (
+                  <div
+                    className="pointer-events-auto flex shrink-0 cursor-help items-center justify-center rounded-full bg-surface-elevated p-1 text-action/60 transition-colors hover:bg-surface-hover hover:text-action"
+                    title={`Nexus fjernede denne tracking fra linket:\n${tab.clearedTracking}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // Kunne åbne en lille modal her senere hvis det ønskes, men tooltip er fint for nu
+                    }}
+                  >
+                    <Eraser size={10} />
+                  </div>
+                )}
               </div>
             </div>
 
@@ -268,6 +284,7 @@ export const TabItem = React.memo(
       prev.tab.url === next.tab.url &&
       prev.tab.title === next.tab.title &&
       prev.tab.uid === next.tab.uid &&
+      prev.tab.clearedTracking === next.tab.clearedTracking && // Sikrer at komponenten re-renderer hvis tracking renses
       prev.selectionCount === next.selectionCount &&
       JSON.stringify(prev.tab.aiData) === JSON.stringify(next.tab.aiData) &&
       JSON.stringify(prev.userCategories) ===

@@ -79,6 +79,7 @@ export const LinkManager = {
       title: "Importeret Link", // Placeholder indtil Chrome besøger den
       favIconUrl: "",
       isIncognito: false,
+      clearedTracking: null,
       aiData: {
         status: "pending", // VIGTIGT: Dette trigger din AI-kø næste gang vinduet åbnes
         isLocked: false,
