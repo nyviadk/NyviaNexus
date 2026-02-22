@@ -75,7 +75,7 @@ service cloud.firestore {
           </div>
           <button
             onClick={copyToClipboard}
-            className="hover:text-action-hover cursor-pointer text-action transition-colors"
+            className="cursor-pointer text-action transition-colors hover:text-action-hover"
           >
             {copied ? (
               <Check size={12} className="mr-1 inline" />
@@ -96,7 +96,7 @@ service cloud.firestore {
           href={rulesUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="hover:bg-action-hover flex w-full items-center justify-between gap-2 rounded-lg bg-action p-3 text-[11px] font-bold text-inverted transition-all"
+          className="flex w-full items-center justify-between gap-2 rounded-lg bg-action p-3 text-[11px] font-bold text-inverted transition-all hover:bg-action-hover"
         >
           ÅBN REGLER I FIREBASE CONSOLE
           <ExternalLink size={14} />
@@ -132,7 +132,7 @@ service cloud.firestore {
         }`}
       >
         {!hasConfirmed && <AlertTriangle size={14} />}
-        Start NyviaNexus
+        Start Nexus
       </button>
     </div>
   );
