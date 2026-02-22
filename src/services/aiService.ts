@@ -83,6 +83,13 @@ export const AiService = {
     // Byg prompten baseret på indstillinger
     let systemPrompt = "";
     const userCatNames = settings.userCategories.map((c) => c.name);
+
+    const languageInstruction = `
+VIGTIGT VEDRØRENDE SPROG:
+Du SKAL skrive på fejlfrit dansk. Du SKAL bruge de danske bogstaver 'æ', 'ø' og 'å' korrekt. 
+Du må ALDRIG erstatte bogstaver med specialtegn som '[]', '?' eller lignende.
+`;
+
     // Scenarie 1: Dynamisk (AI må opfinde, men skal prioritere brugerens liste)
     if (settings.allowDynamic) {
       systemPrompt = `
@@ -96,14 +103,15 @@ ${JSON.stringify(userCatNames)}
 INSTRUKSER:
 1. Tjek FØRST om fanen passer PERFEKT i en af brugerens kategorier ovenfor. Prioritér dem højt.
 2. HVIS fanen er specifik og slet ikke passer i brugerens kategorier, så SKAL du opfinde en ny, passende kategori.
-3. Vær præcis. En opskrift er "Mad & Drikke", ikke "Læsning".
+3. Vær præcis. En opskrift er "Mad", ikke "Læsning".
    - Kategorien skal være på Dansk.
    - Den skal være kort (1-3 ord).
    - Den skal beskrive indholdets emne.
-4. Du skal ikke modsige dine egne tanker. Hvis du tænker, at en fane ikke passer i de fortrukne kategorier, skal du ikke vælge en af de fortrukne kategorier. Du skal stole på dine tanker.
-5. Hvis Fane titlen og metadata ikke indeholder noget, som tyder på at den har noget at gøre med en fortrukne kategori, skal du lave din egen kategori. Du skal ikke være kreativ for at presse ned i en kategori.
-6. Vær klog: Hvis spacenavnet indikerer et professionelt projekt eller arbejde, skal du sandsynligvis tolke fanens formål gennem den linse.
-7. Tænk dig om. Hvis Workspacet hedder noget, og indholdet på siden ikke er relateret til workspace navnet, så lad vær med at være kreativ. Du skal igen opfinde din egen passende kategori.
+4. Du skal ikke modsige dine egne tanker. Hvis du tænker, at en fane ikke passer i de foretrukne kategorier, skal du opfinde din egen.
+5. Hvis Fane titlen og metadata ikke tyder på at den hører til i en foretrukken kategori, skal du lave din egen. Du må ikke tvinge den ned i en forkert kategori.
+6. Vær klog: Hvis spacenavnet indikerer et professionelt projekt, skal du tolke fanens formål gennem den linse.
+7. Tænk dig om. Hvis indholdet ikke er relateret til workspace navnet, så opfind din egen passende kategori.
+${languageInstruction}
 
 Output Format (JSON Only):
 { "category": "String", "confidence": Number (0-100), "reasoning": "Kort forklaring på dansk" }
@@ -134,6 +142,7 @@ ${
     ? '3. Hvis intet passer, vælg "Ukategoriseret".'
     : "3. Vælg det tætteste match, selvom det ikke er perfekt."
 }
+${languageInstruction}
 
 Output Format (JSON Only):
 { "category": "String", "confidence": Number (0-100), "reasoning": "Kort forklaring på dansk" }
@@ -226,8 +235,8 @@ ${contextInstruction}
 
   parseResponse(raw: string): AiAnalysisResult {
     try {
-      // Fjern markdown blocks hvis de findes
-      const cleaned = raw
+      // Fjern markdown blocks hvis de findes og rens for hyppige AI-glitches
+      let cleaned = raw
         .replace(/```json/g, "")
         .replace(/```/g, "")
         .trim();
