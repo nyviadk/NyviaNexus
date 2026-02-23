@@ -86,8 +86,7 @@ export const AiService = {
 
     const languageInstruction = `
 VIGTIGT VEDRØRENDE SPROG:
-Du SKAL skrive på fejlfrit dansk. Du SKAL bruge de danske bogstaver 'æ', 'ø' og 'å' korrekt. 
-Du må ALDRIG erstatte bogstaver med specialtegn som '[]', '?' eller lignende.
+Du SKAL skrive på fejlfrit dansk. Undgå at lave kategorier, hvis tekst indeholder 'æ', 'ø' eller 'å'.
 `;
 
     // Scenarie 1: Dynamisk (AI må opfinde, men skal prioritere brugerens liste)
