@@ -86,7 +86,7 @@ export const AiService = {
 
     const languageInstruction = `
 VIGTIGT VEDRØRENDE SPROG:
-Du SKAL skrive på fejlfrit dansk. Undgå at lave kategorier, hvis tekst indeholder 'æ', 'ø' eller 'å'.
+Du SKAL skrive på fejlfrit dansk.
 `;
 
     // Scenarie 1: Dynamisk (AI må opfinde, men skal prioritere brugerens liste)
