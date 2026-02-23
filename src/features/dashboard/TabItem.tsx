@@ -148,6 +148,8 @@ export const TabItem = React.memo(
                 try {
                   const runtimeTab = tab as RuntimeTabData;
                   const runtimeId = runtimeTab.id;
+
+                  // 1. Forsøg via Memory Tab ID (Hvis vi allerede kender den fra React state)
                   if (runtimeId) {
                     const existing = await chrome.tabs
                       .get(runtimeId)
@@ -157,17 +159,45 @@ export const TabItem = React.memo(
                       return;
                     }
                   }
-                  const matches = await chrome.tabs.query({ url: tab.url });
-                  const exactMatches = matches.filter(
-                    (t) => t.incognito === tab.isIncognito,
+
+                  // 2. Forsøg via Persistent Tab Tracker (Det sikre UID opslag)
+                  // Slår direkte op i background scriptets tracker memory via storage
+                  const storageData =
+                    await chrome.storage.local.get("nexus_tab_tracker");
+                  const trackerMap = storageData.nexus_tab_tracker as
+                    | [number, { uid: string; url: string }][]
+                    | undefined;
+
+                  if (trackerMap) {
+                    const match = trackerMap.find(
+                      ([_, data]) => data.uid === tab.uid,
+                    );
+                    if (match) {
+                      const physicalTabId = match[0];
+                      const existing = await chrome.tabs
+                        .get(physicalTabId)
+                        .catch(() => null);
+                      if (existing) {
+                        await focusTab(existing);
+                        return;
+                      }
+                    }
+                  }
+
+                  // 3. Fallback: Hent alle faner og lav eksakt URL matching
+                  const allTabs = await chrome.tabs.query({});
+                  const matches = allTabs.filter(
+                    (t) => t.url === tab.url && t.incognito === tab.isIncognito,
                   );
-                  if (exactMatches.length > 0) {
+
+                  if (matches.length > 0) {
                     const currentWin = await chrome.windows
                       .getCurrent()
                       .catch(() => null);
+                    // Find den i nuværende vindue, ellers tag den første
                     const bestMatch =
-                      exactMatches.find((t) => t.windowId === currentWin?.id) ||
-                      exactMatches[0];
+                      matches.find((t) => t.windowId === currentWin?.id) ||
+                      matches[0];
                     await focusTab(bestMatch);
                     return;
                   }
@@ -175,6 +205,7 @@ export const TabItem = React.memo(
                   console.warn("Smart-focus failed:", err);
                 }
 
+                // Hvis fanen slet ikke eksisterede i browseren mere
                 if (onConsume) {
                   try {
                     await onConsume(tab);

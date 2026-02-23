@@ -919,11 +919,33 @@ async function processAiQueue() {
     await chrome.storage.local.set({
       [AI_LOCK_KEY]: { isProcessing: false, timestamp: 0 },
     });
+
+    // FAILSAFE: Håndterer situationen hvis AI crasher.
+    // Opdaterer attempts så vi ikke fanger systemet i et uendeligt loop.
     const storage = (await chrome.storage.local.get(
       AI_STORAGE_KEY,
     )) as StorageResponse;
-    const item = storage[AI_STORAGE_KEY]?.[0];
-    if (item) currentlyProcessing.delete(item.uid);
+    const queue = Array.isArray(storage[AI_STORAGE_KEY])
+      ? storage[AI_STORAGE_KEY]
+      : [];
+    const item = queue[0];
+
+    if (item) {
+      currentlyProcessing.delete(item.uid);
+      item.attempts = (item.attempts || 0) + 1;
+
+      if (item.attempts >= 3) {
+        console.warn(
+          `❌ AI dropped item after 3 failed attempts (preventing dead-lock): ${item.uid}`,
+        );
+        const newQueue = queue.filter((q) => q.uid !== item.uid);
+        await chrome.storage.local.set({ [AI_STORAGE_KEY]: newQueue });
+      } else {
+        queue[0] = item;
+        await chrome.storage.local.set({ [AI_STORAGE_KEY]: queue });
+        chrome.alarms.create("retry_ai_queue", { when: Date.now() + 5000 });
+      }
+    }
   }
 }
 
@@ -949,10 +971,17 @@ async function addToAiQueue(items: QueueItem[], force: boolean = false) {
       const existingIndex = currentQueue.findIndex((q) => q.uid === i.uid);
 
       if (existingIndex !== -1) {
-        if (currentQueue[existingIndex].url !== i.url) {
-          console.log(`🔄 URL changed for ${i.uid}, re-queuing...`);
-          currentQueue.splice(existingIndex, 1);
-          return true;
+        // Hvis fanen allerede ligger i køen, men ændrer URL/Titel imens,
+        // opdaterer vi den direkte i køen i stedet for at slette/gen-tilføje den.
+        if (
+          currentQueue[existingIndex].url !== i.url ||
+          currentQueue[existingIndex].title !== i.title
+        ) {
+          console.log(
+            `🔄 URL/Title changed for ${i.uid} in queue, updating in place...`,
+          );
+          currentQueue[existingIndex].url = i.url;
+          currentQueue[existingIndex].title = i.title;
         }
         return false;
       }
@@ -1291,17 +1320,21 @@ chrome.tabs.onUpdated.addListener(
       const title = tab.title || "Indlæser...";
       const mapping = activeWindows.get(tab.windowId);
 
-      const triggerAi = () => {
-        addToAiQueue([
-          {
-            uid: uidTab,
-            url,
-            title,
-            tabId,
-            attempts: 0,
-            workspaceName: mapping ? mapping.workspaceName : "Inbox",
-          },
-        ]);
+      // Wrapper der giver os mulighed for let at tvinge elementet i køen
+      const triggerAi = (force: boolean = false) => {
+        addToAiQueue(
+          [
+            {
+              uid: uidTab,
+              url,
+              title,
+              tabId,
+              attempts: 0,
+              workspaceName: mapping ? mapping.workspaceName : "Inbox",
+            },
+          ],
+          force,
+        );
       };
 
       if (mapping) {
@@ -1341,12 +1374,20 @@ chrome.tabs.onUpdated.addListener(
                   if (clearedTracking)
                     tabs[idx].clearedTracking = clearedTracking;
 
-                  if (oldUrl !== url || hasNoAiData) {
-                    tabs[idx].aiData = { status: "pending" };
+                  // Tving AI hvis URL ændres (f.eks. tracking slettes) ELLER den fulde side er færdig med at loade
+                  const shouldForceAi =
+                    oldUrl !== url ||
+                    (isStatusComplete && !tabs[idx].aiData?.isLocked);
+
+                  if (shouldForceAi || hasNoAiData) {
+                    if (oldUrl !== url || hasNoAiData) {
+                      tabs[idx].aiData = { status: "pending" };
+                    }
                     await updateDoc(winRef, { tabs });
-                    triggerAi();
+                    triggerAi(true); // Force kø!
                   } else {
                     await updateDoc(winRef, { tabs });
+                    triggerAi();
                   }
                 }
               } else {
@@ -1359,7 +1400,7 @@ chrome.tabs.onUpdated.addListener(
                   clearedTracking: clearedTracking || null,
                 });
                 await updateDoc(winRef, { tabs });
-                triggerAi();
+                triggerAi(true); // Force kø ved nye elementer
               }
             }
           } catch (e) {
@@ -1379,15 +1420,29 @@ chrome.tabs.onUpdated.addListener(
               if (
                 tabs[idx].url !== url ||
                 tabs[idx].title !== title ||
-                !tabs[idx].aiData
+                !tabs[idx].aiData ||
+                isStatusComplete
               ) {
+                const oldUrl = tabs[idx].url;
                 tabs[idx].url = url;
                 tabs[idx].title = title;
-                tabs[idx].aiData = { status: "pending" };
                 if (clearedTracking)
                   tabs[idx].clearedTracking = clearedTracking;
-                await updateDoc(inboxRef, { tabs });
-                triggerAi();
+
+                const shouldForceAi =
+                  oldUrl !== url ||
+                  (isStatusComplete && !tabs[idx].aiData?.isLocked);
+
+                if (shouldForceAi || !tabs[idx].aiData) {
+                  if (oldUrl !== url || !tabs[idx].aiData) {
+                    tabs[idx].aiData = { status: "pending" };
+                  }
+                  await updateDoc(inboxRef, { tabs });
+                  triggerAi(true); // Force kø!
+                } else {
+                  await updateDoc(inboxRef, { tabs });
+                  triggerAi();
+                }
               }
             } else {
               tabs.push({
@@ -1403,7 +1458,7 @@ chrome.tabs.onUpdated.addListener(
                 tabs,
                 lastUpdate: serverTimestamp(),
               });
-              triggerAi();
+              triggerAi(true); // Force kø ved nye elementer
             }
           }
         });
