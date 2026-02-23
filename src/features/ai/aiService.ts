@@ -72,6 +72,15 @@ export const AiService = {
       }]`,
     );
 
+    // Vi dekoder URL'en, så AI'en læser rigtige ord frem for URL-enkodede %20 tegn,
+    // hvilket forhindrer at den hallucinerer.
+    let readableUrl = url;
+    try {
+      readableUrl = decodeURIComponent(url);
+    } catch (e) {
+      readableUrl = url;
+    }
+
     const apiKey = await this.getApiKey();
     const settings = await this.getSettings();
 
@@ -167,7 +176,7 @@ Hvis workspace hedder "Gaver", er en produktside "Shopping".
 
     const userPrompt = `
 Analyser denne fane:
-URL: ${url}
+URL: ${readableUrl}
 Titel: ${title}
 Metadata: ${cleanMetadata}
 ${contextInstruction}
@@ -187,9 +196,10 @@ ${contextInstruction}
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
-          temperature: 0, // Kritisk for JSON stabilitet
+          temperature: 0.1, // Giver LLaMA lidt luft til at danne korrekte UTF-8 tokens
           max_tokens: 400,
-          response_format: { type: "json_object" }, // Tvinger JSON output
+          // VI HAR FJERNET: response_format: { type: "json_object" }
+          // Det forhindrer API'et i at "smadre" æøå mens den tvinger JSON syntaks.
         }),
       });
       console.timeEnd("🤖 AI Latency");
