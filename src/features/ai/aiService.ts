@@ -188,7 +188,7 @@ ${contextInstruction}
             { role: "user", content: userPrompt },
           ],
           temperature: 0, // Kritisk for JSON stabilitet
-          max_tokens: 200,
+          max_tokens: 400,
           response_format: { type: "json_object" }, // Tvinger JSON output
         }),
       });
