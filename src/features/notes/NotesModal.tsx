@@ -12,7 +12,6 @@ import {
   AlertCircle,
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
-import Editor from "react-simple-code-editor";
 import { NexusService } from "../dashboard/nexusService";
 import { Note } from "../dashboard/types";
 
@@ -104,15 +103,37 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
     }
   }, [note, isPending, sessionId]);
 
-  // 2. INPUT HANDLING (Nu uden onLocalUpdate spam for at undgå Dobbelt-lag buggen)
+  // 2. INPUT HANDLING
   const handleTitleChange = (val: string) => {
     setTitle(val);
     setStatus("typing");
   };
 
-  const handleContentChange = (val: string) => {
-    setContent(val);
+  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setContent(e.target.value);
     setStatus("typing");
+  };
+
+  // NATIV TAB-HÅNDTERING: Gør at vi kan skrive tabs præcis ved cursoren i en normal textarea
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const target = e.currentTarget;
+      const start = target.selectionStart;
+      const end = target.selectionEnd;
+
+      // Indsæt en rigtig Tabulator-char
+      const newContent =
+        content.substring(0, start) + "\t" + content.substring(end);
+      setContent(newContent);
+      setStatus("typing");
+
+      // Flyt cursoren ét hak frem (efter tabulatoren)
+      window.requestAnimationFrame(() => {
+        target.selectionStart = start + 1;
+        target.selectionEnd = start + 1;
+      });
+    }
   };
 
   // 2.5 FIX: "Stuck in typing" pga. undo/backspace
@@ -259,27 +280,24 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         className="mt-6 mb-4 w-full shrink-0 bg-transparent px-6 text-3xl font-bold text-high placeholder-low outline-none"
       />
 
-      {/* EDITOR CONTAINER - Denne div styrer scrollbaren */}
-      <div className="custom-scrollbar relative flex-1 overflow-y-auto px-6 pb-6">
-        <Editor
+      {/* NATIVE TEXTAREA FIX: 
+          Vi lader containeren være en ren flex-wrapper uden overflow. 
+          Al scroll håndteres nu internt i vores textarea, som fylder hele højden. 
+      */}
+      <div className="flex w-full flex-1 flex-col overflow-hidden px-6 pb-6">
+        <textarea
           value={content}
-          onValueChange={handleContentChange}
-          highlight={(code) => code}
-          // VIGTIGT: Vi bruger padding prop her for at sikre tekst og cursor flugter
-          padding={0}
-          insertSpaces={false}
-          tabSize={1}
-          ignoreTabKey={false}
-          className="min-h-full" // Sikrer at den fylder mindst hele højden
+          onChange={handleContentChange}
+          onKeyDown={handleKeyDown}
+          placeholder="Skriv din note her..."
+          className="custom-scrollbar w-full flex-1 resize-none overflow-y-auto bg-transparent text-medium outline-none"
           style={{
-            fontFamily: '"Fira Code", monospace', // Monospace font er vigtig for cursor alignment
+            fontFamily:
+              'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
             fontSize: 16,
-            lineHeight: 1.5, // Eksplicit line-height
-            backgroundColor: "transparent",
-            color: "var(--color-medium)", // Skiftet fra hardcodet hex for tema-understøttelse
-            tabSize: 8,
+            lineHeight: 1.6,
+            tabSize: 4, // Sørger for at indrykninger ser ud af noget
           }}
-          textareaClassName="focus:outline-none"
         />
       </div>
     </div>
