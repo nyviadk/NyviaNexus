@@ -1,7 +1,16 @@
 import { useDebounce } from "@uidotdev/usehooks";
 import { formatDistanceToNow } from "date-fns";
 import { da } from "date-fns/locale";
-import { Check, Link, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import {
+  Check,
+  Link,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Trash2,
+  X,
+  AlertCircle,
+} from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import Editor from "react-simple-code-editor";
 import { NexusService } from "../dashboard/nexusService";
@@ -42,7 +51,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
   const [status, setStatus] = useState<
-    "saved" | "saving" | "typing" | "syncing"
+    "saved" | "saving" | "typing" | "syncing" | "error"
   >("saved");
 
   const debouncedTitle = useDebounce(title, 1000);
@@ -53,89 +62,122 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
     content: note.content,
   });
 
+  const localStateRef = useRef({ title, content });
+  useEffect(() => {
+    localStateRef.current = { title, content };
+  }, [title, content]);
+
+  const noteRef = useRef(note);
+  useEffect(() => {
+    noteRef.current = note;
+  }, [note]);
+
   // 1. INCOMING SYNC LOGIC
   useEffect(() => {
-    if (isPending) return;
-
-    const isTitleSynced = note.title === title;
-    const isContentSynced = note.content === content;
-
-    if (isTitleSynced && isContentSynced) {
-      if (status === "saving") {
-        setStatus("saved");
-        lastKnownSyncedData.current = {
-          title: note.title,
-          content: note.content,
-        };
-      }
+    if (isPending) {
       return;
     }
 
-    console.log(`[EDITOR] 📥 Remote Update`);
-    setTitle(note.title);
-    setContent(note.content);
-    lastKnownSyncedData.current = { title: note.title, content: note.content };
-    setStatus("syncing");
+    if (note.lastEditorId === sessionId) {
+      return;
+    }
 
-    const timer = setTimeout(() => {
-      setStatus((prev) => (prev === "syncing" ? "saved" : prev));
-    }, 500);
+    const currentLocal = localStateRef.current;
+    const isTitleSynced = note.title === currentLocal.title;
+    const isContentSynced = note.content === currentLocal.content;
 
-    return () => clearTimeout(timer);
-  }, [note, isPending]);
+    if (!isTitleSynced || !isContentSynced) {
+      setTitle(note.title);
+      setContent(note.content);
+      lastKnownSyncedData.current = {
+        title: note.title,
+        content: note.content,
+      };
+      setStatus("syncing");
 
-  // 2. INPUT HANDLING
+      const timer = setTimeout(() => {
+        setStatus((prev) => (prev === "syncing" ? "saved" : prev));
+      }, 500);
+
+      return () => clearTimeout(timer);
+    } else {
+    }
+  }, [note, isPending, sessionId]);
+
+  // 2. INPUT HANDLING (Nu uden onLocalUpdate spam for at undgå Dobbelt-lag buggen)
   const handleTitleChange = (val: string) => {
     setTitle(val);
     setStatus("typing");
-    onLocalUpdate(note.id, { title: val, content });
   };
 
   const handleContentChange = (val: string) => {
     setContent(val);
     setStatus("typing");
-    onLocalUpdate(note.id, { title, content: val });
   };
+
+  // 2.5 FIX: "Stuck in typing" pga. undo/backspace
+  useEffect(() => {
+    if (status === "typing") {
+      const lastSync = lastKnownSyncedData.current;
+      if (title === lastSync.title && content === lastSync.content) {
+        setStatus("saved");
+      }
+    }
+  }, [title, content, status]);
 
   // 3. OUTGOING SAVE
   useEffect(() => {
+    const lastSync = lastKnownSyncedData.current;
     const hasChanges =
-      debouncedTitle !== lastKnownSyncedData.current.title ||
-      debouncedContent !== lastKnownSyncedData.current.content;
+      debouncedTitle !== lastSync.title ||
+      debouncedContent !== lastSync.content;
 
     if (hasChanges) {
       setStatus("saving");
-      lastKnownSyncedData.current = {
-        title: debouncedTitle,
-        content: debouncedContent,
-      };
+
+      const payloadTitle = debouncedTitle || "Uden titel";
+      const payloadContent = debouncedContent;
+
+      // Vi sender kun ændringen til parent-komponenten når vi VED vi er stoppet med at skrive
+      onLocalUpdate(note.id, { title: payloadTitle, content: payloadContent });
 
       NexusService.saveNote(workspaceId, {
-        ...note,
-        title: debouncedTitle || "Uden titel",
-        content: debouncedContent,
+        ...noteRef.current,
+        title: payloadTitle,
+        content: payloadContent,
         updatedAt: Date.now(),
         lastEditorId: sessionId,
-      }).catch(() => {
-        setStatus("saved");
-      });
+      })
+        .then(() => {
+          lastKnownSyncedData.current = {
+            title: payloadTitle,
+            content: payloadContent,
+          };
+
+          setStatus((prev) => {
+            if (prev === "saving") return "saved";
+            return prev;
+          });
+        })
+        .catch((err) => {
+          console.error("Save note failed:", err);
+          setStatus("error");
+        });
     }
-  }, [debouncedTitle, debouncedContent]);
+  }, [debouncedTitle, debouncedContent, workspaceId, sessionId]);
 
   // 4. UNMOUNT SAVE
-  const stateRef = useRef({ title, content });
-  useEffect(() => {
-    stateRef.current = { title, content };
-  }, [title, content]);
-
   useEffect(() => {
     return () => {
-      const { title: curT, content: curC } = stateRef.current;
+      const { title: curT, content: curC } = localStateRef.current;
       const lastSync = lastKnownSyncedData.current;
 
-      if (curT !== lastSync.title || curC !== lastSync.content) {
+      const hasUnsavedChanges =
+        curT !== lastSync.title || curC !== lastSync.content;
+
+      if (hasUnsavedChanges) {
         NexusService.saveNote(workspaceId, {
-          ...note,
+          ...noteRef.current,
           title: curT || "Uden titel",
           content: curC,
           updatedAt: Date.now(),
@@ -143,7 +185,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         });
       }
     };
-  }, []);
+  }, [workspaceId, sessionId]);
 
   return (
     <div className="animate-in fade-in relative flex flex-1 flex-col overflow-hidden bg-surface duration-200">
@@ -155,7 +197,9 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
               ? "text-success"
               : status === "syncing"
                 ? "text-warning"
-                : "text-action"
+                : status === "error"
+                  ? "text-danger"
+                  : "text-action"
           }`}
         >
           {status === "syncing" ? (
@@ -172,6 +216,11 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
             <>
               <div className="h-2 w-2 animate-pulse rounded-full bg-action" />
               <span>Skriver...</span>
+            </>
+          ) : status === "error" ? (
+            <>
+              <AlertCircle size={14} />
+              <span>Fejl</span>
             </>
           ) : (
             <>
@@ -312,8 +361,9 @@ export const NotesModal: React.FC<NotesModalProps> = ({
   }, [workspaceId]);
 
   useEffect(() => {
-    if (activeNoteId)
+    if (activeNoteId) {
       localStorage.setItem(`lastActiveNote_${workspaceId}`, activeNoteId);
+    }
   }, [activeNoteId, workspaceId]);
 
   const handleLocalUpdate = (id: string, updates: Partial<Note>) => {
