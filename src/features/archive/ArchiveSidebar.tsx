@@ -126,11 +126,28 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   };
 
   const filteredItems = useMemo(() => {
-    const sorted = [...items].sort((a, b) => b.createdAt - a.createdAt);
-    if (filter === "all") return sorted;
-    if (filter === "readLater") return sorted.filter((i) => i.readLater);
-    return sorted.filter((i) => !i.readLater);
-  }, [items, filter]);
+    // 1. Sortér
+    let result = [...items].sort((a, b) => b.createdAt - a.createdAt);
+
+    // 2. Filtrér på tabs (all, readLater, links)
+    if (filter === "readLater") {
+      result = result.filter((i) => i.readLater);
+    } else if (filter === "links") {
+      result = result.filter((i) => !i.readLater);
+    }
+
+    // 3. Filtrér på søgetekst (inputValue)
+    if (inputValue.trim()) {
+      const query = inputValue.toLowerCase();
+      result = result.filter(
+        (i) =>
+          (i.title && i.title.toLowerCase().includes(query)) ||
+          (i.url && i.url.toLowerCase().includes(query)),
+      );
+    }
+
+    return result;
+  }, [items, filter, inputValue]);
 
   return (
     <div className="flex h-full w-80 flex-col border-l border-subtle bg-surface shadow-xl transition-all">
@@ -202,7 +219,9 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             placeholder={
-              filter === "readLater" ? "Gem til læseliste..." : "Gem link..."
+              filter === "readLater"
+                ? "Søg eller gem til læseliste..."
+                : "Søg eller gem link..."
             }
             className="w-full rounded-md border border-subtle bg-surface-sunken py-2 pr-8 pl-9 text-sm text-high placeholder-low focus:border-action focus:ring-1 focus:ring-action focus:outline-none"
           />
