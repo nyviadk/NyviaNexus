@@ -261,10 +261,20 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                   />
                 </div>
                 <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-xs font-medium text-medium group-hover:text-high">
+                  {/* Titlen med hover-tooltip */}
+                  <span
+                    className="truncate text-xs font-medium text-medium group-hover:text-high"
+                    title={item.title || item.url}
+                  >
                     {item.title || item.url}
                   </span>
-                  <span className="truncate text-[10px] text-low">
+
+                  {/* URL'en med hover-tooltip */}
+                  <span
+                    className="truncate text-[10px] text-low"
+                    title={item.url}
+                  >
+                    {/* Viser kun domænet i listen, men hele URL'en på hover */}
                     {new URL(item.url).hostname}
                   </span>
                 </div>
