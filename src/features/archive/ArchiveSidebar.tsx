@@ -79,16 +79,24 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
     }
   };
 
-  // Drag & Drop Handlers
-  const handleDragOver = (e: React.DragEvent) => {
+  // Den skudsikre DND Løsning:
+  // Container trigger Enter, Overlay overtager Leave og Drop.
+  const handleDragEnter = (e: React.DragEvent) => {
     if (e.dataTransfer.types.includes("nexus/tab")) {
-      e.preventDefault(); // Nødvendig for at tillade et drop
+      e.preventDefault();
       setIsDraggingOver(true);
     }
   };
 
-  const handleDragLeave = () => {
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
     setIsDraggingOver(false);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes("nexus/tab")) {
+      e.preventDefault(); // Nødvendig for at browseren tillader et drop
+    }
   };
 
   const handleDrop = async (e: React.DragEvent) => {
@@ -192,14 +200,19 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
       className={`relative flex h-full w-80 flex-col border-l border-subtle bg-surface shadow-xl transition-all ${
         isDraggingOver ? "bg-success/10 ring-2 ring-success ring-inset" : ""
       }`}
+      onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
     >
-      {/* Drag overlay - Viser en visuel indikator, pointer-events-none forhindrer at den trigger dragLeave konstant */}
+      {/* Vores Overlay "Skjold": Overtager alt DND-ansvar, når det er aktivt */}
       {isDraggingOver && (
-        <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center bg-surface/80 pt-16 backdrop-blur-sm">
-          <div className="flex animate-pulse flex-col items-center gap-3 text-success">
+        <div
+          className="absolute inset-0 z-50 flex flex-col items-center bg-surface/80 pt-16 backdrop-blur-sm"
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+        >
+          {/* pointer-events-none her sikrer, at ikonet/teksten IKKE afbryder overlayets onDragLeave */}
+          <div className="pointer-events-none flex animate-pulse flex-col items-center gap-3 text-success">
             <Archive size={40} />
             <span className="px-4 text-center text-sm font-bold tracking-wide">
               Slip for at gemme i {filter === "links" ? "links" : "læseliste"}
