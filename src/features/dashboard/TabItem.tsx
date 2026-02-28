@@ -10,7 +10,7 @@ import {
   X,
   Eraser,
 } from "lucide-react";
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   DraggedTabPayload,
   RuntimeTabData,
@@ -23,6 +23,18 @@ import { TabData } from "../background/main";
 type ExtendedTabItemProps = TabItemProps & {
   selectionCount?: number;
   onConsume?: (tab: TabData) => Promise<void> | void;
+};
+
+// Helper til at hente favicon sikkert via Chrome Extension API
+const getFaviconUrl = (url: string) => {
+  try {
+    const u = new URL(chrome.runtime.getURL("/_favicon/"));
+    u.searchParams.set("pageUrl", url);
+    u.searchParams.set("size", "32");
+    return u.toString();
+  } catch (e) {
+    return "";
+  }
 };
 
 export const TabItem = React.memo(
@@ -44,6 +56,14 @@ export const TabItem = React.memo(
     const isPending = aiData.status === "pending";
     const categoryName = aiData.status === "completed" ? aiData.category : null;
     const isLocked = aiData.isLocked;
+
+    // State til at håndtere hvis favicon URL'en er brudt
+    const [faviconError, setFaviconError] = useState(false);
+
+    // Nulstil fejl-state hvis URL'en ændrer sig
+    useEffect(() => {
+      setFaviconError(false);
+    }, [tab.url]);
 
     const getBadgeStyle = () => {
       if (!categoryName) return {};
@@ -229,12 +249,22 @@ export const TabItem = React.memo(
               }}
             >
               <div className="flex items-center gap-3">
-                <Globe
-                  size={18}
-                  className={`${
-                    tab.isIncognito ? "text-mode-incognito" : "text-low"
-                  } shrink-0 transition-colors group-hover/link:text-action`}
-                />
+                {!faviconError ? (
+                  <img
+                    src={tab.favIconUrl || getFaviconUrl(tab.url)}
+                    alt=""
+                    className="h-4.5 w-4.5 shrink-0 rounded-sm object-contain transition-transform group-hover/link:scale-110"
+                    onError={() => setFaviconError(true)}
+                  />
+                ) : (
+                  <Globe
+                    size={18}
+                    className={`${
+                      tab.isIncognito ? "text-mode-incognito" : "text-low"
+                    } shrink-0 transition-colors group-hover/link:text-action`}
+                  />
+                )}
+
                 <div className="pointer-events-none w-full truncate text-sm font-semibold text-high transition-colors group-hover/link:text-high">
                   {tab.title}
                 </div>
