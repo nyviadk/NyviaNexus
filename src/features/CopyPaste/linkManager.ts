@@ -1,5 +1,5 @@
 import { TabData } from "../background/main";
-import { WorkspaceWindow } from "../dashboard/types";
+import { WorkspaceWindow, Note } from "../dashboard/types";
 
 export const LinkManager = {
   /**
@@ -111,5 +111,52 @@ export const LinkManager = {
         reasoning: "Importeret manuelt",
       },
     }));
+  },
+
+  /**
+   * Kopierer noter til udklipsholderen i et struktureret og LLM-venligt Markdown format.
+   */
+  async copyNotesToClipboard(
+    notes: Note[],
+    workspaceName: string,
+  ): Promise<boolean> {
+    if (!notes || notes.length === 0) return false;
+
+    // Generer et flot overblik så AI/brugeren ved hvornår det blev eksporteret
+    const exportDate = new Date().toLocaleDateString("da-DK", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    let fullText = `# 📝 Noter: ${workspaceName}\n`;
+    fullText += `*Eksporteret: ${exportDate}*\n\n`;
+    fullText += `=========================================\n\n`;
+
+    notes.forEach((note) => {
+      const noteDate = new Date(note.updatedAt).toLocaleDateString("da-DK", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      fullText += `## 📌 ${note.title || "Uden titel"}\n`;
+      fullText += `*Sidst opdateret: ${noteDate}*\n\n`;
+      fullText += `${note.content || "(Ingen tekst i denne note)"}\n\n`;
+      // Tydelig visuel separator mellem noterne
+      fullText += `-----------------------------------------\n\n`;
+    });
+
+    try {
+      await navigator.clipboard.writeText(fullText.trim());
+      return true;
+    } catch (err) {
+      console.error("Failed to copy notes: ", err);
+      return false;
+    }
   },
 };

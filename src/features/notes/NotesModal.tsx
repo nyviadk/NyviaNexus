@@ -10,10 +10,12 @@ import {
   Trash2,
   X,
   AlertCircle,
+  Copy,
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { NexusService } from "../dashboard/nexusService";
 import { Note } from "../dashboard/types";
+import { LinkManager } from "../CopyPaste/linkManager";
 
 const formatTimeAgo = (timestamp: number) => {
   try {
@@ -256,6 +258,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         <button
           onClick={onCopyLink}
           className="flex cursor-pointer items-center gap-1 text-low hover:text-action"
+          title="Kopier direkte link til disse noter"
         >
           {linkCopyStatus ? (
             <span className="text-xs text-success">Kopieret</span>
@@ -324,6 +327,7 @@ export const NotesModal: React.FC<NotesModalProps> = ({
   const [isSnapshotPending, setIsSnapshotPending] = useState(false);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [linkCopyStatus, setLinkCopyStatus] = useState(false);
+  const [notesCopyStatus, setNotesCopyStatus] = useState(false);
   const isFirstLoad = useRef(true);
 
   useEffect(() => {
@@ -426,6 +430,21 @@ export const NotesModal: React.FC<NotesModalProps> = ({
     });
   };
 
+  const handleCopyAllNotes = async () => {
+    if (notes.length === 0) return;
+
+    // Vi uddelegerer formateringen til LinkManager for renere arkitektur
+    const success = await LinkManager.copyNotesToClipboard(
+      notes,
+      workspaceName,
+    );
+
+    if (success) {
+      setNotesCopyStatus(true);
+      setTimeout(() => setNotesCopyStatus(false), 2000);
+    }
+  };
+
   const activeNote = notes.find((n) => n.id === activeNoteId);
 
   return (
@@ -442,12 +461,26 @@ export const NotesModal: React.FC<NotesModalProps> = ({
             <span className="truncate pr-2 font-semibold text-high">
               {workspaceName}
             </span>
-            <button
-              onClick={handleCreateNote}
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded bg-action text-inverted hover:bg-action-hover"
-            >
-              <Plus size={16} />
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleCopyAllNotes}
+                disabled={notes.length === 0}
+                title="Kopiér alle noter i strukturert format"
+                className={`flex h-7 w-7 items-center justify-center rounded transition-colors ${
+                  notesCopyStatus
+                    ? "bg-success text-inverted"
+                    : "cursor-pointer bg-surface text-low hover:bg-surface-hover hover:text-high disabled:cursor-not-allowed disabled:opacity-50"
+                }`}
+              >
+                {notesCopyStatus ? <Check size={14} /> : <Copy size={14} />}
+              </button>
+              <button
+                onClick={handleCreateNote}
+                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded bg-action text-inverted hover:bg-action-hover"
+              >
+                <Plus size={16} />
+              </button>
+            </div>
           </div>
           <div className="custom-scrollbar flex-1 overflow-y-auto p-2">
             {notes.map((note) => (
