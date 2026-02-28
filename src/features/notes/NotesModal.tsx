@@ -11,11 +11,13 @@ import {
   X,
   AlertCircle,
   Copy,
+  Search,
 } from "lucide-react";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import { NexusService } from "../dashboard/nexusService";
 import { Note } from "../dashboard/types";
 import { LinkManager } from "../CopyPaste/linkManager";
+import { countMatches, generateSnippet, HighlightMatch } from "./NoteHelpers";
 
 const formatTimeAgo = (timestamp: number) => {
   try {
@@ -307,7 +309,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   );
 };
 
-// --- MAIN MODAL (Uændret) ---
+// --- MAIN MODAL ---
 interface NotesModalProps {
   workspaceId: string;
   workspaceName: string;
@@ -328,6 +330,9 @@ export const NotesModal: React.FC<NotesModalProps> = ({
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [linkCopyStatus, setLinkCopyStatus] = useState(false);
   const [notesCopyStatus, setNotesCopyStatus] = useState(false);
+
+  // SØGE STATE
+  const [searchQuery, setSearchQuery] = useState("");
   const isFirstLoad = useRef(true);
 
   useEffect(() => {
@@ -388,6 +393,18 @@ export const NotesModal: React.FC<NotesModalProps> = ({
     }
   }, [activeNoteId, workspaceId]);
 
+  // Filtreringslogik for notes
+  const filteredNotes = useMemo(() => {
+    if (!searchQuery.trim()) return notes;
+    const lowerQuery = searchQuery.toLowerCase();
+
+    return notes.filter((n) => {
+      const matchTitle = n.title?.toLowerCase().includes(lowerQuery);
+      const matchContent = n.content?.toLowerCase().includes(lowerQuery);
+      return matchTitle || matchContent;
+    });
+  }, [notes, searchQuery]);
+
   const handleLocalUpdate = (id: string, updates: Partial<Note>) => {
     setNotes((prev) =>
       prev.map((n) => (n.id === id ? { ...n, ...updates } : n)),
@@ -395,6 +412,8 @@ export const NotesModal: React.FC<NotesModalProps> = ({
   };
 
   const handleCreateNote = async () => {
+    setSearchQuery(""); // Ryd søgefeltet når vi laver en ny note, så den ikke bliver filtreret væk
+
     const newNote: Note = {
       id: crypto.randomUUID(),
       title: "Ny note",
@@ -457,56 +476,132 @@ export const NotesModal: React.FC<NotesModalProps> = ({
     >
       <div className="flex h-full w-full" onClick={(e) => e.stopPropagation()}>
         <div className="flex w-64 flex-col border-r border-subtle bg-surface-elevated">
-          <div className="flex items-center justify-between border-b border-subtle p-4">
-            <span className="truncate pr-2 font-semibold text-high">
-              {workspaceName}
-            </span>
-            <div className="flex gap-2">
-              <button
-                onClick={handleCopyAllNotes}
-                disabled={notes.length === 0}
-                title="Kopiér alle noter i strukturert format"
-                className={`flex h-7 w-7 items-center justify-center rounded transition-colors ${
-                  notesCopyStatus
-                    ? "bg-success text-inverted"
-                    : "cursor-pointer bg-surface text-low hover:bg-surface-hover hover:text-high disabled:cursor-not-allowed disabled:opacity-50"
-                }`}
-              >
-                {notesCopyStatus ? <Check size={14} /> : <Copy size={14} />}
-              </button>
-              <button
-                onClick={handleCreateNote}
-                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded bg-action text-inverted hover:bg-action-hover"
-              >
-                <Plus size={16} />
-              </button>
-            </div>
-          </div>
-          <div className="custom-scrollbar flex-1 overflow-y-auto p-2">
-            {notes.map((note) => (
-              <div
-                key={note.id}
-                onClick={() => setActiveNoteId(note.id)}
-                className={`group relative mb-1 flex cursor-pointer flex-col rounded-lg p-3 transition-colors ${
-                  activeNoteId === note.id
-                    ? "bg-action/20 ring-1 ring-action"
-                    : "hover:bg-surface-hover"
-                }`}
-              >
-                <div className="truncate pr-6 text-sm font-medium text-high">
-                  {note.title || "Uden titel"}
-                </div>
-                <div className="mt-1 text-[10px] text-low">
-                  {formatTimeAgo(note.updatedAt)}
-                </div>
+          {/* Header */}
+          <div className="flex flex-col border-b border-subtle p-4 pb-3">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="truncate pr-2 font-semibold text-high">
+                {workspaceName}
+              </span>
+              <div className="flex gap-2">
                 <button
-                  onClick={(e) => handleDeleteNote(e, note.id)}
-                  className="absolute top-2 right-2 cursor-pointer opacity-0 group-hover:opacity-100 hover:text-danger"
+                  onClick={handleCopyAllNotes}
+                  disabled={notes.length === 0}
+                  title="Kopiér alle noter i strukturert format"
+                  className={`flex h-7 w-7 items-center justify-center rounded transition-colors ${
+                    notesCopyStatus
+                      ? "bg-success text-inverted"
+                      : "cursor-pointer bg-surface text-low hover:bg-surface-hover hover:text-high disabled:cursor-not-allowed disabled:opacity-50"
+                  }`}
                 >
-                  <Trash2 size={14} />
+                  {notesCopyStatus ? <Check size={14} /> : <Copy size={14} />}
+                </button>
+                <button
+                  onClick={handleCreateNote}
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded bg-action text-inverted hover:bg-action-hover"
+                >
+                  <Plus size={16} />
                 </button>
               </div>
-            ))}
+            </div>
+
+            {/* SØGEFELT */}
+            <div className="relative">
+              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2">
+                <Search size={14} className="text-low" />
+              </div>
+              <input
+                type="text"
+                placeholder="Søg i noter..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-md border border-subtle bg-surface py-1.5 pr-8 pl-8 text-xs text-high transition-all outline-none focus:border-strong focus:ring-1 focus:ring-strong"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute inset-y-0 right-0 flex cursor-pointer items-center pr-2 text-low hover:text-high"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Noteliste */}
+          <div className="custom-scrollbar flex-1 overflow-y-auto p-2">
+            {filteredNotes.length === 0 && searchQuery ? (
+              <div className="p-4 text-center text-xs text-low">
+                <p> Ingen noter matchede "{searchQuery}"</p>
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="mt-2 cursor-pointer font-bold"
+                >
+                  Ryd søgefelt
+                </button>
+              </div>
+            ) : (
+              filteredNotes.map((note) => {
+                const isSearching = searchQuery.trim().length > 0;
+
+                // Udregn total antal matches for denne specifikke note
+                const totalMatches = isSearching
+                  ? countMatches(note.title || "Uden titel", searchQuery) +
+                    countMatches(note.content, searchQuery)
+                  : 0;
+
+                return (
+                  <div
+                    key={note.id}
+                    onClick={() => setActiveNoteId(note.id)}
+                    className={`group relative mb-1 flex cursor-pointer flex-col rounded-lg p-3 transition-colors ${
+                      activeNoteId === note.id
+                        ? "bg-action/20 ring-1 ring-action"
+                        : "hover:bg-surface-hover"
+                    }`}
+                  >
+                    <div className="truncate pr-6 text-sm font-medium text-high">
+                      {isSearching ? (
+                        <HighlightMatch
+                          text={note.title || "Uden titel"}
+                          query={searchQuery}
+                        />
+                      ) : (
+                        note.title || "Uden titel"
+                      )}
+                    </div>
+
+                    {/* Snippet eller tidspunkt baseret på om vi søger */}
+                    {isSearching ? (
+                      <div className="mt-1 flex flex-col gap-1.5">
+                        <div className="line-clamp-3 text-xs leading-tight text-medium">
+                          <HighlightMatch
+                            text={generateSnippet(note.content, searchQuery)}
+                            query={searchQuery}
+                          />
+                        </div>
+                        {totalMatches > 0 && (
+                          <div className="text-[10px] font-semibold text-action">
+                            {totalMatches}{" "}
+                            {totalMatches === 1 ? "match" : "matches"} fundet
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-[10px] text-low">
+                        {formatTimeAgo(note.updatedAt)}
+                      </div>
+                    )}
+
+                    <button
+                      onClick={(e) => handleDeleteNote(e, note.id)}
+                      className="absolute top-2 right-2 cursor-pointer opacity-0 group-hover:opacity-100 hover:text-danger"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 
