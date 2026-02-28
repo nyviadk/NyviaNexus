@@ -20,11 +20,18 @@ export const CreateItemModal = ({
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Åbn dialogen native når komponenten mounter
   useEffect(() => {
     if (dialogRef.current && !dialogRef.current.open) {
       dialogRef.current.showModal();
+
+      // Native <dialog> stjæler fokus til det første fokuserbare element (krydset).
+      // Vi tvinger fokus tilbage på input-feltet efter browseren har renderet dialogen.
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
     }
   }, []);
 
@@ -99,6 +106,7 @@ export const CreateItemModal = ({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <input
+              ref={inputRef}
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
