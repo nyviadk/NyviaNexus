@@ -470,27 +470,7 @@ export const Dashboard = () => {
   ) => {
     if (!selectedWorkspace || !windows || windows.length === 0) return;
 
-    let count = 0;
-    if (format === "standard") {
-      // Bruger eksisterende funktion der bygger strengen med "###"
-      count = await LinkManager.copyWindowsToClipboard(windows);
-    } else {
-      // Bygger en Notebook-venlig liste med rene links adskilt af linjeskift
-      const urls = windows
-        .flatMap((w) => w.tabs || [])
-        .filter(
-          (t) =>
-            t.url &&
-            !t.url.startsWith("chrome") &&
-            !t.url.includes("dashboard.html"),
-        )
-        .map((t) => t.url);
-
-      if (urls.length > 0) {
-        await navigator.clipboard.writeText(urls.join("\n"));
-        count = urls.length;
-      }
-    }
+    const count = await LinkManager.copyWindowsToClipboard(windows, format);
 
     if (count > 0) {
       setHeaderCopyStatus("copied");

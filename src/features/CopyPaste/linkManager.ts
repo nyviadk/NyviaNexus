@@ -23,30 +23,55 @@ export const LinkManager = {
   },
 
   /**
-   * Kopierer et helt workspace (flere vinduer) og adskiller vinduerne med "###".
-   * Perfekt til backup og gendannelse via PasteModal.
+   * Kopierer et helt workspace (flere vinduer) til clipboard.
+   * Understøtter 'standard' (med ### separator) og 'notebook' (ren liste).
    */
-  async copyWindowsToClipboard(windows: WorkspaceWindow[]): Promise<number> {
+  async copyWindowsToClipboard(
+    windows: WorkspaceWindow[],
+    format: "standard" | "notebook" = "standard",
+  ): Promise<number> {
     if (!windows || windows.length === 0) return 0;
 
     let totalTabs = 0;
+    let finalString = "";
 
-    const windowStrings = windows.map((w) => {
-      const validUrls = (w.tabs || [])
-        .map((t) => t.url)
-        .filter((url) => url && !url.includes("dashboard.html")); // Filtrer dashboard fra
+    if (format === "standard") {
+      // Standard format med ### separation mellem vinduer
+      const windowStrings = windows.map((w) => {
+        const validUrls = (w.tabs || [])
+          .map((t) => t.url)
+          .filter(
+            (url) =>
+              url &&
+              !url.includes("dashboard.html") &&
+              !url.startsWith("chrome"),
+          );
 
-      totalTabs += validUrls.length;
-      return validUrls.join("\n");
-    });
+        totalTabs += validUrls.length;
+        return validUrls.join("\n");
+      });
 
-    // Filtrer tomme vinduer fra, så vi ikke får unødige "###" i træk
-    const nonEmptyWindows = windowStrings.filter(
-      (str) => str.trim().length > 0,
-    );
+      // Filtrer tomme vinduer fra, så vi ikke får unødige "###" i træk
+      const nonEmptyWindows = windowStrings.filter(
+        (str) => str.trim().length > 0,
+      );
 
-    // Saml det hele med vores sektions-deler
-    const finalString = nonEmptyWindows.join("\n\n###\n\n");
+      finalString = nonEmptyWindows.join("\n\n###\n\n");
+    } else {
+      // Notebook format: En flad liste af alle links adskilt af linjeskift
+      const urls = windows
+        .flatMap((w) => w.tabs || [])
+        .filter(
+          (t) =>
+            t.url &&
+            !t.url.startsWith("chrome") &&
+            !t.url.includes("dashboard.html"),
+        )
+        .map((t) => t.url);
+
+      totalTabs = urls.length;
+      finalString = urls.join("\n");
+    }
 
     if (totalTabs === 0) return 0;
 
