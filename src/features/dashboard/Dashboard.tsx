@@ -474,6 +474,36 @@ export const Dashboard = () => {
 
     if (count > 0) {
       setHeaderCopyStatus("copied");
+      setSelectedUrls([]);
+      setTimeout(() => setHeaderCopyStatus("idle"), 2000);
+    }
+  };
+
+  /**
+   * Håndterer kopiering af specifikt valgte tabs direkte som en liste.
+   */
+  const handleCopySelectedTabs = async () => {
+    if (selectedUrls.length === 0) return;
+
+    let allAvailableTabs: TabData[] = [];
+    if (viewMode === "incognito") {
+      allAvailableTabs = getFilteredInboxTabs(true);
+    } else if (viewMode === "inbox") {
+      allAvailableTabs = getFilteredInboxTabs(false);
+    } else {
+      windows.forEach((w) => {
+        if (w.tabs) allAvailableTabs.push(...w.tabs);
+      });
+    }
+
+    const selectedTabs = allAvailableTabs.filter((t) =>
+      selectedUrls.includes(t.uid),
+    );
+
+    const count = await LinkManager.copyTabsToClipboard(selectedTabs);
+    if (count > 0) {
+      setHeaderCopyStatus("copied");
+      setSelectedUrls([]);
       setTimeout(() => setHeaderCopyStatus("idle"), 2000);
     }
   };
@@ -571,6 +601,7 @@ export const Dashboard = () => {
               setDropTargetWinId={setDropTargetWinId}
               handleTabDrop={handleTabDrop}
               handleCopySpace={handleCopySpace}
+              handleCopySelectedTabs={handleCopySelectedTabs}
               totalTabsInSpace={totalTabsInSpace}
               headerCopyStatus={headerCopyStatus}
               setPasteModalData={setPasteModalData}

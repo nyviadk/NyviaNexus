@@ -35,6 +35,7 @@ interface DashboardHeaderProps {
 
   // Actions
   handleCopySpace: (format?: "standard" | "notebook") => void;
+  handleCopySelectedTabs: () => void;
   totalTabsInSpace: number;
   headerCopyStatus: "idle" | "copied";
   setPasteModalData: (data: PasteModalState) => void;
@@ -58,6 +59,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   setDropTargetWinId,
   handleTabDrop,
   handleCopySpace,
+  handleCopySelectedTabs,
   totalTabsInSpace,
   headerCopyStatus,
   setPasteModalData,
@@ -80,6 +82,9 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const hasSelected = selectedUrls.length > 0;
+  const isCopyDisabled = totalTabsInSpace === 0 && !hasSelected;
 
   return (
     <header className="flex items-end justify-between border-b border-subtle bg-surface-hover/30 p-8 pb-4">
@@ -123,12 +128,22 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             {/* --- UNIFIED COPY BUTTON --- */}
             <div className="relative" ref={menuRef}>
               <button
-                onClick={() => setShowCopyMenu(!showCopyMenu)}
-                disabled={totalTabsInSpace === 0}
+                onClick={() => {
+                  if (hasSelected) {
+                    handleCopySelectedTabs();
+                  } else {
+                    setShowCopyMenu(!showCopyMenu);
+                  }
+                }}
+                disabled={isCopyDisabled}
                 className={`flex cursor-pointer items-center gap-2 rounded-xl border border-subtle bg-surface-elevated px-4 py-2.5 text-sm font-bold transition hover:border-strong hover:text-high active:scale-95 ${
-                  totalTabsInSpace === 0 ? "cursor-not-allowed opacity-50" : ""
+                  isCopyDisabled ? "cursor-not-allowed opacity-50" : ""
                 }`}
-                title="Vælg format til kopiering"
+                title={
+                  hasSelected
+                    ? "Kopiér valgte tabs"
+                    : "Vælg format til kopiering"
+                }
               >
                 {headerCopyStatus === "copied" ? (
                   <>
@@ -138,17 +153,23 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 ) : (
                   <>
                     <Copy size={18} />
-                    <span>Kopiér Space</span>
-                    <ChevronDown
-                      size={14}
-                      className={`ml-1 transition-transform duration-200 ${showCopyMenu ? "rotate-180" : ""}`}
-                    />
+                    <span>
+                      {hasSelected
+                        ? `Kopiér (${selectedUrls.length})`
+                        : "Kopiér Space"}
+                    </span>
+                    {!hasSelected && (
+                      <ChevronDown
+                        size={14}
+                        className={`ml-1 transition-transform duration-200 ${showCopyMenu ? "rotate-180" : ""}`}
+                      />
+                    )}
                   </>
                 )}
               </button>
 
               {/* DROPDOWN MENU */}
-              {showCopyMenu && (
+              {showCopyMenu && !hasSelected && (
                 <div className="animate-in fade-in zoom-in absolute top-full right-0 z-50 mt-2 w-56 overflow-hidden rounded-xl border border-strong bg-surface shadow-2xl duration-150">
                   <div className="p-1">
                     <button
