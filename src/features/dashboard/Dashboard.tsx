@@ -190,7 +190,7 @@ export const Dashboard = () => {
       });
     };
     if (inboxData?.tabs) scanTabs(inboxData.tabs);
-    windows.forEach((w) => scanTabs(w.tabs));
+    if (windows) windows.forEach((w) => scanTabs(w.tabs));
     const existingNames = new Set(
       aiSettings.userCategories.map((c) => c.name.toLowerCase()),
     );
@@ -462,12 +462,35 @@ export const Dashboard = () => {
     }
   }, [sortedWindows, selectedWorkspace, viewMode, selectedWindowId]);
 
-  const handleCopySpace = async () => {
-    if (!selectedWorkspace) return;
-    if (!windows || windows.length === 0) return;
+  /**
+   * Opgraderet handleCopySpace der understøtter både Standard (###) og Notebook (Newline) format.
+   */
+  const handleCopySpace = async (
+    format: "standard" | "notebook" = "standard",
+  ) => {
+    if (!selectedWorkspace || !windows || windows.length === 0) return;
 
-    // Bruger vores nye funktion der automatisk bygger strengen med "###"
-    const count = await LinkManager.copyWindowsToClipboard(windows);
+    let count = 0;
+    if (format === "standard") {
+      // Bruger eksisterende funktion der bygger strengen med "###"
+      count = await LinkManager.copyWindowsToClipboard(windows);
+    } else {
+      // Bygger en Notebook-venlig liste med rene links adskilt af linjeskift
+      const urls = windows
+        .flatMap((w) => w.tabs || [])
+        .filter(
+          (t) =>
+            t.url &&
+            !t.url.startsWith("chrome") &&
+            !t.url.includes("dashboard.html"),
+        )
+        .map((t) => t.url);
+
+      if (urls.length > 0) {
+        await navigator.clipboard.writeText(urls.join("\n"));
+        count = urls.length;
+      }
+    }
 
     if (count > 0) {
       setHeaderCopyStatus("copied");

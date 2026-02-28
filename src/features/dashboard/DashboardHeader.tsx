@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   VenetianMask,
   Monitor,
@@ -8,6 +8,8 @@ import {
   CheckSquare,
   Trash2,
   Eraser,
+  ChevronDown,
+  List,
 } from "lucide-react";
 import { WindowControlStrip } from "./WindowControlStrip";
 import { auth, db } from "../../lib/firebase";
@@ -32,7 +34,7 @@ interface DashboardHeaderProps {
   handleTabDrop: (id: string) => void;
 
   // Actions
-  handleCopySpace: () => void;
+  handleCopySpace: (format?: "standard" | "notebook") => void;
   totalTabsInSpace: number;
   headerCopyStatus: "idle" | "copied";
   setPasteModalData: (data: PasteModalState) => void;
@@ -65,6 +67,20 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   setSelectedUrls,
   inboxData,
 }) => {
+  const [showCopyMenu, setShowCopyMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Luk menuen hvis man klikker udenfor
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setShowCopyMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   return (
     <header className="flex items-end justify-between border-b border-subtle bg-surface-hover/30 p-8 pb-4">
       <div className="space-y-4">
@@ -104,28 +120,71 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
       <div className="mb-1 flex gap-3">
         {viewMode === "workspace" && (
           <>
-            <button
-              onClick={handleCopySpace}
-              disabled={totalTabsInSpace === 0}
-              className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-bold transition ${
-                totalTabsInSpace === 0
-                  ? "cursor-not-allowed border-subtle bg-surface-elevated text-strong"
-                  : "cursor-pointer border-subtle bg-surface-elevated text-medium hover:border-strong hover:text-high"
-              }`}
-              title="Kopier alle tabs i dette space"
-            >
-              {headerCopyStatus === "copied" ? (
-                <>
-                  <Check size={18} className="text-success" />
-                  <span className="text-success">Kopieret!</span>
-                </>
-              ) : (
-                <>
-                  <Copy size={18} />
-                  <span>Kopier Space</span>
-                </>
+            {/* --- UNIFIED COPY BUTTON --- */}
+            <div className="relative" ref={menuRef}>
+              <button
+                onClick={() => setShowCopyMenu(!showCopyMenu)}
+                disabled={totalTabsInSpace === 0}
+                className={`flex cursor-pointer items-center gap-2 rounded-xl border border-subtle bg-surface-elevated px-4 py-2.5 text-sm font-bold transition hover:border-strong hover:text-high active:scale-95 ${
+                  totalTabsInSpace === 0 ? "cursor-not-allowed opacity-50" : ""
+                }`}
+                title="Vælg format til kopiering"
+              >
+                {headerCopyStatus === "copied" ? (
+                  <>
+                    <Check size={18} className="text-success" />
+                    <span className="text-success">Kopieret!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={18} />
+                    <span>Kopiér Space</span>
+                    <ChevronDown
+                      size={14}
+                      className={`ml-1 transition-transform duration-200 ${showCopyMenu ? "rotate-180" : ""}`}
+                    />
+                  </>
+                )}
+              </button>
+
+              {/* DROPDOWN MENU */}
+              {showCopyMenu && (
+                <div className="animate-in fade-in zoom-in absolute top-full right-0 z-50 mt-2 w-56 overflow-hidden rounded-xl border border-strong bg-surface shadow-2xl duration-150">
+                  <div className="p-1">
+                    <button
+                      onClick={() => {
+                        handleCopySpace("notebook");
+                        setShowCopyMenu(false);
+                      }}
+                      className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-medium text-medium transition-colors hover:bg-surface-elevated hover:text-high"
+                    >
+                      <List size={14} className="shrink-0" />
+                      <div className="flex flex-col">
+                        <span>Rene links (Notebook format)</span>
+                        <span className="text-[10px] opacity-60">
+                          Adskilt med linjeskift
+                        </span>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleCopySpace("standard");
+                        setShowCopyMenu(false);
+                      }}
+                      className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-medium text-medium transition-colors hover:bg-surface-elevated hover:text-high"
+                    >
+                      <Copy size={14} className="shrink-0" />
+                      <div className="flex flex-col">
+                        <span>Vinduer opdelt med ###</span>
+                        <span className="text-[10px] opacity-60">
+                          NyviaNexus format
+                        </span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
               )}
-            </button>
+            </div>
 
             <button
               onClick={() =>
