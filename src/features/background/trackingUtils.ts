@@ -15,6 +15,7 @@ const TRACKING_PARAMS: Set<string> = new Set([
   "msclkid",
   "mc_cid",
   "mc_eid",
+  "cid", // Campaign ID / Click ID (Ofte brugt af nyhedssider som TV2 til SoMe tracking)
   "_hsenc",
   "_hsmi",
   "ref",
