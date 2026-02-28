@@ -32,6 +32,10 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   const [filter, setFilter] = useState<FilterType>("readLater");
   const [isDraggingOver, setIsDraggingOver] = useState(false);
 
+  // Nyt state til at holde styr på, om den trukkede fane allerede findes i arkivet
+  const [existingDraggedItem, setExistingDraggedItem] =
+    useState<ArchiveItem | null>(null);
+
   const hasInitialized = useRef(false);
 
   // --- SMART DEFAULT LOGIC ---
@@ -84,6 +88,22 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   const handleDragEnter = (e: React.DragEvent) => {
     if (e.dataTransfer.types.includes("nexus/tab")) {
       e.preventDefault();
+
+      // Tjek lynhurtigt om fanen allerede eksisterer i vores arkiv
+      try {
+        const rawData = window.sessionStorage.getItem("draggedTab");
+        if (rawData) {
+          const tabData = JSON.parse(rawData);
+          if (tabData && tabData.url) {
+            const existing = items.find((i) => i.url === tabData.url);
+            setExistingDraggedItem(existing || null);
+          }
+        }
+      } catch (err) {
+        // Ignorer fejl under parsing (det er bare Optimistic UI der fejler i værste fald)
+        setExistingDraggedItem(null);
+      }
+
       setIsDraggingOver(true);
     }
   };
@@ -91,6 +111,7 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDraggingOver(false);
+    setExistingDraggedItem(null); // Husk at rydde state
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -102,6 +123,7 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDraggingOver(false);
+    setExistingDraggedItem(null); // Husk at rydde state
 
     if (!e.dataTransfer.types.includes("nexus/tab")) return;
 
@@ -195,10 +217,17 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
     return result;
   }, [items, filter, inputValue]);
 
+  // Hjælpe-variabel til at bestemme om det er en "Dublet advarsel" eller en "Klar til at gemme"
+  const isDuplicate = !!existingDraggedItem;
+
   return (
     <div
       className={`relative flex h-full w-80 flex-col border-l border-subtle bg-surface shadow-xl transition-all ${
-        isDraggingOver ? "bg-success/10 ring-2 ring-success ring-inset" : ""
+        isDraggingOver
+          ? isDuplicate
+            ? "bg-warning/10 ring-2 ring-warning ring-inset"
+            : "bg-success/10 ring-2 ring-success ring-inset"
+          : ""
       }`}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
@@ -212,10 +241,16 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
           onDrop={handleDrop}
         >
           {/* pointer-events-none her sikrer, at ikonet/teksten IKKE afbryder overlayets onDragLeave */}
-          <div className="pointer-events-none flex animate-pulse flex-col items-center gap-3 text-success">
+          <div
+            className={`pointer-events-none flex animate-pulse flex-col items-center gap-3 ${
+              isDuplicate ? "text-warning" : "text-success"
+            }`}
+          >
             <Archive size={40} />
             <span className="px-4 text-center text-sm font-bold tracking-wide">
-              Slip for at gemme i {filter === "links" ? "links" : "læseliste"}
+              {isDuplicate
+                ? `Findes allerede i ${existingDraggedItem.readLater ? "læseliste" : "links"}`
+                : `Slip for at gemme i ${filter === "links" ? "links" : "læseliste"}`}
             </span>
           </div>
         </div>
