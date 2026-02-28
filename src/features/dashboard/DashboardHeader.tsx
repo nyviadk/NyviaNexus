@@ -203,25 +203,6 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           </>
         )}
 
-        <button
-          onClick={() => {
-            let list = [];
-            if (viewMode === "incognito") list = getFilteredInboxTabs(true);
-            else if (viewMode === "inbox") list = getFilteredInboxTabs(false);
-            else
-              list = windows.find((w) => w.id === selectedWindowId)?.tabs || [];
-            const allU = list.map((t: TabData) => t.uid);
-            setSelectedUrls(selectedUrls.length === allU.length ? [] : allU);
-          }}
-          className={`cursor-pointer rounded-xl border bg-surface-elevated p-2.5 transition ${
-            selectedUrls.length > 0
-              ? "border-action text-action"
-              : "border-subtle hover:text-action"
-          }`}
-        >
-          <CheckSquare size={24} />
-        </button>
-
         {selectedUrls.length > 0 && (
           <button
             onClick={async () => {
@@ -278,6 +259,25 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             <Trash2 size={20} /> Slet ({selectedUrls.length})
           </button>
         )}
+
+        <button
+          onClick={() => {
+            let list = [];
+            if (viewMode === "incognito") list = getFilteredInboxTabs(true);
+            else if (viewMode === "inbox") list = getFilteredInboxTabs(false);
+            else
+              list = windows.find((w) => w.id === selectedWindowId)?.tabs || [];
+            const allU = list.map((t: TabData) => t.uid);
+            setSelectedUrls(selectedUrls.length === allU.length ? [] : allU);
+          }}
+          className={`cursor-pointer rounded-xl border bg-surface-elevated p-2.5 transition ${
+            selectedUrls.length > 0
+              ? "border-action text-action"
+              : "border-subtle hover:text-action"
+          }`}
+        >
+          <CheckSquare size={24} />
+        </button>
 
         {viewMode === "inbox" && getFilteredInboxTabs(false).length > 0 && (
           <button
