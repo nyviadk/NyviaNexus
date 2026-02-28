@@ -30,6 +30,7 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   const [inputValue, setInputValue] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [filter, setFilter] = useState<FilterType>("readLater");
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
 
   const hasInitialized = useRef(false);
 
@@ -73,6 +74,43 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
       setInputValue("");
     } catch (err) {
       console.error("Failed to add archive link", err);
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  // Drag & Drop Handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes("nexus/tab")) {
+      e.preventDefault(); // Nødvendig for at tillade et drop
+      setIsDraggingOver(true);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+
+    if (!e.dataTransfer.types.includes("nexus/tab")) return;
+
+    try {
+      const rawData = window.sessionStorage.getItem("draggedTab");
+      if (!rawData) return;
+
+      const tabData = JSON.parse(rawData);
+      if (!tabData || !tabData.url) return;
+
+      // Bestem readLater status ud fra det aktive filter (defaulter til readLater hvis den står på "all")
+      const asReadLater = filter === "links" ? false : true;
+
+      setIsAdding(true);
+      await NexusService.addArchiveItem(workspaceId, tabData.url, asReadLater);
+    } catch (err) {
+      console.error("Failed to drop tab into archive", err);
     } finally {
       setIsAdding(false);
     }
@@ -150,7 +188,26 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   }, [items, filter, inputValue]);
 
   return (
-    <div className="flex h-full w-80 flex-col border-l border-subtle bg-surface shadow-xl transition-all">
+    <div
+      className={`relative flex h-full w-80 flex-col border-l border-subtle bg-surface shadow-xl transition-all ${
+        isDraggingOver ? "bg-success/10 ring-2 ring-success ring-inset" : ""
+      }`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag overlay - Viser en visuel indikator, pointer-events-none forhindrer at den trigger dragLeave konstant */}
+      {isDraggingOver && (
+        <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center bg-surface/80 pt-16 backdrop-blur-sm">
+          <div className="flex animate-pulse flex-col items-center gap-3 text-success">
+            <Archive size={40} />
+            <span className="px-4 text-center text-sm font-bold tracking-wide">
+              Slip for at gemme i {filter === "links" ? "links" : "læseliste"}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col border-b border-subtle bg-surface">
         <div className="flex items-center justify-between p-4 pb-2">

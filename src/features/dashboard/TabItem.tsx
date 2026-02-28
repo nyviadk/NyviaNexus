@@ -147,6 +147,12 @@ export const TabItem = React.memo(
             );
             if (onDragStart) onDragStart();
           }}
+          onDragEnd={() => {
+            // Sørg altid for at slette tab-data fra session storage når drag er færdigt,
+            // uanset om det blev droppet korrekt eller ej. Det undgår fejl hvor
+            // andre drag-events (som mapper) tror, at der stadig trækkes en fane.
+            window.sessionStorage.removeItem("draggedTab");
+          }}
           className={`group flex h-full transform-gpu cursor-default flex-col overflow-hidden rounded-2xl border pt-2 pr-2 pb-4 pl-4 transition-all active:cursor-grabbing ${
             isSelected
               ? "border-action bg-action/10 shadow-lg"
