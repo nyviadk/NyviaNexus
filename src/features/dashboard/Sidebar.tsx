@@ -16,8 +16,11 @@ import {
   Inbox as InboxIcon,
   LifeBuoy,
   Loader2,
+  Lock,
+  Unlock,
   Monitor,
   PlusCircle,
+  RotateCcw,
   Save,
   Settings,
   Share2,
@@ -33,6 +36,7 @@ import { LogoutButton } from "../auth/LogoutButton";
 import { TabData, WinMapping } from "../background/main";
 import { AiHealthStatus } from "../ai/aiService";
 import { SidebarItem } from "./SidebarItem";
+import { useSidebarResize } from "../settings/useSidebarResize";
 
 interface SidebarProps {
   profiles: Profile[];
@@ -91,12 +95,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
   >(null);
   const [isInboxSyncing, setIsInboxSyncing] = useState(false);
   const [aiHealth, setAiHealth] = useState<AiHealthStatus>("up");
-
   const [folderStates, setFolderStates] = useState<Record<string, boolean>>({});
-
   const [isReordering, setIsReordering] = useState(false);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [localItems, setLocalItems] = useState<NexusItem[]>([]);
+
+  // --- RESIZE HOOK ---
+  const {
+    width,
+    isLocked,
+    isResizing,
+    isHydrated,
+    sidebarRef,
+    startResizing,
+    toggleLock,
+    resetWidth,
+  } = useSidebarResize();
 
   const [animationParent] = useAutoAnimate();
 
@@ -239,10 +253,55 @@ export const Sidebar: React.FC<SidebarProps> = ({
     [setActiveProfile, setSelectedWorkspace, setViewMode],
   );
 
+  // Forhindrer flickering ved ikke at render før vi kender bredden
+  if (!isHydrated) return null;
+
   return (
-    <aside className="relative z-20 flex w-96 shrink-0 flex-col overflow-hidden border-r border-subtle bg-surface shadow-2xl">
-      <div className="flex items-center gap-3 border-b border-subtle bg-surface-sunken/10 p-6 text-xl font-black tracking-tighter text-high uppercase backdrop-blur-sm">
-        NyviaNexus
+    <aside
+      ref={sidebarRef}
+      style={{ width: `${width}px` }}
+      className={`relative z-20 flex shrink-0 flex-col overflow-hidden border-r bg-surface shadow-2xl transition-[width,border-color] ${
+        isResizing ? "duration-0" : "duration-200"
+      } ${!isLocked ? "border-action/40" : "border-subtle"}`}
+    >
+      {/* Resize Handle - Dækker hele siden af sidebaren */}
+      {!isLocked && (
+        <div
+          onMouseDown={startResizing}
+          className={`absolute top-0 right-0 z-50 h-full w-1.5 cursor-col-resize transition-all hover:bg-action/30 ${
+            isResizing ? "w-2 bg-action" : "bg-transparent"
+          }`}
+          title="Træk for at ændre bredde"
+        />
+      )}
+
+      {/* Header med Lock & Reset */}
+      <div className="flex items-center justify-between border-b border-subtle bg-surface-sunken/10 p-6 backdrop-blur-sm">
+        <div className="text-xl font-black tracking-tighter text-high uppercase">
+          NyviaNexus
+        </div>
+        <div className="flex items-center gap-1">
+          {!isLocked && (
+            <button
+              onClick={resetWidth}
+              className="cursor-pointer rounded-lg p-2 text-low transition-all hover:bg-surface-hover hover:text-medium"
+              title="Nulstil bredde"
+            >
+              <RotateCcw size={16} />
+            </button>
+          )}
+          <button
+            onClick={toggleLock}
+            className={`cursor-pointer rounded-lg p-2 transition-all ${
+              isLocked
+                ? "text-low hover:text-medium"
+                : "bg-action/10 text-action shadow-sm ring-1 ring-action/20"
+            }`}
+            title={isLocked ? "Lås sidebar op" : "Lås sidebar bredde"}
+          >
+            {isLocked ? <Lock size={16} /> : <Unlock size={16} />}
+          </button>
+        </div>
       </div>
 
       {chromeWindows.length > 0 && (
