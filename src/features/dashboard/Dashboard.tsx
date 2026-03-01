@@ -8,7 +8,7 @@ import {
 import { Loader2, Monitor } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { PasteModal } from "./PasteModal";
+import { PasteModal } from "../CopyPaste/PasteModal";
 import { ArchiveSidebar } from "../archive/ArchiveSidebar";
 import { CategoryMenu } from "../categories/CategoryMenu";
 import { DashboardHeader } from "./DashboardHeader";

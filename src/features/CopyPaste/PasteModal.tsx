@@ -22,9 +22,9 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db } from "../../lib/firebase";
-import { LinkManager } from "../CopyPaste/linkManager";
+import { LinkManager } from "./linkManager";
 import { WinMapping } from "../background/main";
-import { WorkspaceWindow } from "./types";
+import { WorkspaceWindow } from "../dashboard/types";
 
 interface PasteModalProps {
   workspaceId: string;
