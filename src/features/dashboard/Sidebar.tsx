@@ -13,6 +13,7 @@ import {
   ArrowUpCircle,
   Eye,
   FolderPlus,
+  GripVertical,
   Inbox as InboxIcon,
   LifeBuoy,
   Loader2,
@@ -262,17 +263,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
       style={{ width: `${width}px` }}
       className={`relative z-20 flex shrink-0 flex-col overflow-hidden border-r bg-surface shadow-2xl transition-[width,border-color] ${
         isResizing ? "duration-0" : "duration-200"
-      } ${!isLocked ? "border-action/40" : "border-subtle"}`}
+      } ${!isLocked ? "border-action" : "border-subtle"}`}
     >
-      {/* Resize Handle - Dækker hele siden af sidebaren */}
+      {/* --- RESIZE HANDLE SYSTEM --- */}
       {!isLocked && (
         <div
           onMouseDown={startResizing}
-          className={`absolute top-0 right-0 z-50 h-full w-1.5 cursor-col-resize transition-all hover:bg-action/30 ${
-            isResizing ? "w-2 bg-action" : "bg-transparent"
+          className={`group absolute top-0 right-0 z-50 h-full w-2 cursor-col-resize transition-all hover:bg-action/10 ${
+            isResizing ? "w-4 bg-action/20" : ""
           }`}
           title="Træk for at ændre bredde"
-        />
+        >
+          {/* Den visuelle streg (vokser når man dragger eller hoover) */}
+          <div
+            className={`absolute top-0 right-0 h-full w-0.5 transition-all group-hover:bg-action ${
+              isResizing ? "w-1 bg-action" : "bg-action/30"
+            }`}
+          />
+
+          {/* Pill-handle i midten for visuel indikation */}
+          <div className="absolute top-1/2 right-1 flex h-12 w-3 -translate-y-1/2 items-center justify-center rounded-full bg-action shadow-lg transition-transform group-hover:scale-110">
+            <GripVertical size={12} className="text-inverted" />
+          </div>
+
+          {/* Subtle Glow Effect langs kanten når ulåst */}
+          {!isResizing && (
+            <div className="pointer-events-none absolute top-0 right-0 h-full w-4 bg-linear-to-l from-action/5 to-transparent" />
+          )}
+        </div>
       )}
 
       {/* Header med Lock & Reset */}
@@ -284,22 +302,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {!isLocked && (
             <button
               onClick={resetWidth}
-              className="cursor-pointer rounded-lg p-2 text-low transition-all hover:bg-surface-hover hover:text-medium"
+              className="group flex cursor-pointer items-center gap-1.5 rounded-lg border border-strong/50 bg-surface-elevated px-2 py-1.5 text-[10px] font-bold tracking-widest text-low uppercase transition-all hover:border-action hover:text-action"
               title="Nulstil bredde"
             >
-              <RotateCcw size={16} />
+              <RotateCcw
+                size={14}
+                className="transition-transform group-hover:-rotate-45"
+              />
+              Reset
             </button>
           )}
           <button
             onClick={toggleLock}
-            className={`cursor-pointer rounded-lg p-2 transition-all ${
+            className={`flex cursor-pointer items-center gap-2 rounded-lg p-2 transition-all ${
               isLocked
-                ? "text-low hover:text-medium"
-                : "bg-action/10 text-action shadow-sm ring-1 ring-action/20"
+                ? "text-low hover:bg-surface-hover hover:text-medium"
+                : "bg-action text-inverted shadow-lg ring-2 shadow-action/20 ring-action/50"
             }`}
             title={isLocked ? "Lås sidebar op" : "Lås sidebar bredde"}
           >
-            {isLocked ? <Lock size={16} /> : <Unlock size={16} />}
+            {isLocked ? (
+              <Lock size={16} />
+            ) : (
+              <>
+                <Unlock size={16} />
+                <span className="text-[10px] font-black uppercase">Ulåst</span>
+              </>
+            )}
           </button>
         </div>
       </div>
