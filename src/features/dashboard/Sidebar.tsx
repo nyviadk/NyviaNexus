@@ -115,6 +115,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const [animationParent] = useAutoAnimate();
 
+  // Dynamisk check for om vi skal vise tekst i knapper (vigtigt for smalle skærme)
+  const isCompactHeader = width < 340;
+
   useEffect(() => {
     if (!isReordering) {
       setLocalItems(items);
@@ -276,13 +279,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           {/* Den visuelle streg (vokser når man dragger eller hoover) */}
           <div
-            className={`absolute top-0 right-0 h-full w-0.5 transition-all group-hover:bg-action ${
-              isResizing ? "w-1 bg-action" : "bg-action/30"
+            className={`absolute top-0 right-0 h-full transition-all group-hover:bg-action ${
+              isResizing ? "w-1 bg-action" : "w-0.5 bg-action/30"
             }`}
           />
 
           {/* Pill-handle i midten for visuel indikation */}
-          <div className="absolute top-1/2 right-1 flex h-12 w-3 -translate-y-1/2 items-center justify-center rounded-full bg-action shadow-lg transition-transform group-hover:scale-110">
+          <div className="absolute top-1/2 -right-1 flex h-12 w-3 -translate-y-1/2 items-center justify-center rounded-full bg-action shadow-lg transition-transform group-hover:scale-110">
             <GripVertical size={12} className="text-inverted" />
           </div>
 
@@ -293,31 +296,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      {/* Header med Lock & Reset */}
-      <div className="flex items-center justify-between border-b border-subtle bg-surface-sunken/10 p-6 backdrop-blur-sm">
-        <div className="text-xl font-black tracking-tighter text-high uppercase">
+      {/* Header med Adaptiv Logik */}
+      <div className="flex items-center justify-between gap-2 border-b border-subtle bg-surface-sunken/10 p-6 backdrop-blur-sm">
+        <div className="min-w-0 flex-1 truncate text-xl font-black tracking-tighter text-high uppercase">
           NyviaNexus
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1.5">
           {!isLocked && (
             <button
               onClick={resetWidth}
-              className="group flex cursor-pointer items-center gap-1.5 rounded-lg border border-strong/50 bg-surface-elevated px-2 py-1.5 text-[10px] font-bold tracking-widest text-low uppercase transition-all hover:border-action hover:text-action"
+              className={`group flex shrink-0 cursor-pointer items-center justify-center rounded-lg border border-strong/50 bg-surface-elevated transition-all hover:border-action hover:text-action ${
+                isCompactHeader ? "p-2" : "gap-1.5 px-2 py-1.5"
+              }`}
               title="Nulstil bredde"
             >
               <RotateCcw
                 size={14}
                 className="transition-transform group-hover:-rotate-45"
               />
-              Reset
+              {!isCompactHeader && (
+                <span className="text-[10px] font-bold tracking-widest uppercase">
+                  Reset
+                </span>
+              )}
             </button>
           )}
           <button
             onClick={toggleLock}
-            className={`flex cursor-pointer items-center gap-2 rounded-lg p-2 transition-all ${
+            className={`flex shrink-0 cursor-pointer items-center justify-center rounded-lg transition-all ${
               isLocked
-                ? "text-low hover:bg-surface-hover hover:text-medium"
-                : "bg-action text-inverted shadow-lg ring-2 shadow-action/20 ring-action/50"
+                ? "p-2 text-low hover:bg-surface-hover hover:text-medium"
+                : `bg-action text-inverted shadow-lg ring-2 shadow-action/20 ring-action/50 ${
+                    isCompactHeader ? "p-2" : "gap-2 px-2 py-1.5"
+                  }`
             }`}
             title={isLocked ? "Lås sidebar op" : "Lås sidebar bredde"}
           >
@@ -326,7 +337,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             ) : (
               <>
                 <Unlock size={16} />
-                <span className="text-[10px] font-black uppercase">Ulåst</span>
+                {!isCompactHeader && (
+                  <span className="text-[10px] font-black uppercase">
+                    Ulåst
+                  </span>
+                )}
               </>
             )}
           </button>
