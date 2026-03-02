@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { X, FolderPlus, Monitor, Loader2 } from "lucide-react";
+import { X, FolderPlus, Monitor, Loader2, ChevronRight } from "lucide-react";
 import { NexusService } from "../dashboard/nexusService";
 
 interface CreateItemModalProps {
   type: "folder" | "workspace";
   activeProfile: string;
   parentId: string;
+  parentPath: string[];
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -14,6 +15,7 @@ export const CreateItemModal = ({
   type,
   activeProfile,
   parentId,
+  parentPath,
   onClose,
   onSuccess,
 }: CreateItemModalProps) => {
@@ -74,7 +76,7 @@ export const CreateItemModal = ({
       }}
       className="open:animate-in open:fade-in open:zoom-in-95 m-auto bg-transparent p-0 backdrop:bg-background/80 backdrop:backdrop-blur-sm"
     >
-      <div className="w-full max-w-sm rounded-2xl border border-strong bg-surface-elevated p-6 shadow-2xl">
+      <div className="w-full max-w-md rounded-2xl border border-strong bg-surface-elevated p-6 shadow-2xl">
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3 text-high">
             <div
@@ -105,6 +107,30 @@ export const CreateItemModal = ({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
+            {/* Opgraderet Breadcrumb visning */}
+            <div className="mb-3 flex items-start gap-2 text-[11px] font-medium tracking-wider text-low">
+              <span className="mt-1.5 shrink-0">Placeres i:</span>
+              <div className="flex flex-1 flex-wrap items-center gap-1.5 rounded-lg border border-subtle bg-surface-sunken/50 px-2.5 py-1.5">
+                {parentPath.map((segment, idx) => (
+                  <div key={idx} className="flex min-w-0 items-center gap-1.5">
+                    <span
+                      className={`max-w-37.5 truncate ${
+                        idx === parentPath.length - 1
+                          ? "font-bold text-high"
+                          : "text-medium"
+                      }`}
+                      title={segment}
+                    >
+                      {segment}
+                    </span>
+                    {idx < parentPath.length - 1 && (
+                      <ChevronRight size={12} className="shrink-0 text-low" />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <input
               ref={inputRef}
               autoFocus

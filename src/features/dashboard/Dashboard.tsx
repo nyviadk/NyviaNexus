@@ -31,7 +31,7 @@ import {
   WorkspaceWindow,
 } from "./types";
 
-import { windowOrderCache } from "./utils";
+import { windowOrderCache, getParentPath } from "./utils";
 import { useNexusData } from "./useNexusData";
 import { AiData, TabData, WinMapping } from "../background/main";
 import { AiService } from "../ai/aiService";
@@ -111,6 +111,11 @@ export const Dashboard = () => {
   } | null>(null);
 
   const hasLoadedUrlParams = useRef(false);
+
+  const parentPath = useMemo(
+    () => getParentPath(modalParentId, items),
+    [modalParentId, items],
+  );
 
   // --- ACTIONS HOOK ---
   const {
@@ -544,6 +549,7 @@ export const Dashboard = () => {
   if (!user) {
     return <AuthLayout />;
   }
+
   return (
     <div className="relative flex h-screen overflow-hidden bg-background font-sans text-high">
       {restorationStatus && (
@@ -673,6 +679,7 @@ export const Dashboard = () => {
           type={modalType}
           activeProfile={activeProfile}
           parentId={modalParentId}
+          parentPath={parentPath}
           onClose={() => {
             setModalType(null);
             setModalParentId("root");
