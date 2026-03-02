@@ -399,6 +399,7 @@ export const Dashboard = () => {
       setViewMode("workspace");
       // Sæt specifikt vindue ID hvis angivet, ellers nulstil
       setSelectedWindowId(specificWindowId || null);
+      setSelectedUrls([]);
       setWindows([]);
       setArchiveItems([]);
       setNotesModalTarget(null);
