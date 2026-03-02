@@ -129,7 +129,7 @@ const updateMenuTitles = async (
       return updateMenuTitles(windowId, retries - 1);
     } else {
       console.warn(
-        "Nexus: Kunne ikke opdatere Context Menu titler efter flere forsøg.",
+        "Nexus: Kunne ikke opdatere Context Menu titler visuelt efter 5 forsøg. Fallback til standard titler (Funktionalitet virker stadig perfekt).",
         e,
       );
     }
