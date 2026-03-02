@@ -26,6 +26,9 @@ type SafeListenerWrapper = <T extends any[]>(
   fn: (...args: T) => Promise<void> | void,
 ) => (...args: T) => Promise<void> | void;
 
+// Asynkron pause-hjælper til vores retry-logik
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // --- INITIALIZATION ---
 export const initializeContextMenus = (
   createSafeListener: SafeListenerWrapper,
@@ -37,20 +40,20 @@ export const initializeContextMenus = (
 };
 
 const setupMenus = async () => {
-  chrome.contextMenus.removeAll(() => {
-    // 1. Send to Notes: KUN ved selection
-    chrome.contextMenus.create({
-      id: "nexus-send-to-notes",
-      title: "Send to Notes",
-      contexts: ["selection"],
-    });
-    // 2. Read It Later: KUN Page og Link
+  await chrome.contextMenus.removeAll();
 
-    chrome.contextMenus.create({
-      id: "nexus-read-later",
-      title: "Read It Later",
-      contexts: ["page", "link"],
-    });
+  // 1. Send to Notes: KUN ved selection
+  chrome.contextMenus.create({
+    id: "nexus-send-to-notes",
+    title: "Send to Notes",
+    contexts: ["selection"],
+  });
+  // 2. Read It Later: KUN Page og Link
+
+  chrome.contextMenus.create({
+    id: "nexus-read-later",
+    title: "Read It Later",
+    contexts: ["page", "link"],
   });
 };
 
@@ -98,7 +101,11 @@ const getWorkspaceName = async (
   return "Workspace";
 };
 
-const updateMenuTitles = async (windowId: number) => {
+// Sat op til 5 retries som sikkerhed (total 1 sekund)
+const updateMenuTitles = async (
+  windowId: number,
+  retries: number = 5,
+): Promise<void> => {
   const auth = getAuth();
   const user = auth.currentUser;
   if (!user) return;
@@ -107,14 +114,25 @@ const updateMenuTitles = async (windowId: number) => {
   const name = await getWorkspaceName(user.uid, workspaceId);
 
   try {
-    chrome.contextMenus.update("nexus-send-to-notes", {
+    await chrome.contextMenus.update("nexus-send-to-notes", {
       title: `Send to Notes (${name})`,
     });
-    chrome.contextMenus.update("nexus-read-later", {
+    await chrome.contextMenus.update("nexus-read-later", {
       title: `Read It Later (${name})`,
     });
   } catch (e) {
-    // Ignorer
+    if (retries > 0) {
+      console.log(
+        `Nexus: Context Menu ikke klar endnu. Prøver igen om 200ms... (${retries} forsøg tilbage)`,
+      );
+      await delay(200);
+      return updateMenuTitles(windowId, retries - 1);
+    } else {
+      console.warn(
+        "Nexus: Kunne ikke opdatere Context Menu titler efter flere forsøg.",
+        e,
+      );
+    }
   }
 };
 
