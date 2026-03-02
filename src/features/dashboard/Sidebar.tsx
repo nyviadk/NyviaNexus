@@ -641,7 +641,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <button
                       onClick={async () => {
                         if (!auth.currentUser) return;
-                        if (confirm("Nulstil hierarki?")) {
+                        const userInput = prompt(
+                          'Advarsel: Dette vil flytte alle dine spaces og mapper til roden.\n\nSkriv "nulstil" herunder for at bekræfte:',
+                        );
+                        if (userInput === "nulstil") {
                           const b = writeBatch(db);
                           items
                             .filter(
@@ -662,6 +665,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               ),
                             );
                           await b.commit();
+                        } else if (userInput !== null) {
+                          alert("Input matchede ikke. Nulstilling annulleret.");
                         }
                       }}
                       className="cursor-pointer transition-transform hover:scale-110"
