@@ -80,7 +80,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   const [showCopyMenu, setShowCopyMenu] = useState(false);
   const [includeArchivedCopy, setIncludeArchivedCopy] = useState(false);
 
-  // NYT: Styrer visningen af arkiverede vinduer globalt i headeren
+  // Styrer visningen af arkiverede vinduer globalt i headeren
   const [showArchived, setShowArchived] = useState(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
@@ -100,8 +100,10 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   const isCopyDisabled = totalTabsInSpace === 0 && !hasSelected;
 
   return (
-    <header className="flex items-end justify-between border-b border-subtle bg-surface-hover/30 p-8 pb-4">
-      <div className="space-y-4">
+    <header className="flex flex-col gap-6 border-b border-subtle bg-surface-hover/30 p-8 pb-4">
+      {/* RÆKKE 1: Titel og Handlinger samlet på én linje */}
+      <div className="flex w-full items-center justify-between">
+        {/* Venstre: Titel */}
         <div className="flex items-center gap-3">
           <h2 className="flex items-center gap-3 text-4xl font-bold tracking-tight text-high">
             {viewMode === "incognito" ? (
@@ -122,7 +124,320 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           )}
         </div>
 
-        {viewMode === "workspace" && (
+        {/* Højre: Handlinger */}
+        <div className="flex items-center gap-3">
+          {viewMode === "workspace" && (
+            <>
+              {/* --- UNIFIED COPY BUTTON --- */}
+              <div className="relative" ref={menuRef}>
+                <button
+                  onClick={() => {
+                    if (hasSelected) {
+                      handleCopySelectedTabs();
+                    } else {
+                      setShowCopyMenu(!showCopyMenu);
+                    }
+                  }}
+                  disabled={isCopyDisabled}
+                  className={`flex cursor-pointer items-center gap-2 rounded-xl border border-subtle bg-surface-elevated px-4 py-2.5 text-sm font-bold transition hover:border-strong hover:text-high active:scale-95 ${
+                    isCopyDisabled ? "cursor-not-allowed opacity-50" : ""
+                  }`}
+                  title={
+                    hasSelected
+                      ? "Kopiér valgte tabs"
+                      : "Vælg format til kopiering"
+                  }
+                >
+                  {headerCopyStatus === "copied" ? (
+                    <>
+                      <Check size={18} className="text-success" />
+                      <span className="text-success">Kopieret!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={18} />
+                      <span>
+                        {hasSelected
+                          ? `Kopiér (${selectedUrls.length})`
+                          : "Kopiér Space"}
+                      </span>
+                      {!hasSelected && (
+                        <ChevronDown
+                          size={14}
+                          className={`ml-1 transition-transform duration-200 ${showCopyMenu ? "rotate-180" : ""}`}
+                        />
+                      )}
+                    </>
+                  )}
+                </button>
+
+                {/* DROPDOWN MENU */}
+                {showCopyMenu && !hasSelected && (
+                  <div className="animate-in fade-in zoom-in absolute top-full right-0 z-50 mt-2 w-64 overflow-hidden rounded-xl border border-strong bg-surface shadow-2xl duration-150">
+                    <div className="border-b border-subtle bg-surface-elevated px-3 py-2">
+                      <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-medium transition hover:text-high">
+                        <input
+                          type="checkbox"
+                          checked={includeArchivedCopy}
+                          onChange={(e) =>
+                            setIncludeArchivedCopy(e.target.checked)
+                          }
+                          className="rounded border-subtle bg-surface text-action focus:ring-action"
+                        />
+                        Inkludér arkiverede vinduer
+                      </label>
+                    </div>
+                    <div className="p-1">
+                      <button
+                        onClick={() => {
+                          handleCopySpace("notebook", includeArchivedCopy);
+                          setShowCopyMenu(false);
+                        }}
+                        className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-medium text-medium transition-colors hover:bg-surface-elevated hover:text-high"
+                      >
+                        <List size={14} className="shrink-0" />
+                        <div className="flex flex-col">
+                          <span>Rene links (Notebook format)</span>
+                          <span className="text-[10px] opacity-60">
+                            Adskilt med linjeskift
+                          </span>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => {
+                          handleCopySpace("standard", includeArchivedCopy);
+                          setShowCopyMenu(false);
+                        }}
+                        className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-medium text-medium transition-colors hover:bg-surface-elevated hover:text-high"
+                      >
+                        <Copy size={14} className="shrink-0" />
+                        <div className="flex flex-col">
+                          <span>Vinduer opdelt med ###</span>
+                          <span className="text-[10px] opacity-60">
+                            NyviaNexus format
+                          </span>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={() =>
+                  setPasteModalData({
+                    workspaceId: selectedWorkspace!.id,
+                    windowId: null,
+                  })
+                }
+                className="flex cursor-pointer items-center gap-2 rounded-xl border border-subtle bg-surface-elevated px-4 py-2.5 text-sm font-bold text-mode-incognito transition hover:border-mode-incognito hover:bg-mode-incognito/20 hover:text-mode-incognito-high"
+                title="Indsæt links i nyt vindue"
+              >
+                <ClipboardPaste size={18} />
+                <span>Indsæt</span>
+              </button>
+
+              {/* ARKIV KNAP */}
+              {archivedWindows.length > 0 && (
+                <button
+                  onClick={() => setShowArchived(!showArchived)}
+                  className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-bold transition ${
+                    showArchived
+                      ? "border-warning bg-warning/10 text-warning"
+                      : "border-subtle bg-surface-elevated text-low hover:border-strong hover:text-high"
+                  }`}
+                  title={
+                    showArchived
+                      ? "Skjul arkiverede vinduer"
+                      : "Vis arkiverede vinduer"
+                  }
+                >
+                  <Archive size={18} />
+                  <span>
+                    {showArchived ? "Skjul Arkiv" : "Vis Arkiv"} (
+                    {archivedWindows.length})
+                  </span>
+                </button>
+              )}
+
+              <div className="mx-1 h-8 w-px bg-subtle"></div>
+            </>
+          )}
+
+          {selectedUrls.length > 0 && (
+            <button
+              onClick={async () => {
+                if (!auth.currentUser) return;
+                const uid = auth.currentUser.uid;
+                if (confirm(`Slet ${selectedUrls.length} tabs?`)) {
+                  const sId =
+                    viewMode === "inbox" || viewMode === "incognito"
+                      ? "global"
+                      : selectedWindowId;
+                  chrome.runtime.sendMessage({
+                    type: "CLOSE_PHYSICAL_TABS",
+                    payload: {
+                      uids: selectedUrls,
+                      internalWindowId: sId,
+                      tabIds: [],
+                    },
+                  });
+                  if (viewMode === "inbox" || viewMode === "incognito") {
+                    const f = (inboxData?.tabs || []).filter(
+                      (t: TabData) => !selectedUrls.includes(t.uid),
+                    );
+                    await updateDoc(
+                      doc(db, "users", uid, "inbox_data", "global"),
+                      {
+                        tabs: f,
+                      },
+                    );
+                  } else if (selectedWorkspace && selectedWindowId) {
+                    const w = windows.find(
+                      (win) => win.id === selectedWindowId,
+                    );
+                    if (w) {
+                      const f = w.tabs.filter(
+                        (t: TabData) => !selectedUrls.includes(t.uid),
+                      );
+                      await updateDoc(
+                        doc(
+                          db,
+                          "users",
+                          uid,
+                          "workspaces_data",
+                          selectedWorkspace.id,
+                          "windows",
+                          selectedWindowId,
+                        ),
+                        { tabs: f },
+                      );
+                    }
+                  }
+                  setSelectedUrls([]);
+                }
+              }}
+              className="flex cursor-pointer items-center gap-2 rounded-xl bg-danger/20 px-4 py-2.5 text-sm font-bold text-danger transition hover:bg-danger hover:text-inverted"
+            >
+              <Trash2 size={20} /> Slet ({selectedUrls.length})
+            </button>
+          )}
+
+          <button
+            onClick={() => {
+              let list = [];
+              if (viewMode === "incognito") list = getFilteredInboxTabs(true);
+              else if (viewMode === "inbox") list = getFilteredInboxTabs(false);
+              else
+                list =
+                  windows.find((w) => w.id === selectedWindowId)?.tabs || [];
+              const allU = list.map((t: TabData) => t.uid);
+              setSelectedUrls(selectedUrls.length === allU.length ? [] : allU);
+            }}
+            className={`cursor-pointer rounded-xl border bg-surface-elevated p-2.5 transition ${
+              selectedUrls.length > 0
+                ? "border-action text-action"
+                : "border-subtle hover:text-action"
+            }`}
+          >
+            <CheckSquare size={24} />
+          </button>
+
+          {viewMode === "inbox" && getFilteredInboxTabs(false).length > 0 && (
+            <button
+              onClick={async () => {
+                if (!auth.currentUser) return;
+                const uid = auth.currentUser.uid;
+                if (confirm("Ryd Inbox?")) {
+                  const ref = doc(db, "users", uid, "inbox_data", "global");
+                  const snap = await getDoc(ref);
+                  const allTabs = snap.data()?.tabs || [];
+                  const tabsToDelete = allTabs.filter(
+                    (t: TabData) => !t.isIncognito,
+                  );
+                  const tabsToKeep = allTabs.filter(
+                    (t: TabData) => t.isIncognito,
+                  );
+
+                  chrome.runtime.sendMessage({
+                    type: "CLOSE_PHYSICAL_TABS",
+                    payload: {
+                      uids: tabsToDelete.map((t: TabData) => t.uid),
+                      internalWindowId: "global",
+                    },
+                  });
+
+                  await updateDoc(ref, { tabs: tabsToKeep });
+                }
+              }}
+              className="flex cursor-pointer items-center gap-2 rounded-xl bg-mode-inbox/20 px-4 py-2.5 text-sm font-bold text-mode-inbox transition hover:bg-mode-inbox hover:text-inverted"
+            >
+              <Eraser size={20} /> Ryd Inbox
+            </button>
+          )}
+
+          {viewMode === "incognito" &&
+            getFilteredInboxTabs(true).length > 0 && (
+              <button
+                onClick={async () => {
+                  if (!auth.currentUser) return;
+                  const uid = auth.currentUser.uid;
+                  if (confirm("Ryd Incognito liste?")) {
+                    const ref = doc(db, "users", uid, "inbox_data", "global");
+                    const snap = await getDoc(ref);
+                    const allTabs = snap.data()?.tabs || [];
+                    const tabsToDelete = allTabs.filter(
+                      (t: TabData) => t.isIncognito,
+                    );
+                    const tabsToKeep = allTabs.filter(
+                      (t: TabData) => !t.isIncognito,
+                    );
+
+                    chrome.runtime.sendMessage({
+                      type: "CLOSE_PHYSICAL_TABS",
+                      payload: {
+                        uids: tabsToDelete.map((t: TabData) => t.uid),
+                        internalWindowId: "global",
+                      },
+                    });
+
+                    await updateDoc(ref, { tabs: tabsToKeep });
+                  }
+                }}
+                className="flex cursor-pointer items-center gap-2 rounded-xl bg-mode-incognito/20 px-4 py-2.5 text-sm font-bold text-mode-incognito transition hover:bg-mode-incognito hover:text-inverted"
+              >
+                <Eraser size={20} /> Ryd Incognito
+              </button>
+            )}
+
+          {viewMode === "workspace" && (
+            <button
+              onClick={() =>
+                chrome.runtime.sendMessage({
+                  type: "OPEN_WORKSPACE",
+                  payload: {
+                    workspaceId: selectedWorkspace?.id,
+                    windows: activeWindows, // Åbner kun aktive vinduer
+                    name: selectedWorkspace?.name,
+                  },
+                })
+              }
+              disabled={activeWindows.length === 0}
+              className={`min-w-max cursor-pointer rounded-xl px-6 py-2.5 text-sm font-bold shadow-lg transition ${
+                activeWindows.length === 0
+                  ? "cursor-not-allowed bg-surface-elevated text-low shadow-none"
+                  : "bg-action text-inverted shadow-action/20 hover:bg-action-hover active:scale-95"
+              }`}
+            >
+              Åbn Space
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* RÆKKE 2: Vindues-oversigten (har nu hele bredden) */}
+      {viewMode === "workspace" && (
+        <div className="w-full">
           <WindowControlStrip
             activeWindows={activeWindows}
             archivedWindows={archivedWindows}
@@ -133,315 +448,10 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             setDropTargetWinId={setDropTargetWinId}
             handleTabDrop={handleTabDrop}
             selectedWorkspace={selectedWorkspace}
-            showArchived={showArchived} // Giver state videre
+            showArchived={showArchived}
           />
-        )}
-      </div>
-
-      <div className="mb-1 flex gap-3">
-        {viewMode === "workspace" && (
-          <>
-            {/* --- UNIFIED COPY BUTTON --- */}
-            <div className="relative" ref={menuRef}>
-              <button
-                onClick={() => {
-                  if (hasSelected) {
-                    handleCopySelectedTabs();
-                  } else {
-                    setShowCopyMenu(!showCopyMenu);
-                  }
-                }}
-                disabled={isCopyDisabled}
-                className={`flex cursor-pointer items-center gap-2 rounded-xl border border-subtle bg-surface-elevated px-4 py-2.5 text-sm font-bold transition hover:border-strong hover:text-high active:scale-95 ${
-                  isCopyDisabled ? "cursor-not-allowed opacity-50" : ""
-                }`}
-                title={
-                  hasSelected
-                    ? "Kopiér valgte tabs"
-                    : "Vælg format til kopiering"
-                }
-              >
-                {headerCopyStatus === "copied" ? (
-                  <>
-                    <Check size={18} className="text-success" />
-                    <span className="text-success">Kopieret!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy size={18} />
-                    <span>
-                      {hasSelected
-                        ? `Kopiér (${selectedUrls.length})`
-                        : "Kopiér Space"}
-                    </span>
-                    {!hasSelected && (
-                      <ChevronDown
-                        size={14}
-                        className={`ml-1 transition-transform duration-200 ${showCopyMenu ? "rotate-180" : ""}`}
-                      />
-                    )}
-                  </>
-                )}
-              </button>
-
-              {/* DROPDOWN MENU */}
-              {showCopyMenu && !hasSelected && (
-                <div className="animate-in fade-in zoom-in absolute top-full right-0 z-50 mt-2 w-64 overflow-hidden rounded-xl border border-strong bg-surface shadow-2xl duration-150">
-                  <div className="border-b border-subtle bg-surface-elevated px-3 py-2">
-                    <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-medium transition hover:text-high">
-                      <input
-                        type="checkbox"
-                        checked={includeArchivedCopy}
-                        onChange={(e) =>
-                          setIncludeArchivedCopy(e.target.checked)
-                        }
-                        className="rounded border-subtle bg-surface text-action focus:ring-action"
-                      />
-                      Inkludér arkiverede vinduer
-                    </label>
-                  </div>
-                  <div className="p-1">
-                    <button
-                      onClick={() => {
-                        handleCopySpace("notebook", includeArchivedCopy);
-                        setShowCopyMenu(false);
-                      }}
-                      className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-medium text-medium transition-colors hover:bg-surface-elevated hover:text-high"
-                    >
-                      <List size={14} className="shrink-0" />
-                      <div className="flex flex-col">
-                        <span>Rene links (Notebook format)</span>
-                        <span className="text-[10px] opacity-60">
-                          Adskilt med linjeskift
-                        </span>
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => {
-                        handleCopySpace("standard", includeArchivedCopy);
-                        setShowCopyMenu(false);
-                      }}
-                      className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-medium text-medium transition-colors hover:bg-surface-elevated hover:text-high"
-                    >
-                      <Copy size={14} className="shrink-0" />
-                      <div className="flex flex-col">
-                        <span>Vinduer opdelt med ###</span>
-                        <span className="text-[10px] opacity-60">
-                          NyviaNexus format
-                        </span>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <button
-              onClick={() =>
-                setPasteModalData({
-                  workspaceId: selectedWorkspace!.id,
-                  windowId: null,
-                })
-              }
-              className="flex cursor-pointer items-center gap-2 rounded-xl border border-subtle bg-surface-elevated px-4 py-2.5 text-sm font-bold text-mode-incognito transition hover:border-mode-incognito hover:bg-mode-incognito/20 hover:text-mode-incognito-high"
-              title="Indsæt links i nyt vindue"
-            >
-              <ClipboardPaste size={18} />
-              <span>Indsæt</span>
-            </button>
-
-            {/* ARKIV KNAP: Nu med tydelig "Vis / Skjul" tekst */}
-            {archivedWindows.length > 0 && (
-              <button
-                onClick={() => setShowArchived(!showArchived)}
-                className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-bold transition ${
-                  showArchived
-                    ? "border-warning bg-warning/10 text-warning"
-                    : "border-subtle bg-surface-elevated text-low hover:border-strong hover:text-high"
-                }`}
-                title={
-                  showArchived
-                    ? "Skjul arkiverede vinduer"
-                    : "Vis arkiverede vinduer"
-                }
-              >
-                <Archive size={18} />
-                <span>
-                  {showArchived ? "Skjul Arkiv" : "Vis Arkiv"} (
-                  {archivedWindows.length})
-                </span>
-              </button>
-            )}
-
-            <div className="mx-1 h-8 w-px bg-subtle"></div>
-          </>
-        )}
-
-        {selectedUrls.length > 0 && (
-          <button
-            onClick={async () => {
-              if (!auth.currentUser) return;
-              const uid = auth.currentUser.uid;
-              if (confirm(`Slet ${selectedUrls.length} tabs?`)) {
-                const sId =
-                  viewMode === "inbox" || viewMode === "incognito"
-                    ? "global"
-                    : selectedWindowId;
-                chrome.runtime.sendMessage({
-                  type: "CLOSE_PHYSICAL_TABS",
-                  payload: {
-                    uids: selectedUrls,
-                    internalWindowId: sId,
-                    tabIds: [],
-                  },
-                });
-                if (viewMode === "inbox" || viewMode === "incognito") {
-                  const f = (inboxData?.tabs || []).filter(
-                    (t: TabData) => !selectedUrls.includes(t.uid),
-                  );
-                  await updateDoc(
-                    doc(db, "users", uid, "inbox_data", "global"),
-                    {
-                      tabs: f,
-                    },
-                  );
-                } else if (selectedWorkspace && selectedWindowId) {
-                  const w = windows.find((win) => win.id === selectedWindowId);
-                  if (w) {
-                    const f = w.tabs.filter(
-                      (t: TabData) => !selectedUrls.includes(t.uid),
-                    );
-                    await updateDoc(
-                      doc(
-                        db,
-                        "users",
-                        uid,
-                        "workspaces_data",
-                        selectedWorkspace.id,
-                        "windows",
-                        selectedWindowId,
-                      ),
-                      { tabs: f },
-                    );
-                  }
-                }
-                setSelectedUrls([]);
-              }
-            }}
-            className="flex cursor-pointer items-center gap-2 rounded-xl bg-danger/20 px-4 py-2.5 text-sm font-bold text-danger transition hover:bg-danger hover:text-inverted"
-          >
-            <Trash2 size={20} /> Slet ({selectedUrls.length})
-          </button>
-        )}
-
-        <button
-          onClick={() => {
-            let list = [];
-            if (viewMode === "incognito") list = getFilteredInboxTabs(true);
-            else if (viewMode === "inbox") list = getFilteredInboxTabs(false);
-            else
-              list = windows.find((w) => w.id === selectedWindowId)?.tabs || [];
-            const allU = list.map((t: TabData) => t.uid);
-            setSelectedUrls(selectedUrls.length === allU.length ? [] : allU);
-          }}
-          className={`cursor-pointer rounded-xl border bg-surface-elevated p-2.5 transition ${
-            selectedUrls.length > 0
-              ? "border-action text-action"
-              : "border-subtle hover:text-action"
-          }`}
-        >
-          <CheckSquare size={24} />
-        </button>
-
-        {viewMode === "inbox" && getFilteredInboxTabs(false).length > 0 && (
-          <button
-            onClick={async () => {
-              if (!auth.currentUser) return;
-              const uid = auth.currentUser.uid;
-              if (confirm("Ryd Inbox?")) {
-                const ref = doc(db, "users", uid, "inbox_data", "global");
-                const snap = await getDoc(ref);
-                const allTabs = snap.data()?.tabs || [];
-                const tabsToDelete = allTabs.filter(
-                  (t: TabData) => !t.isIncognito,
-                );
-                const tabsToKeep = allTabs.filter(
-                  (t: TabData) => t.isIncognito,
-                );
-
-                chrome.runtime.sendMessage({
-                  type: "CLOSE_PHYSICAL_TABS",
-                  payload: {
-                    uids: tabsToDelete.map((t: TabData) => t.uid),
-                    internalWindowId: "global",
-                  },
-                });
-
-                await updateDoc(ref, { tabs: tabsToKeep });
-              }
-            }}
-            className="flex cursor-pointer items-center gap-2 rounded-xl bg-mode-inbox/20 px-4 py-2.5 text-sm font-bold text-mode-inbox transition hover:bg-mode-inbox hover:text-inverted"
-          >
-            <Eraser size={20} /> Ryd Inbox
-          </button>
-        )}
-
-        {viewMode === "incognito" && getFilteredInboxTabs(true).length > 0 && (
-          <button
-            onClick={async () => {
-              if (!auth.currentUser) return;
-              const uid = auth.currentUser.uid;
-              if (confirm("Ryd Incognito liste?")) {
-                const ref = doc(db, "users", uid, "inbox_data", "global");
-                const snap = await getDoc(ref);
-                const allTabs = snap.data()?.tabs || [];
-                const tabsToDelete = allTabs.filter(
-                  (t: TabData) => t.isIncognito,
-                );
-                const tabsToKeep = allTabs.filter(
-                  (t: TabData) => !t.isIncognito,
-                );
-
-                chrome.runtime.sendMessage({
-                  type: "CLOSE_PHYSICAL_TABS",
-                  payload: {
-                    uids: tabsToDelete.map((t: TabData) => t.uid),
-                    internalWindowId: "global",
-                  },
-                });
-
-                await updateDoc(ref, { tabs: tabsToKeep });
-              }
-            }}
-            className="flex cursor-pointer items-center gap-2 rounded-xl bg-mode-incognito/20 px-4 py-2.5 text-sm font-bold text-mode-incognito transition hover:bg-mode-incognito hover:text-inverted"
-          >
-            <Eraser size={20} /> Ryd Incognito
-          </button>
-        )}
-
-        {viewMode === "workspace" && (
-          <button
-            onClick={() =>
-              chrome.runtime.sendMessage({
-                type: "OPEN_WORKSPACE",
-                payload: {
-                  workspaceId: selectedWorkspace?.id,
-                  windows: activeWindows, // Åbner kun aktive vinduer nu
-                  name: selectedWorkspace?.name,
-                },
-              })
-            }
-            disabled={activeWindows.length === 0}
-            className={`min-w-max cursor-pointer rounded-xl px-6 py-2.5 text-sm font-bold shadow-lg transition ${
-              activeWindows.length === 0
-                ? "cursor-not-allowed bg-surface-elevated text-low shadow-none"
-                : "bg-action text-inverted shadow-action/20 hover:bg-action-hover active:scale-95"
-            }`}
-          >
-            Åbn Space
-          </button>
-        )}
-      </div>
+        </div>
+      )}
     </header>
   );
 };
