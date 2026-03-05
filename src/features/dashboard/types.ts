@@ -82,6 +82,7 @@ export interface WorkspaceWindow {
   lastActive?: Timestamp;
   createdAt: Timestamp;
   name?: string; // Dette felt bruger vi til det brugerdefinerede navn
+  isArchived?: boolean;
 }
 
 export interface UserCategory {

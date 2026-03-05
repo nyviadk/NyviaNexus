@@ -45,6 +45,7 @@ export interface FirestoreWindowData {
   lastActive: Timestamp; // Firestore Timestamp
   createdAt: Timestamp;
   name?: string; // Optional, often derived from workspace
+  isArchived?: boolean; // NYT: Arkivering
 }
 
 export interface WinMapping {
@@ -168,11 +169,18 @@ type BackgroundMessage =
       };
     }
   | {
-      // NY MESSAGE: Håndterer omdøbning af workspaces (Cache + AI reset)
+      // Håndterer omdøbning af workspaces (Cache + AI reset)
       type: "WORKSPACE_RENAMED";
       payload: {
         workspaceId: string;
         newName: string;
+      };
+    }
+  | {
+      // Tvinger baggrundsscriptet til at reindeksere når der arkiveres
+      type: "REINDEX_WORKSPACE";
+      payload: {
+        workspaceId: string;
       };
     };
 
@@ -327,9 +335,15 @@ async function reindexWorkspaceWindows(workspaceId: string, uid: string) {
   const snap = await getDocs(q);
 
   // 2. Lav et map over korrekt indeks: internalId -> rækkefølge (1, 2, 3...)
+  // FIX: Vi tæller kun IKKE-arkiverede vinduer
   const correctIndices = new Map<string, number>();
-  snap.docs.forEach((doc, idx) => {
-    correctIndices.set(doc.id, idx + 1);
+  let activeIndex = 1;
+  snap.docs.forEach((doc) => {
+    const data = doc.data() as FirestoreWindowData;
+    if (!data.isArchived) {
+      correctIndices.set(doc.id, activeIndex);
+      activeIndex++;
+    }
   });
 
   // 3. Opdater activeWindows in-memory map
@@ -338,7 +352,7 @@ async function reindexWorkspaceWindows(workspaceId: string, uid: string) {
     if (mapping.workspaceId === workspaceId) {
       const newIndex = correctIndices.get(mapping.internalWindowId);
 
-      // Hvis vinduet findes i DB, opdater indeks
+      // Hvis vinduet findes i DB som aktivt, opdater indeks
       if (newIndex !== undefined) {
         if (mapping.index !== newIndex) {
           console.log(
@@ -550,7 +564,7 @@ async function validateAndCleanupState() {
           continue;
 
         if (activeWindows.has(win.id)) {
-          // Dette er et Workspace-vindue -> Force Sync (Opdaterer Firestore med nye tabs)
+          // Dette er Workspace-vindue -> Force Sync
           await saveToFirestore(win.id, false, true);
         } else {
           // Dette er et Inbox-vindue -> Scan for nye tabs til Inbox
@@ -1738,6 +1752,19 @@ chrome.runtime.onMessage.addListener(
           break;
         }
 
+        case "REINDEX_WORKSPACE": {
+          ensureStateHydrated().then(async () => {
+            const uid = auth.currentUser?.uid;
+            if (uid) {
+              await reindexWorkspaceWindows(message.payload.workspaceId, uid);
+              sendResponse({ success: true });
+            } else {
+              sendResponse({ success: false });
+            }
+          });
+          break;
+        }
+
         case "DELETE_AND_CLOSE_WINDOW": {
           ensureStateHydrated().then(async () => {
             const uid = auth.currentUser?.uid;
@@ -2408,7 +2435,12 @@ async function getWorkspaceWindowIndex(
       orderBy("createdAt", "asc"),
     );
     const snap = await getDocs(q);
-    const idx = snap.docs.findIndex((d) => d.id === internalWindowId);
+
+    // Filtrer arkiverede fra, før vi finder indekset
+    const activeDocs = snap.docs.filter(
+      (d) => !(d.data() as FirestoreWindowData).isArchived,
+    );
+    const idx = activeDocs.findIndex((d) => d.id === internalWindowId);
     return idx !== -1 ? idx + 1 : 1;
   } catch (e) {
     return 1;

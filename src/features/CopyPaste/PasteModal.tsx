@@ -76,6 +76,8 @@ export const PasteModal = ({
       const isPhysicallyOpen = activeMappings.some(
         ([_, mapping]) => mapping.internalWindowId === w.id,
       );
+      // NOTE: 'windows' proppen indeholder kun aktive vinduer pga. vores filtrering i Dashboard,
+      // så vi behøver ikke at tjekke isArchived her.
       return isEmpty && !isPhysicallyOpen;
     });
   }, [windows, activeMappings, isCreatingNew]);
@@ -267,8 +269,10 @@ export const PasteModal = ({
             const isPhysicallyOpen = activeMappings.some(
               ([_, mapping]) => mapping.internalWindowId === wId,
             );
+            // Tjek: Sørg for at vi ikke overskriver et arkiveret vindue
+            const isArchived = !!data.isArchived;
 
-            if (isEmpty && !isPhysicallyOpen) {
+            if (isEmpty && !isPhysicallyOpen && !isArchived) {
               reusedWindowId = wId;
             }
           } else {
@@ -281,7 +285,8 @@ export const PasteModal = ({
               const isOpen = activeMappings.some(
                 ([_, mapping]) => mapping.internalWindowId === d.id,
               );
-              return isEmpty && !isOpen;
+              const isArchived = !!dData.isArchived; // Sørg for at springe arkiverede over
+              return isEmpty && !isOpen && !isArchived;
             });
 
             if (target) reusedWindowId = target.id;

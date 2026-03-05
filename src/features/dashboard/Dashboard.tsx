@@ -185,6 +185,16 @@ export const Dashboard = () => {
     });
   }, [windows]);
 
+  // Opdel vinduer i aktive og arkiverede
+  const activeWindows = useMemo(
+    () => sortedWindows.filter((w) => !w.isArchived),
+    [sortedWindows],
+  );
+  const archivedWindows = useMemo(
+    () => sortedWindows.filter((w) => w.isArchived),
+    [sortedWindows],
+  );
+
   // --- AI CATEGORY AGGREGATION ---
   const aiGeneratedCategories = useMemo(() => {
     const uniqueAiCats = new Set<string>();
@@ -213,21 +223,22 @@ export const Dashboard = () => {
     [aiSettings.userCategories, aiGeneratedCategories],
   );
 
+  // Vi tæller kun tabs i aktive vinduer for det primære overblik
   const totalTabsInSpace = useMemo(
-    () => windows.reduce((acc, win) => acc + (win.tabs?.length || 0), 0),
-    [windows],
+    () => activeWindows.reduce((acc, win) => acc + (win.tabs?.length || 0), 0),
+    [activeWindows],
   );
 
-  // Update Cache logic
-  if (selectedWorkspace && sortedWindows.length > 0) {
+  // Update Cache logic (nu baseret på activeWindows for korrekt indexering)
+  if (selectedWorkspace && activeWindows.length > 0) {
     const wsId = selectedWorkspace.id;
-    const signature = `${wsId}-${sortedWindows.length}-${sortedWindows
+    const signature = `${wsId}-${activeWindows.length}-${activeWindows
       .map((w) => w.id)
       .join("")}`;
     const cached = windowOrderCache.get(wsId);
     if (!cached || cached.signature !== signature) {
       const indices: Record<string, number> = {};
-      sortedWindows.forEach((w, i) => {
+      activeWindows.forEach((w, i) => {
         indices[w.id] = i + 1;
       });
       windowOrderCache.set(wsId, { signature, indices });
@@ -454,7 +465,7 @@ export const Dashboard = () => {
     if (
       selectedWorkspace &&
       viewMode === "workspace" &&
-      sortedWindows.length > 0 &&
+      activeWindows.length > 0 &&
       !selectedWindowId
     ) {
       if (!hasLoadedUrlParams.current) return;
@@ -462,21 +473,24 @@ export const Dashboard = () => {
       const params = new URLSearchParams(window.location.search);
       const preselect = params.get("windowId");
 
-      if (preselect && sortedWindows.some((w) => w.id === preselect))
+      if (preselect && activeWindows.some((w) => w.id === preselect))
         setSelectedWindowId(preselect);
-      else if (sortedWindows[0]?.id) setSelectedWindowId(sortedWindows[0].id);
+      else if (activeWindows[0]?.id) setSelectedWindowId(activeWindows[0].id);
     }
-  }, [sortedWindows, selectedWorkspace, viewMode, selectedWindowId]);
+  }, [activeWindows, selectedWorkspace, viewMode, selectedWindowId]);
 
   /**
    * Opgraderet handleCopySpace der understøtter både Standard (###) og Notebook (Newline) format.
+   * Modtager nu også et boolean for, om arkiverede vinduer skal med.
    */
   const handleCopySpace = async (
     format: "standard" | "notebook" = "standard",
+    includeArchived: boolean = false,
   ) => {
-    if (!selectedWorkspace || !windows || windows.length === 0) return;
+    const winsToCopy = includeArchived ? sortedWindows : activeWindows;
+    if (!selectedWorkspace || !winsToCopy || winsToCopy.length === 0) return;
 
-    const count = await LinkManager.copyWindowsToClipboard(windows, format);
+    const count = await LinkManager.copyWindowsToClipboard(winsToCopy, format);
 
     if (count > 0) {
       setHeaderCopyStatus("copied");
@@ -601,7 +615,9 @@ export const Dashboard = () => {
               viewMode={viewMode}
               selectedWorkspace={selectedWorkspace}
               isViewingCurrent={isViewingCurrent}
-              sortedWindows={sortedWindows}
+              activeWindows={activeWindows}
+              archivedWindows={archivedWindows}
+              activeMappings={activeMappings}
               selectedWindowId={selectedWindowId}
               setSelectedWindowId={setSelectedWindowId}
               dropTargetWinId={dropTargetWinId}
@@ -613,7 +629,7 @@ export const Dashboard = () => {
               headerCopyStatus={headerCopyStatus}
               setPasteModalData={setPasteModalData}
               getFilteredInboxTabs={getFilteredInboxTabs}
-              windows={windows}
+              windows={windows} // TabGrid sletninger og selektioner kan stadig finde tabs her
               selectedUrls={selectedUrls}
               setSelectedUrls={setSelectedUrls}
               inboxData={inboxData}
@@ -626,7 +642,7 @@ export const Dashboard = () => {
                 <TabGrid
                   viewMode={viewMode}
                   getFilteredInboxTabs={getFilteredInboxTabs}
-                  windows={windows}
+                  windows={activeWindows} // Sikrer at TabGrid KUN viser tabs for aktive vinduer
                   selectedWindowId={selectedWindowId}
                   selectedWorkspace={selectedWorkspace}
                   selectedUrls={selectedUrls}
@@ -724,7 +740,7 @@ export const Dashboard = () => {
           windowId={pasteModalData.windowId}
           windowName={pasteModalData.windowName}
           activeMappings={activeMappings}
-          windows={sortedWindows}
+          windows={activeWindows}
           onClose={() => setPasteModalData(null)}
         />
       )}

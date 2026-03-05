@@ -10,6 +10,7 @@ import {
   Eraser,
   ChevronDown,
   List,
+  Archive,
 } from "lucide-react";
 import { WindowControlStrip } from "./WindowControlStrip";
 import { auth, db } from "../../lib/firebase";
@@ -20,13 +21,15 @@ import {
   WorkspaceWindow,
 } from "@/features/dashboard/types";
 import { PasteModalState } from "@/features/dashboard/Dashboard";
-import { TabData } from "../background/main";
+import { TabData, WinMapping } from "../background/main";
 
 interface DashboardHeaderProps {
   viewMode: "workspace" | "inbox" | "incognito";
   selectedWorkspace: NexusItem | null;
   isViewingCurrent: boolean;
-  sortedWindows: WorkspaceWindow[];
+  activeWindows: WorkspaceWindow[];
+  archivedWindows: WorkspaceWindow[];
+  activeMappings: [number, WinMapping][];
   selectedWindowId: string | null;
   setSelectedWindowId: (id: string | null) => void;
   dropTargetWinId: string | null;
@@ -34,7 +37,10 @@ interface DashboardHeaderProps {
   handleTabDrop: (id: string) => void;
 
   // Actions
-  handleCopySpace: (format?: "standard" | "notebook") => void;
+  handleCopySpace: (
+    format?: "standard" | "notebook",
+    includeArchived?: boolean,
+  ) => void;
   handleCopySelectedTabs: () => void;
   totalTabsInSpace: number;
   headerCopyStatus: "idle" | "copied";
@@ -42,7 +48,7 @@ interface DashboardHeaderProps {
 
   // Selection & Clean up
   getFilteredInboxTabs: (incognito: boolean) => TabData[];
-  windows: WorkspaceWindow[];
+  windows: WorkspaceWindow[]; // Bibeholder fuld reference til alt sletning mv
   selectedUrls: string[];
   setSelectedUrls: (urls: string[]) => void;
   inboxData: InboxData | null;
@@ -52,7 +58,9 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   viewMode,
   selectedWorkspace,
   isViewingCurrent,
-  sortedWindows,
+  activeWindows,
+  archivedWindows,
+  activeMappings,
   selectedWindowId,
   setSelectedWindowId,
   dropTargetWinId,
@@ -70,6 +78,11 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   inboxData,
 }) => {
   const [showCopyMenu, setShowCopyMenu] = useState(false);
+  const [includeArchivedCopy, setIncludeArchivedCopy] = useState(false);
+
+  // NYT: Styrer visningen af arkiverede vinduer globalt i headeren
+  const [showArchived, setShowArchived] = useState(false);
+
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Luk menuen hvis man klikker udenfor
@@ -111,13 +124,16 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 
         {viewMode === "workspace" && (
           <WindowControlStrip
-            sortedWindows={sortedWindows}
+            activeWindows={activeWindows}
+            archivedWindows={archivedWindows}
+            activeMappings={activeMappings}
             selectedWindowId={selectedWindowId}
             setSelectedWindowId={setSelectedWindowId}
             dropTargetWinId={dropTargetWinId}
             setDropTargetWinId={setDropTargetWinId}
             handleTabDrop={handleTabDrop}
             selectedWorkspace={selectedWorkspace}
+            showArchived={showArchived} // Giver state videre
           />
         )}
       </div>
@@ -170,11 +186,24 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 
               {/* DROPDOWN MENU */}
               {showCopyMenu && !hasSelected && (
-                <div className="animate-in fade-in zoom-in absolute top-full right-0 z-50 mt-2 w-56 overflow-hidden rounded-xl border border-strong bg-surface shadow-2xl duration-150">
+                <div className="animate-in fade-in zoom-in absolute top-full right-0 z-50 mt-2 w-64 overflow-hidden rounded-xl border border-strong bg-surface shadow-2xl duration-150">
+                  <div className="border-b border-subtle bg-surface-elevated px-3 py-2">
+                    <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-medium transition hover:text-high">
+                      <input
+                        type="checkbox"
+                        checked={includeArchivedCopy}
+                        onChange={(e) =>
+                          setIncludeArchivedCopy(e.target.checked)
+                        }
+                        className="rounded border-subtle bg-surface text-action focus:ring-action"
+                      />
+                      Inkludér arkiverede vinduer
+                    </label>
+                  </div>
                   <div className="p-1">
                     <button
                       onClick={() => {
-                        handleCopySpace("notebook");
+                        handleCopySpace("notebook", includeArchivedCopy);
                         setShowCopyMenu(false);
                       }}
                       className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-medium text-medium transition-colors hover:bg-surface-elevated hover:text-high"
@@ -189,7 +218,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                     </button>
                     <button
                       onClick={() => {
-                        handleCopySpace("standard");
+                        handleCopySpace("standard", includeArchivedCopy);
                         setShowCopyMenu(false);
                       }}
                       className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-medium text-medium transition-colors hover:bg-surface-elevated hover:text-high"
@@ -220,6 +249,30 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
               <ClipboardPaste size={18} />
               <span>Indsæt</span>
             </button>
+
+            {/* ARKIV KNAP: Nu med tydelig "Vis / Skjul" tekst */}
+            {archivedWindows.length > 0 && (
+              <button
+                onClick={() => setShowArchived(!showArchived)}
+                className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-bold transition ${
+                  showArchived
+                    ? "border-warning bg-warning/10 text-warning"
+                    : "border-subtle bg-surface-elevated text-low hover:border-strong hover:text-high"
+                }`}
+                title={
+                  showArchived
+                    ? "Skjul arkiverede vinduer"
+                    : "Vis arkiverede vinduer"
+                }
+              >
+                <Archive size={18} />
+                <span>
+                  {showArchived ? "Skjul Arkiv" : "Vis Arkiv"} (
+                  {archivedWindows.length})
+                </span>
+              </button>
+            )}
+
             <div className="mx-1 h-8 w-px bg-subtle"></div>
           </>
         )}
@@ -373,14 +426,14 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 type: "OPEN_WORKSPACE",
                 payload: {
                   workspaceId: selectedWorkspace?.id,
-                  windows: sortedWindows,
+                  windows: activeWindows, // Åbner kun aktive vinduer nu
                   name: selectedWorkspace?.name,
                 },
               })
             }
-            disabled={windows.length === 0}
+            disabled={activeWindows.length === 0}
             className={`min-w-max cursor-pointer rounded-xl px-6 py-2.5 text-sm font-bold shadow-lg transition ${
-              windows.length === 0
+              activeWindows.length === 0
                 ? "cursor-not-allowed bg-surface-elevated text-low shadow-none"
                 : "bg-action text-inverted shadow-action/20 hover:bg-action-hover active:scale-95"
             }`}

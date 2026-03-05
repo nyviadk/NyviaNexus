@@ -208,6 +208,44 @@ export const NexusService = {
     }
   },
 
+  // Funktion til at arkivere/gendanne et specifikt vindue i et workspace
+  async toggleArchiveWindow(
+    workspaceId: string,
+    windowId: string,
+    isArchived: boolean,
+  ) {
+    const uid = getUid();
+    const winRef = doc(
+      db,
+      "users",
+      uid,
+      "workspaces_data",
+      workspaceId,
+      "windows",
+      windowId,
+    );
+
+    await updateDoc(winRef, {
+      isArchived: isArchived,
+    });
+
+    // Send besked til background script om at genberegne indekser
+    // da arkiverede vinduer ikke længere tæller med i nummereringen
+    try {
+      chrome.runtime.sendMessage({
+        type: "REINDEX_WORKSPACE",
+        payload: {
+          workspaceId: workspaceId,
+        },
+      });
+    } catch (e) {
+      console.warn(
+        "Could not request workspace reindex after archive toggle",
+        e,
+      );
+    }
+  },
+
   async moveItem(itemId: string, newParentId: string) {
     const uid = getUid();
     if (!itemId || itemId === newParentId) return Promise.resolve();

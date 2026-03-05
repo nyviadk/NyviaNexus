@@ -1,26 +1,41 @@
-import { Check, ExternalLink, Loader2, PlusCircle, Trash2 } from "lucide-react";
+import {
+  Check,
+  ExternalLink,
+  Loader2,
+  PlusCircle,
+  Trash2,
+  Archive,
+  ArchiveRestore,
+} from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { DraggedTabPayload, NexusItem, WorkspaceWindow } from "./types";
 import { NexusService } from "./nexusService";
+import { WinMapping } from "../background/main";
 
 interface WindowControlStripProps {
-  sortedWindows: WorkspaceWindow[];
+  activeWindows: WorkspaceWindow[];
+  archivedWindows: WorkspaceWindow[];
+  activeMappings: [number, WinMapping][];
   selectedWindowId: string | null;
   setSelectedWindowId: (id: string | null) => void;
   dropTargetWinId: string | null;
   setDropTargetWinId: (id: string | null) => void;
   handleTabDrop: (winId: string) => void;
   selectedWorkspace: NexusItem | null;
+  showArchived: boolean; // Modtager nu state fra headeren
 }
 
 export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
-  sortedWindows,
+  activeWindows,
+  archivedWindows,
+  activeMappings,
   selectedWindowId,
   setSelectedWindowId,
   dropTargetWinId,
   setDropTargetWinId,
   handleTabDrop,
   selectedWorkspace,
+  showArchived,
 }) => {
   const [isPlusOver, setIsPlusOver] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -86,12 +101,15 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
 
   return (
     <div className="flex flex-wrap items-center gap-4">
-      {sortedWindows.map((win, idx) => {
+      {/* --- AKTIVE VINDUER --- */}
+      {activeWindows.map((win, idx) => {
         const isDropTarget = dropTargetWinId === win.id;
         const isSourceWindow = selectedWindowId === win.id;
         const isEditing = editingId === win.id;
+        const isOpen = activeMappings.some(
+          ([_, m]) => m.internalWindowId === win.id,
+        );
 
-        // VI SKIFTER FRA HARDKODET SLATE TIL DINE TEMA-TOKENS
         let borderClass = "border-subtle hover:border-strong";
         let bgClass = "bg-surface-elevated";
         let shadowClass = "";
@@ -106,7 +124,6 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
             shadowClass = "shadow-lg shadow-success/10";
           }
         } else if (isSourceWindow) {
-          // AKTIV: Bruger nu din Action-farve i stedet for Info for at sikre tema-konsistens
           bgClass = "bg-action/10";
           borderClass = "border-action";
           shadowClass = "shadow-md shadow-action/5";
@@ -186,8 +203,31 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                 )}
               </div>
 
+              {/* KNAPPER TIL AKTIVT VINDUE (KUN 2 KNAPPER) */}
               {!isEditing && (
                 <div className="flex items-center gap-1">
+                  {/* Arkiver-knap vises KUN hvis vinduet ikke er fysisk åbent. "Slet" er helt fjernet herfra. */}
+                  {!isOpen && (
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (selectedWorkspace) {
+                          await NexusService.toggleArchiveWindow(
+                            selectedWorkspace.id,
+                            win.id,
+                            true,
+                          );
+                          if (selectedWindowId === win.id)
+                            setSelectedWindowId(null);
+                        }
+                      }}
+                      className="cursor-pointer rounded-lg p-1.5 text-low opacity-100 transition-all hover:bg-surface-hover hover:text-warning"
+                      title="Arkivér vindue"
+                    >
+                      <Archive size={18} />
+                    </button>
+                  )}
+
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -206,24 +246,6 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                   >
                     <ExternalLink size={18} />
                   </button>
-
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (confirm("Slet vindue?"))
-                        chrome.runtime.sendMessage({
-                          type: "DELETE_AND_CLOSE_WINDOW",
-                          payload: {
-                            workspaceId: selectedWorkspace?.id,
-                            internalWindowId: win.id,
-                          },
-                        });
-                    }}
-                    className="cursor-pointer rounded-lg p-1.5 text-low opacity-0 transition-all group-hover:opacity-100 hover:bg-danger/20 hover:text-danger"
-                    title="Slet vindue"
-                  >
-                    <Trash2 size={18} />
-                  </button>
                 </div>
               )}
             </div>
@@ -231,6 +253,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
         );
       })}
 
+      {/* --- PLUS KNAPPEN --- */}
       <button
         onDragOver={(e) => {
           e.preventDefault();
@@ -271,6 +294,65 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
           <PlusCircle size={28} className={isPlusOver ? "animate-pulse" : ""} />
         )}
       </button>
+
+      {/* --- ARKIVEREDE VINDUER --- */}
+      {showArchived && archivedWindows.length > 0 && (
+        <>
+          <div className="mx-2 h-10 w-px rounded-full bg-subtle"></div>
+          {archivedWindows.map((win) => (
+            <div
+              key={win.id}
+              className="group flex cursor-default items-center gap-3 rounded-xl border border-dashed border-warning/30 bg-surface-sunken px-4 py-3 opacity-60 transition-all hover:border-warning/60 hover:bg-surface hover:opacity-100"
+            >
+              <div className="flex flex-col">
+                <span className="text-xs font-bold text-medium">
+                  {win.name || "Arkiveret vindue"}
+                </span>
+                <span className="mt-1 text-[10px] text-low">
+                  {win.tabs?.length || 0} tabs
+                </span>
+              </div>
+
+              {/* KNAPPER TIL ARKIVERET VINDUE (KUN 2 KNAPPER) */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (selectedWorkspace) {
+                      await NexusService.toggleArchiveWindow(
+                        selectedWorkspace.id,
+                        win.id,
+                        false,
+                      );
+                    }
+                  }}
+                  className="cursor-pointer rounded-lg p-1.5 text-low opacity-0 transition-all group-hover:opacity-100 hover:bg-success/20 hover:text-success"
+                  title="Gendan vindue"
+                >
+                  <ArchiveRestore size={18} />
+                </button>
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (confirm("Slet arkiveret vindue permanent?"))
+                      chrome.runtime.sendMessage({
+                        type: "DELETE_AND_CLOSE_WINDOW",
+                        payload: {
+                          workspaceId: selectedWorkspace?.id,
+                          internalWindowId: win.id,
+                        },
+                      });
+                  }}
+                  className="cursor-pointer rounded-lg p-1.5 text-low opacity-0 transition-all group-hover:opacity-100 hover:bg-danger/20 hover:text-danger"
+                  title="Slet permanent"
+                >
+                  <Trash2 size={18} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 };
