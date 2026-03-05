@@ -109,6 +109,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
         const isOpen = activeMappings.some(
           ([_, m]) => m.internalWindowId === win.id,
         );
+        const isEmpty = !win.tabs || win.tabs.length === 0;
 
         let borderClass = "border-subtle hover:border-strong";
         let bgClass = "bg-surface-elevated";
@@ -203,30 +204,49 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                 )}
               </div>
 
-              {/* KNAPPER TIL AKTIVT VINDUE (KUN 2 KNAPPER) */}
+              {/* KNAPPER TIL AKTIVT VINDUE */}
               {!isEditing && (
                 <div className="flex items-center gap-1">
-                  {/* Arkiver-knap vises KUN hvis vinduet ikke er fysisk åbent. "Slet" er helt fjernet herfra. */}
-                  {!isOpen && (
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        if (selectedWorkspace) {
-                          await NexusService.toggleArchiveWindow(
-                            selectedWorkspace.id,
-                            win.id,
-                            true,
-                          );
-                          if (selectedWindowId === win.id)
-                            setSelectedWindowId(null);
-                        }
-                      }}
-                      className="cursor-pointer rounded-lg p-1.5 text-low opacity-100 transition-all hover:bg-surface-hover hover:text-warning"
-                      title="Arkivér vindue"
-                    >
-                      <Archive size={18} />
-                    </button>
-                  )}
+                  {/* Vis Arkiv hvis der er faner, Vis Slet hvis vinduet er helt tomt */}
+                  {!isOpen &&
+                    (isEmpty ? (
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (confirm("Slet tomt vindue?"))
+                            chrome.runtime.sendMessage({
+                              type: "DELETE_AND_CLOSE_WINDOW",
+                              payload: {
+                                workspaceId: selectedWorkspace?.id,
+                                internalWindowId: win.id,
+                              },
+                            });
+                        }}
+                        className="cursor-pointer rounded-lg p-1.5 text-low opacity-100 transition-all hover:bg-danger/20 hover:text-danger"
+                        title="Slet tomt vindue"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (selectedWorkspace) {
+                            await NexusService.toggleArchiveWindow(
+                              selectedWorkspace.id,
+                              win.id,
+                              true,
+                            );
+                            if (selectedWindowId === win.id)
+                              setSelectedWindowId(null);
+                          }
+                        }}
+                        className="cursor-pointer rounded-lg p-1.5 text-low opacity-100 transition-all hover:bg-warning/20 hover:text-warning"
+                        title="Arkivér vindue"
+                      >
+                        <Archive size={18} />
+                      </button>
+                    ))}
 
                   <button
                     onClick={(e) => {
