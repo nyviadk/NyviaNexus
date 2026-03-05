@@ -7,7 +7,7 @@ import {
   collection,
   getDocs,
 } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { getAuth } from "firebase/auth/web-extension";
 import {
   ClipboardPaste,
   Layers,

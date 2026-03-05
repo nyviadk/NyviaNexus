@@ -1,4 +1,4 @@
-import { getAuth } from "firebase/auth";
+import { getAuth } from "firebase/auth/web-extension";
 import { collection, getDocs } from "firebase/firestore";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import {

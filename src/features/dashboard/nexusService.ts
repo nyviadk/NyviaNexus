@@ -1,4 +1,4 @@
-import { getAuth } from "firebase/auth";
+import { getAuth } from "firebase/auth/web-extension";
 import {
   arrayRemove,
   arrayUnion,

@@ -1,6 +1,6 @@
 import { initializeApp, getApp, getApps, FirebaseApp } from "firebase/app";
 import { getFirestore, Firestore } from "firebase/firestore";
-import { getAuth, Auth } from "firebase/auth";
+import { getAuth, Auth } from "firebase/auth/web-extension";
 import { FirebaseConfig } from "../features/auth/FirebaseGuard";
 
 // Vi bruger "let" i stedet for Proxies.

@@ -3,7 +3,7 @@ import { auth, db } from "../../lib/firebase";
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-} from "firebase/auth";
+} from "firebase/auth/web-extension";
 import { FirebaseError } from "firebase/app";
 import {
   doc,

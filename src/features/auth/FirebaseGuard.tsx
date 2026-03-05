@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { configureFirebase, auth } from "../../lib/firebase";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword } from "firebase/auth/web-extension";
 import { FirebaseError } from "firebase/app";
 import {
   ChevronLeft,
