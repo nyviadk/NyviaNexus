@@ -26,17 +26,20 @@ interface LoginFormProps {
  * Håndterer logik for både eksisterende og nye brugere.
  */
 export const LoginForm: React.FC<LoginFormProps> = ({ onUserCreated }) => {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [cerebrasKey, setCerebrasKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleAuth = async (e: React.FormEvent) => {
+  const handleAuth = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+
+    // Udtræk data direkte fra formen i stedet for at bruge states
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get("email") as string;
+    const password = formData.get("password") as string;
+    const cerebrasKey = formData.get("cerebrasKey") as string;
 
     try {
       let userCredential;
@@ -60,7 +63,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onUserCreated }) => {
       const uid = userCredential.user.uid;
 
       // Gem Cerebras API nøgle hvis den er indtastet (Valgfrit)
-      if (cerebrasKey.trim()) {
+      if (cerebrasKey && cerebrasKey.trim()) {
         await AiService.saveApiKey(cerebrasKey.trim());
       }
 
@@ -111,20 +114,19 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onUserCreated }) => {
         </div>
       )}
 
+      {/* Vi tilføjer 'name' attributter, så FormData kan finde dem, og fjerner value/onChange */}
       <input
         type="email"
+        name="email"
         placeholder="Email"
         className="rounded-lg border border-subtle bg-surface-sunken p-3 text-sm text-high transition-all outline-none focus:border-action focus:ring-1 focus:ring-action"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
         required
       />
       <input
         type="password"
+        name="password"
         placeholder="Password"
         className="rounded-lg border border-subtle bg-surface-sunken p-3 text-sm text-high transition-all outline-none focus:border-action focus:ring-1 focus:ring-action"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
         required
       />
 
@@ -145,10 +147,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onUserCreated }) => {
         </div>
         <input
           type="password"
+          name="cerebrasKey"
           placeholder="csk-..."
           className="w-full rounded-lg border border-subtle bg-surface-sunken/50 p-3 text-sm text-high transition-all outline-none focus:border-action focus:ring-1 focus:ring-action"
-          value={cerebrasKey}
-          onChange={(e) => setCerebrasKey(e.target.value)}
         />
         <p className="px-1 text-[10px] text-low">
           Vælg model:{" "}
