@@ -27,6 +27,49 @@ export interface FirebaseConfig {
 type SetupState = "loading" | "needs_setup" | "needs_auth" | "ready";
 type SetupView = "landing" | "input";
 
+const parseFirebaseSnippet = (snippet: string): FirebaseConfig | null => {
+  const requiredKeys: (keyof FirebaseConfig)[] = [
+    "apiKey",
+    "authDomain",
+    "projectId",
+    "storageBucket",
+    "messagingSenderId",
+    "appId",
+  ];
+
+  const config = {} as Partial<FirebaseConfig>;
+
+  for (const key of requiredKeys) {
+    const regex = new RegExp(`\\b${key}\\b\\s*:\\s*["'\`]([^"'\`]+)["'\`]`);
+    const match = snippet.match(regex);
+    if (match && match[1]) {
+      config[key] = match[1].trim();
+    }
+  }
+
+  const isValid = requiredKeys.every((k) => !!config[k]);
+  return isValid ? (config as unknown as FirebaseConfig) : null;
+};
+
+const testConnection = async (config: FirebaseConfig): Promise<boolean> => {
+  try {
+    configureFirebase(config);
+    await signInWithEmailAndPassword(auth, "test@nexus.dk", "123456");
+    return true;
+  } catch (err) {
+    if (err instanceof FirebaseError) {
+      const validAuthErrors = [
+        "auth/invalid-credential",
+        "auth/user-not-found",
+        "auth/wrong-password",
+        "auth/invalid-email",
+      ];
+      return validAuthErrors.includes(err.code);
+    }
+    return false;
+  }
+};
+
 export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
@@ -40,82 +83,48 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
   );
 
   useEffect(() => {
-    checkStorage();
-  }, []);
+    let unsubscribe: (() => void) | undefined;
 
-  const checkStorage = async () => {
-    try {
-      const data = await chrome.storage.local.get(["userFirebaseConfig"]);
-      if (data.userFirebaseConfig) {
-        configureFirebase(data.userFirebaseConfig as FirebaseConfig);
+    const checkStorage = async () => {
+      try {
+        const data = await chrome.storage.local.get(["userFirebaseConfig"]);
+        if (data.userFirebaseConfig) {
+          configureFirebase(data.userFirebaseConfig as FirebaseConfig);
 
-        // Overvåg Auth tilstand
-        auth.onAuthStateChanged((user) => {
-          const isSetupMode =
-            sessionStorage.getItem("nexus_setup_mode") === "true";
+          // Overvåg Auth tilstand
+          unsubscribe = auth.onAuthStateChanged((user) => {
+            const isSetupMode =
+              sessionStorage.getItem("nexus_setup_mode") === "true";
 
-          if (user && !isSetupMode) {
-            setState("ready");
-          } else {
-            setState("needs_auth");
-          }
-        });
-      } else {
+            if (user && !isSetupMode) {
+              setState("ready");
+            } else {
+              setState("needs_auth");
+            }
+          });
+        } else {
+          setState("needs_setup");
+        }
+      } catch (e) {
         setState("needs_setup");
       }
-    } catch (e) {
-      setState("needs_setup");
-    }
-  };
+    };
 
-  const parseFirebaseSnippet = (snippet: string): FirebaseConfig | null => {
-    const requiredKeys: (keyof FirebaseConfig)[] = [
-      "apiKey",
-      "authDomain",
-      "projectId",
-      "storageBucket",
-      "messagingSenderId",
-      "appId",
-    ];
+    checkStorage();
 
-    const config = {} as Partial<FirebaseConfig>;
-
-    for (const key of requiredKeys) {
-      const regex = new RegExp(`\\b${key}\\b\\s*:\\s*["'\`]([^"'\`]+)["'\`]`);
-      const match = snippet.match(regex);
-      if (match && match[1]) {
-        config[key] = match[1].trim();
+    // Sikrer at vi ikke har memory leaks, hvis komponenten unmountes
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
       }
-    }
-
-    const isValid = requiredKeys.every((k) => !!config[k]);
-    return isValid ? (config as unknown as FirebaseConfig) : null;
-  };
+    };
+  }, []);
 
   useEffect(() => {
     const config = parseFirebaseSnippet(inputValue);
     setParsedPreview(config);
     if (config) setError("");
   }, [inputValue]);
-
-  const testConnection = async (config: FirebaseConfig): Promise<boolean> => {
-    try {
-      configureFirebase(config);
-      await signInWithEmailAndPassword(auth, "test@nexus.dk", "123456");
-      return true;
-    } catch (err) {
-      if (err instanceof FirebaseError) {
-        const validAuthErrors = [
-          "auth/invalid-credential",
-          "auth/user-not-found",
-          "auth/wrong-password",
-          "auth/invalid-email",
-        ];
-        return validAuthErrors.includes(err.code);
-      }
-      return false;
-    }
-  };
 
   const handleSave = async () => {
     if (!parsedPreview) return;
