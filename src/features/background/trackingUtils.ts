@@ -23,6 +23,7 @@ const TRACKING_PARAMS: Set<string> = new Set([
 
   // --- Andre Sociale Medier ---
   "ttclid", // TikTok Click ID
+  "epik", // Pinterest Click ID
   "twclid", // Twitter/X Click ID
   "li_fat_id", // LinkedIn Insights Click ID
   "msclkid", // Microsoft/Bing Click ID
@@ -101,7 +102,10 @@ export function cleanUrlAndGetTracking(rawUrl: string): {
     }
 
     params.forEach((value, key) => {
-      if (TRACKING_PARAMS.has(key.toLowerCase())) {
+      const lowerKey = key.toLowerCase();
+      // Vi tjekker nu BÅDE for eksakte matches i vores Set,
+      // OG om parameteren starter med "_ga_" (til GA4 dynamiske ID'er)
+      if (TRACKING_PARAMS.has(lowerKey) || lowerKey.startsWith("_ga_")) {
         keysToDelete.push(key);
         removed.push(`${key}=${value}`);
       }
