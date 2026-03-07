@@ -6,6 +6,9 @@ const TRACKING_PARAMS: Set<string> = new Set([
   "utm_term", // Søgeord brugt i betalt søgning
   "utm_content", // Bruges til A/B test og ad-diffentiering
   "utm_id", // Master Campaign ID (ofte brugt i GA4 import)
+  "_ga", // <-- Google
+  "_gl", // <-- Google
+  "_up", // <-- Google consent/update tracker
 
   // --- Google & YouTube Ads ---
   "gclid", // Google Click ID (Auto-tagging i Google Ads)
