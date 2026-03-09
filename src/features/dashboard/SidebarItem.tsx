@@ -311,7 +311,7 @@ export const SidebarItem = ({
   };
 
   let containerClasses =
-    "relative z-10 flex items-center gap-2 p-2 rounded-xl mb-1 transition-all border group ";
+    "relative z-10 flex items-center gap-2 p-2 rounded-xl transition-all border group ";
 
   if (isReordering) {
     containerClasses +=
@@ -338,185 +338,189 @@ export const SidebarItem = ({
 
   return (
     <div className="relative transition-all duration-200 select-none">
-      <div
-        className={`${containerClasses} ${
-          isSyncing ? "pointer-events-none opacity-50" : ""
-        }`}
-        onDragEnter={onDragEnter}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        onClick={async (e) => {
-          e.stopPropagation();
-          if (isFolder) {
-            onToggleFolder(item.id, !isOpen);
-          } else if (!isReordering && onSelect) {
-            onSelect(item);
-          } else if (!isReordering && !onSelect) {
-            const auth = getAuth();
-            const currentUser = auth.currentUser;
-            if (!currentUser) return;
-            try {
-              const winSnap = await getDocs(
-                collection(
-                  db,
-                  "users",
-                  currentUser.uid,
-                  "workspaces_data",
-                  item.id,
-                  "windows",
-                ),
-              );
-              const windows = winSnap.docs.map((d) => ({
-                id: d.id,
-                ...d.data(),
-              }));
-              chrome.runtime.sendMessage({
-                type: "OPEN_WORKSPACE",
-                payload: { workspaceId: item.id, windows, name: item.name },
-              });
-            } catch (err) {
-              console.error("Fejl ved åbning af workspace:", err);
-            }
-          }
-        }}
-        draggable={!isSyncing && !isReordering}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-      >
-        {isSyncing ? (
-          <Loader2
-            size={18}
-            className="pointer-events-none animate-spin text-action"
-          />
-        ) : isFolder ? (
-          isOpen ? (
-            <ChevronDown
-              size={18}
-              className={`pointer-events-none cursor-pointer transition-transform ${isActive ? "text-action" : "text-low group-hover:text-high"}`}
-            />
-          ) : (
-            <ChevronRight
-              size={18}
-              className={`pointer-events-none cursor-pointer transition-transform ${isActive ? "text-action" : "text-low group-hover:text-high"}`}
-            />
-          )
-        ) : (
-          <Layout
-            size={20}
-            className={`${
-              tabDropStatus === "valid"
-                ? "text-success"
-                : isActive
-                  ? "text-action"
-                  : "text-mode-workspace"
-            } pointer-events-none shrink-0 transition-colors`}
-          />
-        )}
-
-        {isFolder && !isSyncing && (
-          <Folder
-            size={20}
-            className={`${
-              tabDropStatus === "valid" || (isDragOver && !isInvalidItemDrop)
-                ? "text-success"
-                : tabDropStatus === "invalid" ||
-                    (isDragOver && isInvalidItemDrop)
-                  ? "text-danger"
-                  : "text-warning"
-            } pointer-events-none shrink-0 fill-current transition-colors`}
-          />
-        )}
-
-        <span
-          className={`pointer-events-none flex-1 truncate text-sm font-medium ${
-            isSyncing
-              ? "text-low italic"
-              : isActive
-                ? "text-high"
-                : "text-medium group-hover:text-high"
+      <div className="pb-1">
+        <div
+          className={`${containerClasses} ${
+            isSyncing ? "pointer-events-none opacity-50" : ""
           }`}
+          onDragEnter={onDragEnter}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          onClick={async (e) => {
+            e.stopPropagation();
+            if (isFolder) {
+              onToggleFolder(item.id, !isOpen);
+            } else if (!isReordering && onSelect) {
+              onSelect(item);
+            } else if (!isReordering && !onSelect) {
+              const auth = getAuth();
+              const currentUser = auth.currentUser;
+              if (!currentUser) return;
+              try {
+                const winSnap = await getDocs(
+                  collection(
+                    db,
+                    "users",
+                    currentUser.uid,
+                    "workspaces_data",
+                    item.id,
+                    "windows",
+                  ),
+                );
+                const windows = winSnap.docs.map((d) => ({
+                  id: d.id,
+                  ...d.data(),
+                }));
+                chrome.runtime.sendMessage({
+                  type: "OPEN_WORKSPACE",
+                  payload: { workspaceId: item.id, windows, name: item.name },
+                });
+              } catch (err) {
+                console.error("Fejl ved åbning af workspace:", err);
+              }
+            }
+          }}
+          draggable={!isSyncing && !isReordering}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
         >
-          {item.name}
-        </span>
+          {isSyncing ? (
+            <Loader2
+              size={18}
+              className="pointer-events-none animate-spin text-action"
+            />
+          ) : isFolder ? (
+            isOpen ? (
+              <ChevronDown
+                size={18}
+                className={`pointer-events-none cursor-pointer transition-transform ${isActive ? "text-action" : "text-low group-hover:text-high"}`}
+              />
+            ) : (
+              <ChevronRight
+                size={18}
+                className={`pointer-events-none cursor-pointer transition-transform ${isActive ? "text-action" : "text-low group-hover:text-high"}`}
+              />
+            )
+          ) : (
+            <Layout
+              size={20}
+              className={`${
+                tabDropStatus === "valid"
+                  ? "text-success"
+                  : isActive
+                    ? "text-action"
+                    : "text-mode-workspace"
+              } pointer-events-none shrink-0 transition-colors`}
+            />
+          )}
 
-        {!isSyncing && (
-          <div
-            className={`flex gap-1 rounded-lg border border-subtle bg-surface-elevated/80 px-1 shadow-sm backdrop-blur-sm transition-opacity ${
-              isReordering ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          {isFolder && !isSyncing && (
+            <Folder
+              size={20}
+              className={`${
+                tabDropStatus === "valid" || (isDragOver && !isInvalidItemDrop)
+                  ? "text-success"
+                  : tabDropStatus === "invalid" ||
+                      (isDragOver && isInvalidItemDrop)
+                    ? "text-danger"
+                    : "text-warning"
+              } pointer-events-none shrink-0 fill-current transition-colors`}
+            />
+          )}
+
+          <span
+            className={`pointer-events-none flex-1 truncate text-sm font-medium ${
+              isSyncing
+                ? "text-low italic"
+                : isActive
+                  ? "text-high"
+                  : "text-medium group-hover:text-high"
             }`}
           >
-            {isReordering ? (
-              <>
-                {!isFirst ? (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onMoveItem(item.id, "up");
-                    }}
-                    className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-high"
-                  >
-                    <ArrowUp size={16} />
-                  </button>
-                ) : (
-                  <div className="w-6.5" />
-                )}
-                {!isLast ? (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onMoveItem(item.id, "down");
-                    }}
-                    className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-high"
-                  >
-                    <ArrowDown size={16} />
-                  </button>
-                ) : (
-                  <div className="w-6.5" />
-                )}
-              </>
-            ) : (
-              <>
-                {isFolder && (
-                  <>
+            {item.name}
+          </span>
+
+          {!isSyncing && (
+            <div
+              className={`flex gap-1 rounded-lg border border-subtle bg-surface-elevated/80 px-1 shadow-sm backdrop-blur-sm transition-opacity ${
+                isReordering
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100"
+              }`}
+            >
+              {isReordering ? (
+                <>
+                  {!isFirst ? (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (!isOpen) onToggleFolder(item.id, true);
-                        onAddChild?.(item.id, "folder");
+                        onMoveItem(item.id, "up");
                       }}
-                      className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-action"
+                      className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-high"
                     >
-                      <FolderPlus size={18} />
+                      <ArrowUp size={16} />
                     </button>
+                  ) : (
+                    <div className="w-6.5" />
+                  )}
+                  {!isLast ? (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (!isOpen) onToggleFolder(item.id, true);
-                        onAddChild?.(item.id, "workspace");
+                        onMoveItem(item.id, "down");
                       }}
-                      className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-action"
+                      className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-high"
                     >
-                      <Plus size={18} />
+                      <ArrowDown size={16} />
                     </button>
-                  </>
-                )}
-                <button
-                  onClick={handleRename}
-                  className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-action"
-                >
-                  <Edit3 size={18} />
-                </button>
-                <button
-                  onClick={handleDelete}
-                  className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-danger"
-                >
-                  <Trash2 size={18} />
-                </button>
-              </>
-            )}
-          </div>
-        )}
+                  ) : (
+                    <div className="w-6.5" />
+                  )}
+                </>
+              ) : (
+                <>
+                  {isFolder && (
+                    <>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!isOpen) onToggleFolder(item.id, true);
+                          onAddChild?.(item.id, "folder");
+                        }}
+                        className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-action"
+                      >
+                        <FolderPlus size={18} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!isOpen) onToggleFolder(item.id, true);
+                          onAddChild?.(item.id, "workspace");
+                        }}
+                        className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-action"
+                      >
+                        <Plus size={18} />
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={handleRename}
+                    className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-action"
+                  >
+                    <Edit3 size={18} />
+                  </button>
+                  <button
+                    onClick={handleDelete}
+                    className="cursor-pointer rounded p-1 text-low hover:bg-surface-hover hover:text-danger"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {isFolder && isOpen && (
