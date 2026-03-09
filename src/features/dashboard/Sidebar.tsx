@@ -871,12 +871,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center gap-2 text-[10px] font-bold text-success uppercase">
           <Activity size={14} className="animate-pulse" /> Live Sync
         </div>
-        <button
-          onClick={() => auth.signOut()}
-          className="flex cursor-pointer items-center gap-2 text-low transition-colors hover:text-danger"
-        >
-          <LogoutButton activeMappings={activeMappings} />
-        </button>
+
+        <LogoutButton activeMappings={activeMappings} />
       </div>
     </aside>
   );
