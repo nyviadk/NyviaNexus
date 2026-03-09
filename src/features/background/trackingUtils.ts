@@ -15,11 +15,16 @@ const TRACKING_PARAMS: Set<string> = new Set([
   "gbraid", // Google Click ID til iOS (Web-to-App)
   "wbraid", // Google Click ID til iOS (App-to-Web)
   "dclid", // Google Display Network Click ID
+  "gad_source", // Google Ads kilde
+  "gad_campaignid", // Google Ads kampagne ID
 
-  // --- Meta (Facebook & Instagram) ---
+  // --- Meta (Facebook & Instagram) & Generisk Ad Tracking ---
   "fbclid", // Facebook Click ID
   "igshid", // Instagram Sharing ID
   "h_ad_id", // Meta Ad ID (ofte brugt i URL-skabeloner)
+  "campaign_id", // Generisk/Meta/TikTok kampagne ID
+  "adset_id", // Generisk/Meta adset ID
+  "ad_id", // Generisk/Meta ad ID
 
   // --- Andre Sociale Medier ---
   "ttclid", // TikTok Click ID
@@ -105,7 +110,12 @@ export function cleanUrlAndGetTracking(rawUrl: string): {
       const lowerKey = key.toLowerCase();
       // Vi tjekker nu BÅDE for eksakte matches i vores Set,
       // OG om parameteren starter med "_ga_" (til GA4 dynamiske ID'er)
-      if (TRACKING_PARAMS.has(lowerKey) || lowerKey.startsWith("_ga_")) {
+      // Vi tjekker også om den starter med "gad_" for at fange fremtidige Google Ads parametre
+      if (
+        TRACKING_PARAMS.has(lowerKey) ||
+        lowerKey.startsWith("_ga_") ||
+        lowerKey.startsWith("gad_")
+      ) {
         keysToDelete.push(key);
         removed.push(`${key}=${value}`);
       }
