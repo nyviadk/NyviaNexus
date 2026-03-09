@@ -63,6 +63,7 @@ interface SidebarProps {
   handleDeleteSuccess: (id: string) => void;
   inboxData: InboxData | null;
   selectedWindowId: string | null;
+  setSelectedUrls: React.Dispatch<React.SetStateAction<string[]>>;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -87,6 +88,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   handleDeleteSuccess,
   inboxData,
   selectedWindowId,
+  setSelectedUrls,
 }) => {
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
   const [isSyncingRoot, setIsSyncingRoot] = useState(false);
@@ -800,6 +802,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div
               onClick={() => {
                 setSelectedWorkspace(null);
+                setSelectedUrls([]);
                 setViewMode("inbox");
               }}
               className={`mb-2 flex cursor-pointer items-center gap-2 rounded-xl border p-2 text-sm backdrop-blur-sm transition-all ${
@@ -843,6 +846,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div
               onClick={() => {
                 setSelectedWorkspace(null);
+                setSelectedUrls([]);
                 setViewMode("incognito");
               }}
               className={`flex cursor-pointer items-center gap-2 rounded-xl border p-2 text-sm backdrop-blur-sm transition-all ${

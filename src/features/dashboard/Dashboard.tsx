@@ -598,6 +598,7 @@ export const Dashboard = () => {
         inboxData={inboxData}
         isLoading={items.length === 0}
         selectedWindowId={selectedWindowId}
+        setSelectedUrls={setSelectedUrls}
       />
 
       <main className="relative flex flex-1 flex-col overflow-hidden bg-background">
