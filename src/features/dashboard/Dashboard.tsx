@@ -612,12 +612,6 @@ export const Dashboard = () => {
       />
 
       <main className="relative flex flex-1 flex-col overflow-hidden bg-background">
-        {isProcessingMove && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/40 backdrop-blur-sm">
-            <Loader2 className="animate-spin text-action" size={48} />
-          </div>
-        )}
-
         {selectedWorkspace ||
         viewMode === "inbox" ||
         viewMode === "incognito" ? (
@@ -644,6 +638,7 @@ export const Dashboard = () => {
               selectedUrls={selectedUrls}
               setSelectedUrls={setSelectedUrls}
               inboxData={inboxData}
+              isProcessingMove={isProcessingMove}
             />
 
             {/* --- HOVED CONTENT AREA (FLEX ROW) --- */}

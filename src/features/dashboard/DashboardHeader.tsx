@@ -11,6 +11,7 @@ import {
   ChevronDown,
   List,
   Archive,
+  Loader2,
 } from "lucide-react";
 import { WindowControlStrip } from "./WindowControlStrip";
 import { auth, db } from "../../lib/firebase";
@@ -52,6 +53,8 @@ interface DashboardHeaderProps {
   selectedUrls: string[];
   setSelectedUrls: (urls: string[]) => void;
   inboxData: InboxData | null;
+
+  isProcessingMove?: boolean;
 }
 
 export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
@@ -76,6 +79,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   selectedUrls,
   setSelectedUrls,
   inboxData,
+  isProcessingMove = false,
 }) => {
   const [showCopyMenu, setShowCopyMenu] = useState(false);
   const [includeArchivedCopy, setIncludeArchivedCopy] = useState(false);
@@ -127,6 +131,15 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             <span className="rounded-full border border-action/20 bg-action/20 px-2.5 py-1 text-[10px] font-bold tracking-widest text-action uppercase">
               <Monitor size={12} className="mr-1 inline" /> Dette Vindue
             </span>
+          )}
+
+          {isProcessingMove && (
+            <div className="animate-in fade-in zoom-in ml-2 flex items-center gap-1.5 rounded-full bg-surface-elevated px-3 py-1 text-xs font-medium text-action shadow-sm duration-200">
+              <Loader2 size={14} className="animate-spin" />
+              <span className="animate-pulse text-[10px] font-bold tracking-wider uppercase">
+                Opdaterer
+              </span>
+            </div>
           )}
         </div>
 
