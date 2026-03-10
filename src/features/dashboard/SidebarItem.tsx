@@ -161,7 +161,7 @@ export const SidebarItem = ({
       setIsSyncing(true);
       try {
         await NexusService.deleteItem(item, allItems);
-        await new Promise((r) => setTimeout(r, 500));
+        await new Promise((r) => setTimeout(r, 200));
         onRefresh();
         if (onDeleteSuccess) onDeleteSuccess(item.id);
       } catch (error) {
@@ -181,7 +181,7 @@ export const SidebarItem = ({
     if (newName && newName !== item.name) {
       setIsSyncing(true);
       await NexusService.renameItem(item.id, newName);
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 200));
       setIsSyncing(false);
       onRefresh();
     }
@@ -265,7 +265,7 @@ export const SidebarItem = ({
         setIsSyncing(true);
         try {
           await onTabDrop(item);
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 200));
         } finally {
           setIsSyncing(false);
         }
@@ -300,7 +300,7 @@ export const SidebarItem = ({
           await NexusService.moveItem(draggedId, item.id);
         }
       }
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 200));
     } catch (error) {
       console.error("Fejl ved flytning:", error);
       alert("Der skete en fejl ved flytning af mappen.");

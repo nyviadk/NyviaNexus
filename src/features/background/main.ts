@@ -335,14 +335,18 @@ async function reindexWorkspaceWindows(workspaceId: string, uid: string) {
   const snap = await getDocs(q);
 
   // 2. Lav et map over korrekt indeks: internalId -> rækkefølge (1, 2, 3...)
-  // FIX: Vi tæller kun IKKE-arkiverede vinduer
+  // FIX: Vi tæller kun IKKE-arkiverede vinduer og ignorerer Ukategoriseret
   const correctIndices = new Map<string, number>();
   let activeIndex = 1;
   snap.docs.forEach((doc) => {
     const data = doc.data() as FirestoreWindowData;
     if (!data.isArchived) {
-      correctIndices.set(doc.id, activeIndex);
-      activeIndex++;
+      if (doc.id === "win_uncategorized") {
+        correctIndices.set(doc.id, 0); // Får index 0
+      } else {
+        correctIndices.set(doc.id, activeIndex);
+        activeIndex++;
+      }
     }
   });
 
@@ -2428,6 +2432,8 @@ async function getWorkspaceWindowIndex(
   const uid = auth.currentUser?.uid;
   if (!uid) return 1;
 
+  if (internalWindowId === "win_uncategorized") return 0; // Tæller ikke med i normale vinduer
+
   try {
     // Sorter konsekvent efter createdAt
     const q = query(
@@ -2436,9 +2442,11 @@ async function getWorkspaceWindowIndex(
     );
     const snap = await getDocs(q);
 
-    // Filtrer arkiverede fra, før vi finder indekset
+    // Filtrer arkiverede og Ukategoriseret fra, før vi finder indekset
     const activeDocs = snap.docs.filter(
-      (d) => !(d.data() as FirestoreWindowData).isArchived,
+      (d) =>
+        !(d.data() as FirestoreWindowData).isArchived &&
+        d.id !== "win_uncategorized",
     );
     const idx = activeDocs.findIndex((d) => d.id === internalWindowId);
     return idx !== -1 ? idx + 1 : 1;

@@ -179,6 +179,13 @@ export const Dashboard = () => {
     };
 
     return [...windows].sort((a, b) => {
+      // Sikrer at "win_uncategorized" ALTID pinner til toppen
+      const isPinnedA = (a as any).isPinned ?? a.id === "win_uncategorized";
+      const isPinnedB = (b as any).isPinned ?? b.id === "win_uncategorized";
+
+      if (isPinnedA && !isPinnedB) return -1;
+      if (!isPinnedA && isPinnedB) return 1;
+
       const createA = getTime(a.createdAt);
       const createB = getTime(b.createdAt);
       return createA - createB;
@@ -229,16 +236,19 @@ export const Dashboard = () => {
     [activeWindows],
   );
 
-  // Update Cache logic (nu baseret på activeWindows for korrekt indexering)
-  if (selectedWorkspace && activeWindows.length > 0) {
+  // Update Cache logic (nu baseret på activeWindows for korrekt indexering, ignorerer ukategoriseret vindue)
+  const normalWindows = activeWindows.filter(
+    (w) => w.id !== "win_uncategorized",
+  );
+  if (selectedWorkspace && normalWindows.length > 0) {
     const wsId = selectedWorkspace.id;
-    const signature = `${wsId}-${activeWindows.length}-${activeWindows
+    const signature = `${wsId}-${normalWindows.length}-${normalWindows
       .map((w) => w.id)
       .join("")}`;
     const cached = windowOrderCache.get(wsId);
     if (!cached || cached.signature !== signature) {
       const indices: Record<string, number> = {};
-      activeWindows.forEach((w, i) => {
+      normalWindows.forEach((w, i) => {
         indices[w.id] = i + 1;
       });
       windowOrderCache.set(wsId, { signature, indices });

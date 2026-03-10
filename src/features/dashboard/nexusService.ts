@@ -163,8 +163,6 @@ export const NexusService = {
         name: newName,
       });
 
-      // Fortæl background script at konteksten er ændret
-      // Dette sikrer at cachen opdateres og AI kører igen med ny kontekst
       chrome.runtime.sendMessage({
         type: "WORKSPACE_RENAMED",
         payload: { workspaceId: id, newName },
@@ -177,8 +175,9 @@ export const NexusService = {
     }
   },
 
-  // Funktion til at omdøbe et specifikt vindue i et workspace
   async renameWindow(workspaceId: string, windowId: string, newName: string) {
+    if (windowId === "win_uncategorized") return; // Bloker omdøbning
+
     const uid = getUid();
     const winRef = doc(
       db,
@@ -194,7 +193,6 @@ export const NexusService = {
       name: newName,
     });
 
-    // Send besked til background script om at opdatere cachen
     try {
       chrome.runtime.sendMessage({
         type: "UPDATE_WINDOW_NAME_CACHE",
@@ -208,12 +206,13 @@ export const NexusService = {
     }
   },
 
-  // Funktion til at arkivere/gendanne et specifikt vindue i et workspace
   async toggleArchiveWindow(
     workspaceId: string,
     windowId: string,
     isArchived: boolean,
   ) {
+    if (windowId === "win_uncategorized") return; // Bloker arkivering
+
     const uid = getUid();
     const winRef = doc(
       db,
@@ -229,8 +228,6 @@ export const NexusService = {
       isArchived: isArchived,
     });
 
-    // Send besked til background script om at genberegne indekser
-    // da arkiverede vinduer ikke længere tæller med i nummereringen
     try {
       chrome.runtime.sendMessage({
         type: "REINDEX_WORKSPACE",
@@ -275,7 +272,12 @@ export const NexusService = {
       const tabs = (snap.data().tabs || []).filter(
         (t: TabData) => t.uid !== tab.uid,
       );
-      await updateDoc(ref, { tabs });
+
+      if (windowId === "win_uncategorized" && tabs.length === 0) {
+        await deleteDoc(ref);
+      } else {
+        await updateDoc(ref, { tabs });
+      }
     }
   },
 
@@ -295,7 +297,6 @@ export const NexusService = {
     const sourceRef = getRef(sourceWorkspaceId, sourceWindowId);
     const targetRef = getRef(targetWorkspaceId, targetWindowId);
 
-    // FIX: Rens tab for ID for at sikre clean Firestore object
     const tabToMove = { ...tab, uid: tab.uid || crypto.randomUUID() };
     delete (tabToMove as any).id;
     delete (tabToMove as any).width;
@@ -312,7 +313,15 @@ export const NexusService = {
       const newSourceTabs = currentTabs.filter(
         (t: TabData) => t.uid !== tabToMove.uid,
       );
-      batch.update(sourceRef, { tabs: newSourceTabs });
+
+      if (
+        sourceWindowId === "win_uncategorized" &&
+        newSourceTabs.length === 0
+      ) {
+        batch.delete(sourceRef);
+      } else {
+        batch.update(sourceRef, { tabs: newSourceTabs });
+      }
     }
     batch.set(targetRef, { tabs: arrayUnion(tabToMove) }, { merge: true });
     return await batch.commit();
@@ -363,7 +372,6 @@ export const NexusService = {
     return await batch.commit();
   },
 
-  // --- ARCHIVE METHODS ---
   async addArchiveItem(
     workspaceId: string,
     url: string,
@@ -376,22 +384,17 @@ export const NexusService = {
 
     const docRef = getArchiveListRef(uid, workspaceId);
 
-    // 1. Hent eksisterende
     const snap = await getDoc(docRef);
     let items: ArchiveItem[] = [];
     if (snap.exists()) {
       items = (snap.data().items || []) as ArchiveItem[];
     }
 
-    // 2. Tjek for duplikat
     const existingIndex = items.findIndex((i) => i.url === cleanUrl);
 
     if (existingIndex !== -1) {
-      // Findes allerede
       const existing = items[existingIndex];
 
-      // Hvis vi prøver at tilføje som ReadLater, og den ikke er det -> Opdater
-      // Hvis vi bare tilføjer som link (readLater=false), gør vi intet hvis den allerede findes
       if (readLater && !existing.readLater) {
         items[existingIndex] = {
           ...existing,
@@ -402,7 +405,6 @@ export const NexusService = {
       }
       return;
     }
-    // 3. Tilføj ny hvis ikke fundet
     const newItem: ArchiveItem = {
       id: crypto.randomUUID(),
       url: cleanUrl,
@@ -454,7 +456,6 @@ export const NexusService = {
     });
   },
 
-  // --- NOTES METHODS ---
   subscribeToNotes(
     workspaceId: string,
     onUpdate: (notes: Note[], fromLocal: boolean) => void,

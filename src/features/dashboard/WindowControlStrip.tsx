@@ -6,6 +6,7 @@ import {
   Trash2,
   Archive,
   ArchiveRestore,
+  Pin,
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { DraggedTabPayload, NexusItem, WorkspaceWindow } from "./types";
@@ -99,10 +100,18 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
     }
   };
 
+  // Helper til at tælle det rigtige nummer for almindelige vinduer
+  const getDisplayIndex = (targetWinId: string) => {
+    const normalWins = activeWindows.filter(
+      (w) => w.id !== "win_uncategorized",
+    );
+    return normalWins.findIndex((w) => w.id === targetWinId) + 1;
+  };
+
   return (
     <div className="flex flex-wrap items-center gap-4">
       {/* --- AKTIVE VINDUER --- */}
-      {activeWindows.map((win, idx) => {
+      {activeWindows.map((win) => {
         const isDropTarget = dropTargetWinId === win.id;
         const isSourceWindow = selectedWindowId === win.id;
         const isEditing = editingId === win.id;
@@ -110,6 +119,12 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
           ([_, m]) => m.internalWindowId === win.id,
         );
         const isEmpty = !win.tabs || win.tabs.length === 0;
+
+        const isUncategorized = win.id === "win_uncategorized";
+        const displayIndex = getDisplayIndex(win.id);
+        const winName =
+          win.name ||
+          (isUncategorized ? "Ukategoriseret" : `Vindue ${displayIndex}`);
 
         let borderClass = "border-subtle hover:border-strong";
         let bgClass = "bg-surface-elevated";
@@ -157,7 +172,9 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
             <div
               onClick={() => !isEditing && setSelectedWindowId(win.id)}
               className={`group relative flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-all ${bgClass} ${borderClass} ${shadowClass}`}
-              onDoubleClick={(e) => !isEditing && handleStartRename(win, e)}
+              onDoubleClick={(e) => {
+                if (!isEditing && !isUncategorized) handleStartRename(win, e);
+              }}
             >
               <div className="flex flex-col">
                 {isEditing ? (
@@ -170,7 +187,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                       onBlur={handleSaveRename}
                       onClick={(e) => e.stopPropagation()}
                       className="w-32 rounded border border-action bg-surface px-1 py-0.5 text-xs text-high outline-none"
-                      placeholder={`Vindue ${idx + 1}`}
+                      placeholder={`Vindue ${displayIndex}`}
                     />
                     <button
                       onMouseDown={(e) => {
@@ -185,17 +202,25 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                   </div>
                 ) : (
                   <>
-                    <span
-                      className={`text-xs font-bold ${
-                        isSourceWindow
-                          ? "text-high"
-                          : isDropTarget && !isSourceWindow
-                            ? "text-success"
-                            : "text-medium group-hover:text-high"
-                      }`}
-                    >
-                      {win.name || `Vindue ${idx + 1}`}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {isUncategorized && (
+                        <Pin
+                          size={12}
+                          className="-ml-0.5 shrink-0 rotate-45 fill-action/20 text-action"
+                        />
+                      )}
+                      <span
+                        className={`text-xs font-bold ${
+                          isSourceWindow
+                            ? "text-high"
+                            : isDropTarget && !isSourceWindow
+                              ? "text-success"
+                              : "text-medium group-hover:text-high"
+                        }`}
+                      >
+                        {winName}
+                      </span>
+                    </div>
 
                     <span className="mt-1 text-[10px] text-low">
                       {win.tabs?.length || 0} tabs
@@ -205,7 +230,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
               </div>
 
               {/* KNAPPER TIL AKTIVT VINDUE */}
-              {!isEditing && (
+              {!isEditing && !isUncategorized && (
                 <div className="flex items-center gap-1">
                   {/* Vis Arkiv hvis der er faner, Vis Slet hvis vinduet er helt tomt */}
                   {!isOpen &&
@@ -257,7 +282,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                           workspaceId: selectedWorkspace?.id,
                           windowData: win,
                           name: selectedWorkspace?.name,
-                          index: idx + 1,
+                          index: displayIndex,
                         },
                       });
                     }}

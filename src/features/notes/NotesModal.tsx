@@ -100,7 +100,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
 
       const timer = setTimeout(() => {
         setStatus((prev) => (prev === "syncing" ? "saved" : prev));
-      }, 500);
+      }, 200);
 
       return () => clearTimeout(timer);
     } else {

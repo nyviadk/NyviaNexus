@@ -75,7 +75,7 @@ export const SettingsModal = ({
   const handleSaveApiKey = async () => {
     setIsSavingKey(true);
     await AiService.saveApiKey(apiKey.trim());
-    setTimeout(() => setIsSavingKey(false), 500);
+    setTimeout(() => setIsSavingKey(false), 200);
   };
 
   const saveAiSettings = async (newSettings: AiSettings) => {

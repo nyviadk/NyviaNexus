@@ -1,14 +1,9 @@
 import {
-  collection,
   doc,
   getDoc,
-  getDocs,
   serverTimestamp,
-  writeBatch,
-  query,
-  orderBy,
-  limit,
   updateDoc,
+  writeBatch,
 } from "firebase/firestore";
 import { useCallback } from "react";
 import { auth, db } from "../../lib/firebase";
@@ -129,22 +124,7 @@ export const useTabActions = (
 
         // --- 1. FIND TARGET WINDOW ---
         if (targetWorkspaceId !== "global") {
-          const winQuery = query(
-            collection(
-              db,
-              "users",
-              uid,
-              "workspaces_data",
-              targetWorkspaceId,
-              "windows",
-            ),
-            orderBy("createdAt", "asc"),
-            limit(1),
-          );
-          const winSnap = await getDocs(winQuery);
-          targetWinId = winSnap.empty
-            ? `win_${Date.now()}`
-            : winSnap.docs[0].id;
+          targetWinId = "win_uncategorized";
 
           const mapping = activeMappings.find(
             ([_, m]) =>
@@ -257,6 +237,11 @@ export const useTabActions = (
               tabs: [cleanedTab],
               isActive: false,
               createdAt: serverTimestamp(),
+              name:
+                targetWinId === "win_uncategorized" ? "Ukategoriseret" : null,
+              isPinned: targetWinId === "win_uncategorized" ? true : false,
+              isArchivable: targetWinId === "win_uncategorized" ? false : true,
+              isOpenable: targetWinId === "win_uncategorized" ? false : true,
             });
           }
 
@@ -271,11 +256,15 @@ export const useTabActions = (
           );
           const sSnap = await getDoc(sourceRef);
           if (sSnap.exists()) {
-            batch.update(sourceRef, {
-              tabs: (sSnap.data().tabs || []).filter(
-                (t: TabData) => t.uid !== tab.uid,
-              ),
-            });
+            const newTabs = (sSnap.data().tabs || []).filter(
+              (t: TabData) => t.uid !== tab.uid,
+            );
+
+            if (sourceId === "win_uncategorized" && newTabs.length === 0) {
+              batch.delete(sourceRef);
+            } else {
+              batch.update(sourceRef, { tabs: newTabs });
+            }
           }
 
           // DATA FØRST
@@ -367,14 +356,24 @@ export const useTabActions = (
               id: targetWinId,
               tabs: [cleanedTab],
               createdAt: serverTimestamp(),
+              isActive: false,
+              name:
+                targetWinId === "win_uncategorized" ? "Ukategoriseret" : null,
+              isPinned: targetWinId === "win_uncategorized" ? true : false,
+              isArchivable: targetWinId === "win_uncategorized" ? false : true,
+              isOpenable: targetWinId === "win_uncategorized" ? false : true,
             });
           }
           if (sSnap.exists()) {
-            batch.update(sourceRef, {
-              tabs: (sSnap.data().tabs || []).filter(
-                (t: TabData) => t.uid !== tab.uid,
-              ),
-            });
+            const newTabs = (sSnap.data().tabs || []).filter(
+              (t: TabData) => t.uid !== tab.uid,
+            );
+
+            if (sourceId === "win_uncategorized" && newTabs.length === 0) {
+              batch.delete(sourceRef);
+            } else {
+              batch.update(sourceRef, { tabs: newTabs });
+            }
           }
           await batch.commit();
 
@@ -455,9 +454,6 @@ export const useTabActions = (
           targetWorkspaceName,
         );
 
-        // --- 🧹 FORCE CLOSE PHYSICAL INBOX TABS (GRID) ---
-        // (AI NOTE: Ligesom i sidebar udføres selve lukningen lokalt i hvert scenarie efter batch.commit())
-
         // A: Storage -> Active
         if (!sourceMapping && targetMapping) {
           await chrome.tabs.create({
@@ -515,17 +511,25 @@ export const useTabActions = (
               tabs: [cleanedTab],
               createdAt: serverTimestamp(),
               isActive: false,
+              name:
+                targetWinId === "win_uncategorized" ? "Ukategoriseret" : null,
+              isPinned: targetWinId === "win_uncategorized" ? true : false,
+              isArchivable: targetWinId === "win_uncategorized" ? false : true,
+              isOpenable: targetWinId === "win_uncategorized" ? false : true,
             });
           }
 
           if (sSnap.exists()) {
-            batch.update(sourceRef, {
-              tabs: (sSnap.data()?.tabs || []).filter(
-                (t: TabData) => t.uid !== tab.uid,
-              ),
-            });
-          }
+            const newTabs = (sSnap.data()?.tabs || []).filter(
+              (t: TabData) => t.uid !== tab.uid,
+            );
 
+            if (sourceId === "win_uncategorized" && newTabs.length === 0) {
+              batch.delete(sourceRef);
+            } else {
+              batch.update(sourceRef, { tabs: newTabs });
+            }
+          }
           // DATA FØRST
           await batch.commit();
 
@@ -611,15 +615,24 @@ export const useTabActions = (
               tabs: [cleanedTab],
               createdAt: serverTimestamp(),
               isActive: false,
+              name:
+                targetWinId === "win_uncategorized" ? "Ukategoriseret" : null,
+              isPinned: targetWinId === "win_uncategorized" ? true : false,
+              isArchivable: targetWinId === "win_uncategorized" ? false : true,
+              isOpenable: targetWinId === "win_uncategorized" ? false : true,
             });
           }
 
           if (sSnap.exists()) {
-            batch.update(sourceRef, {
-              tabs: (sSnap.data()?.tabs || []).filter(
-                (t: TabData) => t.uid !== tab.uid,
-              ),
-            });
+            const newTabs = (sSnap.data()?.tabs || []).filter(
+              (t: TabData) => t.uid !== tab.uid,
+            );
+
+            if (sourceId === "win_uncategorized" && newTabs.length === 0) {
+              batch.delete(sourceRef);
+            } else {
+              batch.update(sourceRef, { tabs: newTabs });
+            }
           }
           await batch.commit();
 

@@ -99,6 +99,12 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   const hasSelected = selectedUrls.length > 0;
   const isCopyDisabled = totalTabsInSpace === 0 && !hasSelected;
 
+  // Tillad kun åbning af vinduer, som rent faktisk kan åbnes
+  const openableWindows = activeWindows.filter(
+    (w) => w.id !== "win_uncategorized",
+  );
+  const canOpenSpace = openableWindows.length > 0;
+
   return (
     <header className="flex flex-col gap-6 border-b border-subtle bg-surface-hover/30 p-8 pb-4">
       {/* RÆKKE 1: Titel og Handlinger samlet på én linje */}
@@ -417,14 +423,14 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                   type: "OPEN_WORKSPACE",
                   payload: {
                     workspaceId: selectedWorkspace?.id,
-                    windows: activeWindows, // Åbner kun aktive vinduer
+                    windows: openableWindows, // Sender kun dem der rent faktisk må åbnes
                     name: selectedWorkspace?.name,
                   },
                 })
               }
-              disabled={activeWindows.length === 0}
+              disabled={!canOpenSpace}
               className={`min-w-max cursor-pointer rounded-xl px-6 py-2.5 text-sm font-bold shadow-lg transition ${
-                activeWindows.length === 0
+                !canOpenSpace
                   ? "cursor-not-allowed bg-surface-elevated text-low shadow-none"
                   : "bg-action text-inverted shadow-action/20 hover:bg-action-hover active:scale-95"
               }`}

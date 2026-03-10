@@ -70,15 +70,16 @@ export const PasteModal = ({
   const availableReuseIndex = useMemo(() => {
     if (!isCreatingNew) return -1;
 
-    // Vi leder efter det første vindue der er tomt og lukket i den tilsendte liste
+    // Vi leder efter det første vindue der er tomt, lukket, og IKKE er Ukategoriseret
     return windows.findIndex((w) => {
       const isEmpty = !w.tabs || w.tabs.length === 0;
       const isPhysicallyOpen = activeMappings.some(
         ([_, mapping]) => mapping.internalWindowId === w.id,
       );
+      const isUncategorized = w.id === "win_uncategorized";
       // NOTE: 'windows' proppen indeholder kun aktive vinduer pga. vores filtrering i Dashboard,
       // så vi behøver ikke at tjekke isArchived her.
-      return isEmpty && !isPhysicallyOpen;
+      return isEmpty && !isPhysicallyOpen && !isUncategorized;
     });
   }, [windows, activeMappings, isCreatingNew]);
 
@@ -130,7 +131,11 @@ export const PasteModal = ({
 
       // Bestem om vi faktisk skal bruge det fundne vindue (hvis toggle er aktiv og vindue findes)
       const reusableWindowIndex = useEmptyWindow ? availableReuseIndex : -1;
-      const totalExistingWindows = windows.length;
+
+      // Vi tæller kun almindelige vinduer (ignorerer Ukategoriseret) for at få den korrekte navngivning (fx "Vindue 4")
+      const totalNormalExistingWindows = windows.filter(
+        (w) => w.id !== "win_uncategorized",
+      ).length;
 
       if (isCreatingNew && text.includes("###")) {
         // Batch mode logik
@@ -146,12 +151,17 @@ export const PasteModal = ({
 
             // Hvis det er første gruppe, og vi har et genbrugeligt vindue
             if (idx === 0 && reusableWindowIndex !== -1) {
-              // Vi bruger det eksisterende vindues nummer (1-based index)
-              displayName = windowName || `Vindue ${reusableWindowIndex + 1}`;
+              // Vi udregner det korrekte display index for genbrugsvinduet ved at ignorere win_uncategorized frem til dét vindue
+              const normalWindowsBeforeReuse = windows
+                .slice(0, reusableWindowIndex)
+                .filter((w) => w.id !== "win_uncategorized").length;
+              displayName =
+                windowName || `Vindue ${normalWindowsBeforeReuse + 1}`;
             } else {
               // Ellers er det et nyt vindue i enden af listen
-              // Nummeret er: Antal nuværende + Antal vi allerede har lavet i denne batch + 1
-              const visualIndex = totalExistingWindows + addedWindowsCount + 1;
+              // Nummeret er: Antal nuværende normale vinduer + Antal vi allerede har lavet i denne batch + 1
+              const visualIndex =
+                totalNormalExistingWindows + addedWindowsCount + 1;
               displayName = windowName
                 ? `${windowName} ${idx + 1}`
                 : `Vindue ${visualIndex}`;
@@ -173,9 +183,14 @@ export const PasteModal = ({
           let displayName = "";
           if (isCreatingNew) {
             if (reusableWindowIndex !== -1) {
-              displayName = windowName || `Vindue ${reusableWindowIndex + 1}`;
+              const normalWindowsBeforeReuse = windows
+                .slice(0, reusableWindowIndex)
+                .filter((w) => w.id !== "win_uncategorized").length;
+              displayName =
+                windowName || `Vindue ${normalWindowsBeforeReuse + 1}`;
             } else {
-              displayName = windowName || `Vindue ${totalExistingWindows + 1}`;
+              displayName =
+                windowName || `Vindue ${totalNormalExistingWindows + 1}`;
             }
           } else {
             displayName = windowName || "Eksisterende Vindue";
@@ -269,10 +284,16 @@ export const PasteModal = ({
             const isPhysicallyOpen = activeMappings.some(
               ([_, mapping]) => mapping.internalWindowId === wId,
             );
-            // Tjek: Sørg for at vi ikke overskriver et arkiveret vindue
+            // Tjek: Sørg for at vi ikke overskriver et arkiveret vindue, og at det ikke er Ukategoriseret
             const isArchived = !!data.isArchived;
+            const isUncategorized = wId === "win_uncategorized";
 
-            if (isEmpty && !isPhysicallyOpen && !isArchived) {
+            if (
+              isEmpty &&
+              !isPhysicallyOpen &&
+              !isArchived &&
+              !isUncategorized
+            ) {
               reusedWindowId = wId;
             }
           } else {
@@ -286,7 +307,8 @@ export const PasteModal = ({
                 ([_, mapping]) => mapping.internalWindowId === d.id,
               );
               const isArchived = !!dData.isArchived; // Sørg for at springe arkiverede over
-              return isEmpty && !isOpen && !isArchived;
+              const isUncategorized = d.id === "win_uncategorized";
+              return isEmpty && !isOpen && !isArchived && !isUncategorized;
             });
 
             if (target) reusedWindowId = target.id;
