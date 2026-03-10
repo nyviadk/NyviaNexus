@@ -2274,7 +2274,12 @@ async function removeTabFromFirestoreSource(
         const tabs = (winDoc.data().tabs || []) as TabData[];
         const filtered = tabs.filter((t) => t.uid !== tabUid);
         if (filtered.length !== tabs.length) {
-          await updateDoc(winDoc.ref, { tabs: filtered });
+          // AUTO-SLETNING HER:
+          if (winDoc.id === "win_uncategorized" && filtered.length === 0) {
+            await deleteDoc(winDoc.ref);
+          } else {
+            await updateDoc(winDoc.ref, { tabs: filtered });
+          }
           break; // Vi har fundet og fjernet den
         }
       }

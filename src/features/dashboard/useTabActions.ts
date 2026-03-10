@@ -1,6 +1,9 @@
 import {
+  collection,
   doc,
   getDoc,
+  getDocs,
+  query,
   serverTimestamp,
   updateDoc,
   writeBatch,
@@ -126,7 +129,32 @@ export const useTabActions = (
 
         // --- 1. FIND TARGET WINDOW ---
         if (targetWorkspaceId !== "global") {
-          targetWinId = "win_uncategorized";
+          // Tjek hvor mange vinduer target space har
+          const winQuery = query(
+            collection(
+              db,
+              "users",
+              uid,
+              "workspaces_data",
+              targetWorkspaceId,
+              "windows",
+            ),
+          );
+          const winSnap = await getDocs(winQuery);
+          const normalWindows = winSnap.docs.filter(
+            (d) => d.id !== "win_uncategorized" && !d.data().isArchived,
+          );
+
+          if (normalWindows.length === 0) {
+            // Intet vindue findes overhovedet -> Opret et normalt vindue
+            targetWinId = `win_${Date.now()}`;
+          } else if (normalWindows.length === 1) {
+            // Kun 1 vindue findes -> Brug det vindue direkte
+            targetWinId = normalWindows[0].id;
+          } else {
+            // Flere vinduer findes -> Vi ved ikke hvilket et der menes, brug Ukategoriseret
+            targetWinId = "win_uncategorized";
+          }
 
           const mapping = activeMappings.find(
             ([_, m]) =>
