@@ -105,6 +105,7 @@ export const LinkManager = {
       favIconUrl: "",
       isIncognito: false,
       clearedTracking: null,
+      lastUpdated: Date.now(),
       aiData: {
         status: "pending", // VIGTIGT: Dette trigger din AI-kø næste gang vinduet åbnes
         isLocked: false,

@@ -134,7 +134,7 @@ export const TabGrid: React.FC<TabGridProps> = ({
       const groups: Record<string, TabData[]> = {};
 
       rawList.forEach((tab) => {
-        const label = getDateLabel(tab.aiData?.lastChecked);
+        const label = getDateLabel(tab.lastUpdated ?? tab.aiData?.lastChecked);
         if (!groups[label]) {
           groups[label] = [];
         }
@@ -147,13 +147,13 @@ export const TabGrid: React.FC<TabGridProps> = ({
       // A. Sorter SEKTIONERNE (Headers) -> Nyeste dato (Højeste timestamp) øverst
       groupEntries.sort(([_labelA, tabsA], [_labelB, tabsB]) => {
         const maxTimeA = Math.max(
-          ...tabsA.map((t) => t.aiData?.lastChecked || 0),
+          ...tabsA.map((t) => (t.lastUpdated ?? t.aiData?.lastChecked) || 0),
         );
         const maxTimeB = Math.max(
-          ...tabsB.map((t) => t.aiData?.lastChecked || 0),
+          ...tabsB.map((t) => (t.lastUpdated ?? t.aiData?.lastChecked) || 0),
         );
 
-        // Særtilfælde: Hvis lastChecked er 0 (Arkiv), vil vi ofte have dem i bunden.
+        // Særtilfælde: Hvis lastUpdated og lastChecked er 0 (Arkiv), vil vi have dem i bunden.
         // Med nuværende logik (maxTime = 0) vil de automatisk ryge i bunden hvis andre har datoer.
         return maxTimeB - maxTimeA;
       });
@@ -161,8 +161,8 @@ export const TabGrid: React.FC<TabGridProps> = ({
       // B. Sorter FANERNE INTERNT i hver sektion -> Ældste først (Venstre mod Højre)
       groupEntries.forEach(([_, tabs]) => {
         tabs.sort((a, b) => {
-          const timeA = a.aiData?.lastChecked || 0;
-          const timeB = b.aiData?.lastChecked || 0;
+          const timeA = (a.lastUpdated ?? a.aiData?.lastChecked) || 0;
+          const timeB = (b.lastUpdated ?? b.aiData?.lastChecked) || 0;
           return timeA - timeB;
         });
       });

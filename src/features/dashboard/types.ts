@@ -6,6 +6,7 @@ export type RuntimeTabData = TabData & {
   id?: number;
   windowId?: number;
   sourceWorkspaceId?: string;
+  lastUpdated: number;
 };
 
 // Type definition for Drag & Drop payload in SessionStorage

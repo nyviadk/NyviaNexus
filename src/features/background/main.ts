@@ -34,6 +34,7 @@ export interface TabData {
   favIconUrl: string;
   isIncognito?: boolean;
   aiData?: AiData;
+  lastUpdated: number;
   clearedTracking: string | null;
 }
 
@@ -1108,6 +1109,7 @@ async function registerNewInboxWindow(windowId: number) {
             favIconUrl: t.favIconUrl || "",
             isIncognito: t.incognito,
             aiData: { status: "pending" },
+            lastUpdated: Date.now(),
             clearedTracking: urlInfo.removedParams || null,
           });
         }
@@ -1227,6 +1229,7 @@ async function saveToFirestore(
             url: urlToSave,
             favIconUrl: t.favIconUrl || "",
             isIncognito: false,
+            lastUpdated: Date.now(),
             aiData: aiData,
             clearedTracking: urlInfo.removedParams || null,
           });
@@ -1415,6 +1418,7 @@ chrome.tabs.onUpdated.addListener(
                   url,
                   favIconUrl: tab.favIconUrl || "",
                   aiData: { status: "pending" },
+                  lastUpdated: Date.now(),
                   clearedTracking: clearedTracking || null,
                 });
                 await updateDoc(winRef, { tabs });
@@ -1470,6 +1474,7 @@ chrome.tabs.onUpdated.addListener(
                 favIconUrl: tab.favIconUrl || "",
                 isIncognito: tab.incognito,
                 aiData: { status: "pending" },
+                lastUpdated: Date.now(),
                 clearedTracking: clearedTracking || null,
               });
               await updateDoc(inboxRef, {

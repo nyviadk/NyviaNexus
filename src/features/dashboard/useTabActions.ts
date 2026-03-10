@@ -39,6 +39,7 @@ export const useTabActions = (
       return {
         ...tab,
         aiData: { status: "pending" } as AiData,
+        lastUpdated: Date.now(),
         isIncognito: false,
       };
     }
@@ -62,6 +63,7 @@ export const useTabActions = (
       favIconUrl: favIconUrl || "",
       isIncognito: !!isIncognito,
       aiData: aiData || { status: "pending" },
+      lastUpdated: Date.now(),
       clearedTracking: clearedTracking ?? null,
     };
   };
