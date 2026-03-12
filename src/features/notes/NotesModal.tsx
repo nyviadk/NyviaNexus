@@ -36,6 +36,7 @@ interface NoteEditorProps {
   onCopyLink: () => void;
   linkCopyStatus: boolean;
   isPending: boolean;
+  deletedNoteIdsRef: React.RefObject<Set<string>>;
 }
 
 const NoteEditor: React.FC<NoteEditorProps> = ({
@@ -46,6 +47,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   onCopyLink,
   linkCopyStatus,
   isPending,
+  deletedNoteIdsRef,
 }) => {
   const sessionId = useRef(
     `sess_${Math.random().toString(36).substr(2, 5)}`,
@@ -200,7 +202,12 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
       const hasUnsavedChanges =
         curT !== lastSync.title || curC !== lastSync.content;
 
-      if (hasUnsavedChanges) {
+      // Tjekker om noten er ved at blive slettet. Hvis den er i deletedNoteIdsRef,
+      // må vi under ingen omstændigheder gemme den igen, da vi ellers "genopliver" den!
+      if (
+        hasUnsavedChanges &&
+        !deletedNoteIdsRef.current.has(noteRef.current.id)
+      ) {
         NexusService.saveNote(workspaceId, {
           ...noteRef.current,
           title: curT || "Uden titel",
@@ -210,7 +217,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         });
       }
     };
-  }, [workspaceId, sessionId]);
+  }, [workspaceId, sessionId, deletedNoteIdsRef]);
 
   return (
     <div className="animate-in fade-in relative flex flex-1 flex-col overflow-hidden bg-surface duration-200">
@@ -280,6 +287,12 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
       <input
         type="text"
         value={title}
+        onFocus={() => {
+          // Rydder feltet helt, så man kan se placeholderen "Overskrift..." i stedet for at markere teksten.
+          if (title === "Ny note") {
+            handleTitleChange("");
+          }
+        }}
         onChange={(e) => handleTitleChange(e.target.value)}
         placeholder="Overskrift..."
         className="mt-6 mb-4 w-full shrink-0 bg-transparent px-6 text-3xl font-bold text-high placeholder-low outline-none"
@@ -322,6 +335,7 @@ export const NotesModal: React.FC<NotesModalProps> = ({
   onClose,
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const deletedNoteIdsRef = useRef<Set<string>>(new Set());
 
   const mouseDownTarget = useRef<EventTarget | null>(null);
 
@@ -429,7 +443,20 @@ export const NotesModal: React.FC<NotesModalProps> = ({
 
   const handleDeleteNote = async (e: React.MouseEvent, noteId: string) => {
     e.stopPropagation();
-    if (confirm("Slet note?")) {
+
+    // Find note så vi kan vise titlen i confirm-dialogen
+    const noteToDelete = notes.find((n) => n.id === noteId);
+    const displayName =
+      noteToDelete?.title && noteToDelete.title !== "Ny note"
+        ? `"${noteToDelete.title}"`
+        : "denne";
+
+    if (
+      window.confirm(`Er du sikker på, at du vil slette ${displayName} note?`)
+    ) {
+      // Tilføj til ref, så unmount-funktionen ikke genopliver noten
+      deletedNoteIdsRef.current.add(noteId);
+
       if (activeNoteId === noteId) {
         const remaining = notes.filter((n) => n.id !== noteId);
         setActiveNoteId(remaining.length > 0 ? remaining[0].id : null);
@@ -615,6 +642,7 @@ export const NotesModal: React.FC<NotesModalProps> = ({
             onLocalUpdate={handleLocalUpdate}
             onCopyLink={handleCopyLink}
             linkCopyStatus={linkCopyStatus}
+            deletedNoteIdsRef={deletedNoteIdsRef}
           />
         ) : (
           <div className="flex flex-1 items-center justify-center bg-surface-sunken text-low">
