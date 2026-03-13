@@ -5,7 +5,7 @@ import {
   orderBy,
   query,
 } from "firebase/firestore";
-import { Loader2, Monitor } from "lucide-react";
+import { Loader2, Monitor, DownloadCloud } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PasteModal } from "../CopyPaste/PasteModal";
@@ -39,6 +39,7 @@ import { AuthLayout } from "../auth/AuthLayout";
 import { CreateItemModal } from "../settings/CreateItemModal";
 import { SettingsModal } from "../settings/SettingsModal";
 import { RemoteAccessModal } from "../remote/RemoteAccessModal";
+import { useExtensionUpdate } from "../updates/useExtensionUpdate";
 
 export interface PasteModalState {
   workspaceId: string;
@@ -49,6 +50,9 @@ export interface PasteModalState {
 export const Dashboard = () => {
   // Global Data Hook
   const { user, profiles, items, inboxData } = useNexusData();
+
+  // Extension Update Hook
+  const { updateAvailable, applyUpdate } = useExtensionUpdate();
 
   // Local State
   const [activeProfile, setActiveProfile] = useState<string>("");
@@ -577,6 +581,22 @@ export const Dashboard = () => {
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-background font-sans text-high">
+      {/* UPDATE BANNER (Absolut i toppen) */}
+      {updateAvailable && (
+        <div className="animate-in slide-in-from-top-4 absolute top-0 right-0 left-0 z-50 flex items-center justify-center gap-4 border-b border-action/20 bg-action/10 px-4 py-2 text-action shadow-sm backdrop-blur-sm">
+          <DownloadCloud size={16} />
+          <span className="text-sm font-medium">
+            En ny version af Nexus er klar!
+          </span>
+          <button
+            onClick={applyUpdate}
+            className="cursor-pointer rounded-md bg-action px-3 py-1 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-action/90"
+          >
+            Genstart og opdater
+          </button>
+        </div>
+      )}
+
       {restorationStatus && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-background/60 backdrop-blur-sm">
           <Loader2 size={64} className="animate-spin text-action" />

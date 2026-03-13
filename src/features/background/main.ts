@@ -76,6 +76,13 @@ interface LockData {
   timestamp: number;
 }
 
+interface DashboardRestoreData {
+  windowId: number;
+  url: string;
+  index: number;
+  pinned: boolean;
+}
+
 interface StorageResponse {
   nexus_ai_queue?: QueueItem[];
   nexus_ai_lock?: LockData;
@@ -83,6 +90,8 @@ interface StorageResponse {
   nexus_active_windows?: [number, WinMapping][];
   nexus_tab_tracker?: [number, TrackerData][]; // NY: Gemmer trackeren
   userFirebaseConfig?: any; // NY: Til at hente dynamisk Firebase config
+  nexus_update_pending?: boolean; // NY: Til at vise opdateringsbanner
+  nexus_pending_dashboards?: DashboardRestoreData[]; // NY: Til at gendanne dashboards
   [key: string]: unknown; // Fallback for andre nøgler, men typesafe som unknown
 }
 
@@ -183,6 +192,11 @@ type BackgroundMessage =
       payload: {
         workspaceId: string;
       };
+    }
+  | {
+      // Modtages fra Dashboard når brugeren trykker "Genstart og Opdater"
+      type: "APPLY_EXTENSION_UPDATE";
+      payload?: null;
     };
 
 // --- INITIALIZATION LOGIC (THE SHIELD) ---
@@ -413,7 +427,32 @@ async function validateAndCleanupState() {
     const data = (await chrome.storage.local.get([
       "nexus_active_windows",
       TRACKER_STORAGE_KEY,
+      "nexus_pending_dashboards", // Hentes for at se om vi kommer fra en opdatering
     ])) as StorageResponse;
+
+    // --- RECOVER DASHBOARDS EFTER OPDATERING ---
+    // Hvis udvidelsen netop er genstartet (opdateret), vil Chrome have lukket alle dashboards.
+    // Vi genåbner dem præcis hvor de var, med deres korrekte URL.
+    if (
+      data.nexus_pending_dashboards &&
+      data.nexus_pending_dashboards.length > 0
+    ) {
+      console.log("♻️ Gendanner dashboards efter opdatering...");
+      for (const d of data.nexus_pending_dashboards) {
+        try {
+          await chrome.tabs.create({
+            windowId: d.windowId,
+            url: d.url,
+            pinned: d.pinned,
+            index: d.index,
+          });
+        } catch (e) {
+          console.warn("Kunne ikke gendanne dashboard i vindue:", d.windowId);
+        }
+      }
+      // Ryd op, så vi ikke åbner dem igen og igen ved normale genstart
+      await chrome.storage.local.remove("nexus_pending_dashboards");
+    }
 
     // --- 1.1 HYDRATE TAB TRACKER ---
     if (data[TRACKER_STORAGE_KEY] && Array.isArray(data[TRACKER_STORAGE_KEY])) {
@@ -2054,6 +2093,58 @@ chrome.runtime.onMessage.addListener(
           sendResponse({ success: true });
           break;
         }
+        // --- NY LOGIK: Forbered og udfør genstart ---
+        case "APPLY_EXTENSION_UPDATE": {
+          (async () => {
+            try {
+              // 1. Find alle åbne faner i hele browseren
+              const tabs = await chrome.tabs.query({});
+
+              // 2. Filtrer så vi kun har vores egne Dashboards (og de har et vindues-ID)
+              const dashTabs = tabs.filter(
+                (t) => t.url && isDash(t.url) && t.windowId,
+              );
+
+              // 3. Kortlæg data til at gendanne dem med den KORREKTE URL fra The Brains hukommelse
+              const restoreData = dashTabs.map((t) => {
+                let correctUrl = "dashboard.html"; // Standard for Inbox/Ukendte
+
+                // Slå op i activeWindows for at bygge den sande URL
+                if (t.windowId && activeWindows.has(t.windowId)) {
+                  const mapping = activeWindows.get(t.windowId)!;
+                  correctUrl = `dashboard.html?workspaceId=${mapping.workspaceId}&windowId=${mapping.internalWindowId}`;
+                }
+
+                return {
+                  windowId: t.windowId!, // Non-null pga filteret
+                  url: correctUrl,
+                  index: t.index,
+                  pinned: t.pinned,
+                };
+              });
+
+              // 4. Gem i storage
+              await chrome.storage.local.set({
+                nexus_pending_dashboards: restoreData,
+              });
+
+              // 5. Fjern update flaget, så banneret ikke vises igen med det samme
+              await chrome.storage.local.remove("nexus_update_pending");
+
+              console.log(
+                "Forbereder genstart med",
+                restoreData.length,
+                "dashboards gemt.",
+              );
+
+              // 6. Udfør selve genstarten
+              chrome.runtime.reload();
+            } catch (e) {
+              console.error("Fejl under forberedelse af opdatering:", e);
+            }
+          })();
+          break;
+        }
         default:
           sendResponse({ success: false, error: "Unknown message type" });
           break;
@@ -2491,3 +2582,10 @@ async function waitForWindowToLoad(windowId: number) {
     check();
   });
 }
+
+// Lyt efter extension-opdateringer (Når en ny version er hentet fra Chrome Web Store)
+chrome.runtime.onUpdateAvailable.addListener((details) => {
+  console.log(`Ny opdatering klar: ${details.version}`);
+  // Sæt et flag i storage, som Dashboardet kan aflæse
+  chrome.storage.local.set({ nexus_update_pending: true });
+});
