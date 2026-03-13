@@ -2107,9 +2107,12 @@ chrome.runtime.onMessage.addListener(
 
               // 3. Kortlæg data til at gendanne dem med den KORREKTE URL fra The Brains hukommelse
               const restoreData = dashTabs.map((t) => {
-                let correctUrl = "dashboard.html"; // Standard for Inbox/Ukendte
+                // Hvis det er et ukendt/inbox vindue, åbn da inbox direkte via parameter!
+                let correctUrl = t.incognito
+                  ? "dashboard.html?view=incognito"
+                  : "dashboard.html?view=inbox";
 
-                // Slå op i activeWindows for at bygge den sande URL
+                // Slå op i activeWindows for at bygge den sande URL for workspaces
                 if (t.windowId && activeWindows.has(t.windowId)) {
                   const mapping = activeWindows.get(t.windowId)!;
                   correctUrl = `dashboard.html?workspaceId=${mapping.workspaceId}&windowId=${mapping.internalWindowId}`;

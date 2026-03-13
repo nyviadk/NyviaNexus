@@ -367,7 +367,7 @@ export const Dashboard = () => {
     if (user) {
       chrome.windows.getCurrent((win) => win.id && setCurrentWindowId(win.id));
 
-      chrome.storage.local.get("nexus_active_windows", (data) => {
+      chrome.storage.local.get(["nexus_active_windows"], (data) => {
         if (data?.nexus_active_windows) {
           setActiveMappings(
             data.nexus_active_windows as [number, WinMapping][],
@@ -393,12 +393,14 @@ export const Dashboard = () => {
       changes: { [key: string]: chrome.storage.StorageChange },
       area: string,
     ) => {
-      if (area === "local" && changes.nexus_active_windows) {
-        const newMappings = (changes.nexus_active_windows.newValue || []) as [
-          number,
-          WinMapping,
-        ][];
-        setActiveMappings(newMappings);
+      if (area === "local") {
+        if (changes.nexus_active_windows) {
+          const newMappings = (changes.nexus_active_windows.newValue || []) as [
+            number,
+            WinMapping,
+          ][];
+          setActiveMappings(newMappings);
+        }
       }
     };
 
@@ -441,6 +443,11 @@ export const Dashboard = () => {
       const wsId = params.get("workspaceId");
       const winId = params.get("windowId");
       const noteSpaceId = params.get("noteSpace");
+      const viewParam = params.get("view"); // Håndterer automatisk inbox/incognito navigation
+
+      // 0. Håndter direkte genstart/restore af Inbox og Incognito
+      if (viewParam === "inbox") setViewMode("inbox");
+      if (viewParam === "incognito") setViewMode("incognito");
 
       // 1. Håndter Deep Link til Noter
       if (noteSpaceId) {
@@ -452,16 +459,9 @@ export const Dashboard = () => {
             setNotesModalTarget({ id: noteWs.id, name: noteWs.name });
           }
         }
-
-        // RYD URL STRAKS
-        const newUrl = new URL(window.location.href);
-        newUrl.searchParams.delete("noteSpace");
-        newUrl.searchParams.delete("workspaceId");
-        newUrl.searchParams.delete("windowId");
-        window.history.replaceState({}, "", newUrl.toString());
       }
 
-      // 2. Håndter normal navigation
+      // 2. Håndter normal navigation til Workspaces
       if (wsId) {
         const targetWs = items.find((i) => i.id === wsId);
         if (targetWs && selectedWorkspace?.id !== targetWs.id) {
@@ -470,9 +470,19 @@ export const Dashboard = () => {
         }
       }
 
+      // RYD URL STRAKS (Så vi har en ren URL og brugeren kan navigere uden at være fastlåst)
+      if (wsId || noteSpaceId || viewParam) {
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete("noteSpace");
+        newUrl.searchParams.delete("workspaceId");
+        newUrl.searchParams.delete("windowId");
+        newUrl.searchParams.delete("view");
+        window.history.replaceState({}, "", newUrl.toString());
+      }
+
       hasLoadedUrlParams.current = true;
     }
-  }, [items]);
+  }, [items, selectedWorkspace, handleWorkspaceClick]);
 
   // Denne effekt sikrer at vi vælger et standard vindue hvis intet er valgt
   useEffect(() => {
@@ -581,16 +591,16 @@ export const Dashboard = () => {
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-background font-sans text-high">
-      {/* UPDATE BANNER (Absolut i toppen) */}
-      {updateAvailable && (
-        <div className="animate-in slide-in-from-top-4 absolute top-0 right-0 left-0 z-50 flex items-center justify-center gap-4 border-b border-action/20 bg-action/10 px-4 py-2 text-action shadow-sm backdrop-blur-sm">
-          <DownloadCloud size={16} />
+      {/* UPDATE BANNER */}
+      {!updateAvailable && (
+        <div className="bg-ui border-ui-border animate-in slide-in-from-top-4 absolute top-0 right-0 left-0 z-50 flex items-center justify-center gap-4 border-b px-4 py-2 text-high shadow-sm">
+          <DownloadCloud size={16} className="text-action" />
           <span className="text-sm font-medium">
             En ny version af Nexus er klar!
           </span>
           <button
             onClick={applyUpdate}
-            className="cursor-pointer rounded-md bg-action px-3 py-1 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-action/90"
+            className="text-action-content cursor-pointer rounded-md bg-action px-3 py-1 text-xs font-semibold shadow-sm transition-opacity hover:opacity-90"
           >
             Genstart og opdater
           </button>
