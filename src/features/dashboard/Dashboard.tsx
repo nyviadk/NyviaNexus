@@ -592,15 +592,15 @@ export const Dashboard = () => {
   return (
     <div className="relative flex h-screen overflow-hidden bg-background font-sans text-high">
       {/* UPDATE BANNER */}
-      {!updateAvailable && (
-        <div className="bg-ui border-ui-border animate-in slide-in-from-top-4 absolute top-0 right-0 left-0 z-50 flex items-center justify-center gap-4 border-b px-4 py-2 text-high shadow-sm">
+      {updateAvailable && (
+        <div className="animate-in slide-in-from-top-4 absolute top-0 right-0 left-0 z-50 flex items-center justify-center gap-4 border-b border-subtle bg-surface-elevated px-4 py-2 text-high shadow-sm backdrop-blur-sm">
           <DownloadCloud size={16} className="text-action" />
           <span className="text-sm font-medium">
             En ny version af Nexus er klar!
           </span>
           <button
             onClick={applyUpdate}
-            className="text-action-content cursor-pointer rounded-md bg-action px-3 py-1 text-xs font-semibold shadow-sm transition-opacity hover:opacity-90"
+            className="cursor-pointer rounded-md bg-action px-3 py-1 text-xs font-semibold text-inverted shadow-sm transition-colors hover:bg-action-hover"
           >
             Genstart og opdater
           </button>
