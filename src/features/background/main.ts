@@ -1619,9 +1619,16 @@ chrome.windows.onFocusChanged.addListener(
       const tabs = await chrome.tabs.query({ windowId: winId });
       if (!tabs.some((t) => isDash(t.url))) {
         lastDashboardTime = now;
+
+        // Find den rigtige URL til Dashboardet
+        const mapping = activeWindows.get(winId);
+        const correctUrl = mapping
+          ? `dashboard.html?workspaceId=${mapping.workspaceId}&windowId=${mapping.internalWindowId}`
+          : "dashboard.html?view=inbox";
+
         await chrome.tabs.create({
           windowId: winId,
-          url: "dashboard.html",
+          url: correctUrl,
           pinned: true,
           index: 0,
         });
