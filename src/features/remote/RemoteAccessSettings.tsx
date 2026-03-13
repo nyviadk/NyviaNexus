@@ -435,6 +435,18 @@ match /users/${myUid}/{document=**} {
     setCopyStatus(null);
   };
 
+  const copySingleTab = async (url: string, idForStatus: string) => {
+    if (!url) return;
+
+    await navigator.clipboard.writeText(url);
+    setCopyStatus(`single_${idForStatus}`);
+
+    await wait(1500);
+    // Vi tjekker ikke previous state da det er en simpel Timeout reset.
+    // Hvis brugeren spam-klikker forskellige kopier vil kun den nyeste blive stående indtil udløb.
+    setCopyStatus(null);
+  };
+
   const copyRemoteSpace = async (spaceId: string) => {
     if (!activeExpandedUid || copyingId) return; // Forhindrer dobbelt-klik
 
@@ -847,21 +859,48 @@ match /users/${myUid}/{document=**} {
                               </button>
                             </div>
                             <div className="custom-scrollbar max-h-48 overflow-y-auto rounded-xl border border-subtle/50 bg-surface-elevated/50 p-2">
-                              {remoteInbox.map((tab, i) => (
-                                <div
-                                  key={i}
-                                  className="group flex items-center gap-3 truncate rounded-lg p-2 text-xs text-medium transition-colors hover:bg-surface-hover"
-                                >
-                                  <img
-                                    src={tab.favIconUrl || ""}
-                                    className="h-4 w-4 shrink-0 rounded-sm bg-surface-sunken"
-                                    alt=""
-                                  />
-                                  <span className="flex-1 truncate group-hover:text-high">
-                                    {tab.title}
-                                  </span>
-                                </div>
-                              ))}
+                              {remoteInbox.map((tab, i) => {
+                                const isSingleCopied =
+                                  copyStatus === `single_${tab.uid || i}`;
+                                return (
+                                  <div
+                                    key={i}
+                                    className="group flex items-center justify-between rounded-lg p-2 text-xs text-medium transition-colors hover:bg-surface-hover"
+                                  >
+                                    <div className="flex flex-1 items-center gap-3 overflow-hidden pr-2">
+                                      <img
+                                        src={tab.favIconUrl || ""}
+                                        className="h-4 w-4 shrink-0 rounded-sm bg-surface-sunken"
+                                        alt=""
+                                      />
+                                      <span className="truncate group-hover:text-high">
+                                        {tab.title}
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        copySingleTab(
+                                          tab.url,
+                                          tab.uid || String(i),
+                                        );
+                                      }}
+                                      className={`flex shrink-0 cursor-pointer items-center justify-center rounded p-1 transition-all ${
+                                        isSingleCopied
+                                          ? "text-success opacity-100"
+                                          : "text-low opacity-0 group-hover:text-mode-inbox group-hover:opacity-100 hover:bg-mode-inbox/10"
+                                      }`}
+                                      title="Kopier link"
+                                    >
+                                      {isSingleCopied ? (
+                                        <Check size={14} />
+                                      ) : (
+                                        <Copy size={14} />
+                                      )}
+                                    </button>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         )}
@@ -902,21 +941,48 @@ match /users/${myUid}/{document=**} {
                               </button>
                             </div>
                             <div className="custom-scrollbar max-h-48 overflow-y-auto rounded-xl border border-subtle/50 bg-surface-elevated/50 p-2">
-                              {remoteIncognito.map((tab, i) => (
-                                <div
-                                  key={i}
-                                  className="group flex items-center gap-3 truncate rounded-lg p-2 text-xs text-medium transition-colors hover:bg-surface-hover"
-                                >
-                                  <img
-                                    src={tab.favIconUrl || ""}
-                                    className="h-4 w-4 shrink-0 rounded-sm bg-surface-sunken"
-                                    alt=""
-                                  />
-                                  <span className="flex-1 truncate group-hover:text-high">
-                                    {tab.title}
-                                  </span>
-                                </div>
-                              ))}
+                              {remoteIncognito.map((tab, i) => {
+                                const isSingleCopied =
+                                  copyStatus === `single_${tab.uid || i}`;
+                                return (
+                                  <div
+                                    key={i}
+                                    className="group flex items-center justify-between rounded-lg p-2 text-xs text-medium transition-colors hover:bg-surface-hover"
+                                  >
+                                    <div className="flex flex-1 items-center gap-3 overflow-hidden pr-2">
+                                      <img
+                                        src={tab.favIconUrl || ""}
+                                        className="h-4 w-4 shrink-0 rounded-sm bg-surface-sunken"
+                                        alt=""
+                                      />
+                                      <span className="truncate group-hover:text-high">
+                                        {tab.title}
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        copySingleTab(
+                                          tab.url,
+                                          tab.uid || String(i),
+                                        );
+                                      }}
+                                      className={`flex shrink-0 cursor-pointer items-center justify-center rounded p-1 transition-all ${
+                                        isSingleCopied
+                                          ? "text-success opacity-100"
+                                          : "text-low opacity-0 group-hover:text-mode-incognito group-hover:opacity-100 hover:bg-mode-incognito/10"
+                                      }`}
+                                      title="Kopier link"
+                                    >
+                                      {isSingleCopied ? (
+                                        <Check size={14} />
+                                      ) : (
+                                        <Copy size={14} />
+                                      )}
+                                    </button>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         )}
