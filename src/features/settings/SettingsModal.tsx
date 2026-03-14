@@ -1,16 +1,19 @@
-import React, { useEffect, useRef, useState } from "react";
 import {
   addDoc,
   collection,
   deleteDoc,
   doc,
   updateDoc,
+  writeBatch,
 } from "firebase/firestore";
 import {
+  ArrowDown,
+  ArrowUp,
   Check,
   Edit2,
   Key,
   Monitor,
+  Palette,
   Plus,
   Save,
   Settings,
@@ -20,9 +23,10 @@ import {
   Trash2,
   Wand2,
   X,
-  Palette,
 } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
 import { auth, db } from "../../lib/firebase";
+import { AiService } from "../ai/aiService";
 import {
   AiSettings,
   Profile,
@@ -30,7 +34,6 @@ import {
   UserCategory,
 } from "../dashboard/types";
 import { ThemeSelector } from "./ThemeSelector";
-import { AiService } from "../ai/aiService";
 
 export const SettingsModal = ({
   profiles,
@@ -53,6 +56,11 @@ export const SettingsModal = ({
   const [newCatColor, setNewCatColor] = useState("#3b82f6");
 
   const dialogRef = useRef<HTMLDialogElement>(null);
+
+  // Sorterer profilerne baseret på deres order (eller nuværende index hvis order mangler)
+  const sortedProfiles: Profile[] = [...profiles].sort(
+    (a: Profile, b: Profile) => (a.order || 0) - (b.order || 0),
+  );
 
   useEffect(() => {
     if (dialogRef.current && !dialogRef.current.open) {
@@ -128,8 +136,15 @@ export const SettingsModal = ({
     if (e) e.preventDefault();
     if (!auth.currentUser || !newProfileName.trim()) return;
 
+    const nextOrder =
+      sortedProfiles.length > 0
+        ? (sortedProfiles[sortedProfiles.length - 1].order ??
+            sortedProfiles.length - 1) + 1
+        : 0;
+
     await addDoc(collection(db, "users", auth.currentUser.uid, "profiles"), {
       name: newProfileName,
+      order: nextOrder,
     });
     setNewProfileName("");
   };
@@ -179,6 +194,35 @@ export const SettingsModal = ({
       // Brugeren trykkede ikke Annuller, men skrev forkert
       alert("Navnet stemte ikke overens. Profilen blev IKKE slettet.");
     }
+  };
+
+  const moveProfile = async (
+    e: React.MouseEvent,
+    index: number,
+    direction: "up" | "down",
+  ) => {
+    e.stopPropagation();
+    if (!auth.currentUser) return;
+
+    const swapIndex = direction === "up" ? index - 1 : index + 1;
+    if (swapIndex < 0 || swapIndex >= sortedProfiles.length) return;
+
+    const p1 = sortedProfiles[index];
+    const p2 = sortedProfiles[swapIndex];
+
+    // Fallback hvis order mangler fra gamle data
+    const order1 = p1.order ?? index;
+    const order2 = p2.order ?? swapIndex;
+
+    // Brug batch til at sikre at byttet sker atomisk
+    const batch = writeBatch(db);
+    batch.update(doc(db, "users", auth.currentUser.uid, "profiles", p1.id), {
+      order: order2,
+    });
+    batch.update(doc(db, "users", auth.currentUser.uid, "profiles", p2.id), {
+      order: order1,
+    });
+    await batch.commit();
   };
 
   return (
@@ -318,7 +362,7 @@ export const SettingsModal = ({
                     />
                     <button
                       type="submit"
-                      className="cursor-pointer rounded-xl bg-strong px-3 text-inverted hover:bg-subtle"
+                      className="flex cursor-pointer items-center justify-center rounded-xl bg-action px-3 text-inverted ring-action-hover transition hover:bg-action-hover focus:ring-2"
                     >
                       <Plus size={20} />
                     </button>
@@ -366,13 +410,13 @@ export const SettingsModal = ({
                     />
                     <button
                       type="submit"
-                      className="cursor-pointer rounded-xl bg-strong px-3 text-inverted hover:bg-subtle"
+                      className="flex cursor-pointer items-center justify-center rounded-xl bg-action px-3 text-inverted ring-action-hover transition hover:bg-action-hover focus:ring-2"
                     >
                       <Plus size={20} />
                     </button>
                   </form>
                   <div className="max-h-32 space-y-2 overflow-y-auto pr-2">
-                    {profiles.map((p: Profile) => {
+                    {sortedProfiles.map((p, index) => {
                       return (
                         <div
                           key={p.id}
@@ -406,6 +450,29 @@ export const SettingsModal = ({
                               <span className="flex-1 text-sm text-medium">
                                 {p.name}
                               </span>
+
+                              {/* PILE TIL AT FLYTTE PROFILER */}
+                              <div className="flex flex-col opacity-0 transition-opacity group-hover:opacity-100">
+                                {index > 0 && (
+                                  <button
+                                    onClick={(e) => moveProfile(e, index, "up")}
+                                    className="cursor-pointer pb-0.5 text-low hover:text-action"
+                                  >
+                                    <ArrowUp size={18} />
+                                  </button>
+                                )}
+                                {index < sortedProfiles.length - 1 && (
+                                  <button
+                                    onClick={(e) =>
+                                      moveProfile(e, index, "down")
+                                    }
+                                    className="cursor-pointer pt-0.5 text-low hover:text-action"
+                                  >
+                                    <ArrowDown size={18} />
+                                  </button>
+                                )}
+                              </div>
+
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();

@@ -74,6 +74,7 @@ export interface NexusItem {
 export interface Profile {
   id: string;
   name: string;
+  order?: number;
 }
 
 export interface WorkspaceWindow {

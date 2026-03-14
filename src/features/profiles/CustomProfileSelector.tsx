@@ -37,6 +37,10 @@ export const CustomProfileSelector = memo(
       );
     }, [profiles, activeProfile]);
 
+    const sortedProfiles = useMemo(() => {
+      return [...profiles].sort((a, b) => (a.order || 0) - (b.order || 0));
+    }, [profiles]);
+
     return (
       <div className="relative flex-1" ref={dropdownRef}>
         <button
@@ -63,7 +67,7 @@ export const CustomProfileSelector = memo(
             <div className="mb-1 px-2 py-1 text-[10px] font-bold tracking-widest text-low uppercase">
               Vælg profil
             </div>
-            {profiles.map((p) => {
+            {sortedProfiles.map((p) => {
               const isActive = p.id === activeProfile;
               return (
                 <div
