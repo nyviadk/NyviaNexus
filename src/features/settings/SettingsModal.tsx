@@ -1,10 +1,10 @@
+import React, { useEffect, useRef, useState } from "react";
 import {
   addDoc,
   collection,
   deleteDoc,
   doc,
   updateDoc,
-  writeBatch,
 } from "firebase/firestore";
 import {
   ArrowDown,
@@ -13,7 +13,6 @@ import {
   Edit2,
   Key,
   Monitor,
-  Palette,
   Plus,
   Save,
   Settings,
@@ -23,10 +22,9 @@ import {
   Trash2,
   Wand2,
   X,
+  Palette,
 } from "lucide-react";
-import React, { useEffect, useRef, useState } from "react";
 import { auth, db } from "../../lib/firebase";
-import { AiService } from "../ai/aiService";
 import {
   AiSettings,
   Profile,
@@ -34,6 +32,8 @@ import {
   UserCategory,
 } from "../dashboard/types";
 import { ThemeSelector } from "./ThemeSelector";
+import { AiService } from "../ai/aiService";
+import { useProfileOrder } from "./useProfileOrder";
 
 export const SettingsModal = ({
   profiles,
@@ -46,6 +46,17 @@ export const SettingsModal = ({
   const [editName, setEditName] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
+
+  // Importerer vores sorterings-logik
+  const {
+    localProfiles,
+    isOrderDirty,
+    isSavingOrder,
+    moveProfileLocal,
+    saveProfileOrder,
+    handleProfileDeleted,
+  } = useProfileOrder(profiles);
+
   const [aiSettings, setAiSettings] = useState<AiSettings>({
     allowDynamic: true,
     useUncategorized: false,
@@ -56,11 +67,6 @@ export const SettingsModal = ({
   const [newCatColor, setNewCatColor] = useState("#3b82f6");
 
   const dialogRef = useRef<HTMLDialogElement>(null);
-
-  // Sorterer profilerne baseret på deres order (eller nuværende index hvis order mangler)
-  const sortedProfiles: Profile[] = [...profiles].sort(
-    (a: Profile, b: Profile) => (a.order || 0) - (b.order || 0),
-  );
 
   useEffect(() => {
     if (dialogRef.current && !dialogRef.current.open) {
@@ -136,11 +142,7 @@ export const SettingsModal = ({
     if (e) e.preventDefault();
     if (!auth.currentUser || !newProfileName.trim()) return;
 
-    const nextOrder =
-      sortedProfiles.length > 0
-        ? (sortedProfiles[sortedProfiles.length - 1].order ??
-            sortedProfiles.length - 1) + 1
-        : 0;
+    const nextOrder = localProfiles.length;
 
     await addDoc(collection(db, "users", auth.currentUser.uid, "profiles"), {
       name: newProfileName,
@@ -179,6 +181,9 @@ export const SettingsModal = ({
       try {
         await deleteDoc(doc(db, "users", auth.currentUser.uid, "profiles", id));
 
+        // Håndter sletning i lokal UI
+        handleProfileDeleted(id);
+
         // Hvis vi slettede den aktive profil, skift til en anden
         if (activeProfile === id) {
           const nextProfile = profiles.find((p: Profile) => p.id !== id);
@@ -194,35 +199,6 @@ export const SettingsModal = ({
       // Brugeren trykkede ikke Annuller, men skrev forkert
       alert("Navnet stemte ikke overens. Profilen blev IKKE slettet.");
     }
-  };
-
-  const moveProfile = async (
-    e: React.MouseEvent,
-    index: number,
-    direction: "up" | "down",
-  ) => {
-    e.stopPropagation();
-    if (!auth.currentUser) return;
-
-    const swapIndex = direction === "up" ? index - 1 : index + 1;
-    if (swapIndex < 0 || swapIndex >= sortedProfiles.length) return;
-
-    const p1 = sortedProfiles[index];
-    const p2 = sortedProfiles[swapIndex];
-
-    // Fallback hvis order mangler fra gamle data
-    const order1 = p1.order ?? index;
-    const order2 = p2.order ?? swapIndex;
-
-    // Brug batch til at sikre at byttet sker atomisk
-    const batch = writeBatch(db);
-    batch.update(doc(db, "users", auth.currentUser.uid, "profiles", p1.id), {
-      order: order2,
-    });
-    batch.update(doc(db, "users", auth.currentUser.uid, "profiles", p2.id), {
-      order: order1,
-    });
-    await batch.commit();
   };
 
   return (
@@ -401,6 +377,7 @@ export const SettingsModal = ({
                   <h4 className="flex items-center gap-2 text-xs font-bold tracking-widest text-medium uppercase">
                     <Monitor size={16} /> Profiler
                   </h4>
+
                   <form onSubmit={addProfile} className="flex gap-2">
                     <input
                       value={newProfileName}
@@ -415,13 +392,35 @@ export const SettingsModal = ({
                       <Plus size={20} />
                     </button>
                   </form>
-                  <div className="max-h-32 space-y-2 overflow-y-auto pr-2">
-                    {sortedProfiles.map((p, index) => {
+
+                  {/* Gem knap flyttet herned under inputtet og animeres ind */}
+                  {isOrderDirty && (
+                    <div className="animate-in fade-in slide-in-from-top-2 flex justify-end">
+                      <button
+                        onClick={saveProfileOrder}
+                        disabled={isSavingOrder}
+                        className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-success/70 px-3 py-1.5 text-xs font-bold tracking-wide text-inverted transition-all hover:bg-success"
+                      >
+                        {isSavingOrder ? (
+                          <Check size={16} />
+                        ) : (
+                          <Save size={16} />
+                        )}
+                        Gem rækkefølge
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="custom-scrollbar max-h-72 space-y-2 overflow-y-auto pr-2">
+                    {localProfiles.map((p, index) => {
                       return (
                         <div
                           key={p.id}
-                          onClick={() => !editingId && setActiveProfile(p.id)}
-                          className="group flex cursor-pointer items-center gap-2 rounded-xl border border-strong/50 bg-surface/30 p-2 transition-all hover:border-strong hover:bg-surface/50"
+                          className={`group flex cursor-pointer items-center gap-2 rounded-xl border p-2 transition-all hover:bg-surface/50 ${
+                            isOrderDirty
+                              ? "border-action/30"
+                              : "border-strong/50 hover:border-strong"
+                          }`}
                         >
                           {editingId === p.id ? (
                             <>
@@ -451,21 +450,25 @@ export const SettingsModal = ({
                                 {p.name}
                               </span>
 
-                              {/* PILE TIL AT FLYTTE PROFILER */}
+                              {/* PILE TIL AT FLYTTE PROFILER LOKALT (ArrowUp / ArrowDown) */}
                               <div className="flex flex-col opacity-0 transition-opacity group-hover:opacity-100">
                                 {index > 0 && (
                                   <button
-                                    onClick={(e) => moveProfile(e, index, "up")}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      moveProfileLocal(index, "up");
+                                    }}
                                     className="cursor-pointer pb-0.5 text-low hover:text-action"
                                   >
                                     <ArrowUp size={18} />
                                   </button>
                                 )}
-                                {index < sortedProfiles.length - 1 && (
+                                {index < localProfiles.length - 1 && (
                                   <button
-                                    onClick={(e) =>
-                                      moveProfile(e, index, "down")
-                                    }
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      moveProfileLocal(index, "down");
+                                    }}
                                     className="cursor-pointer pt-0.5 text-low hover:text-action"
                                   >
                                     <ArrowDown size={18} />
