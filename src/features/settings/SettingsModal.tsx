@@ -4,6 +4,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocs,
   updateDoc,
 } from "firebase/firestore";
 import {
@@ -12,6 +13,7 @@ import {
   Check,
   Edit2,
   Key,
+  Loader2,
   Monitor,
   Plus,
   Save,
@@ -30,10 +32,12 @@ import {
   Profile,
   SettingsModalProps,
   UserCategory,
+  NexusItem,
 } from "../dashboard/types";
 import { ThemeSelector } from "./ThemeSelector";
 import { AiService } from "../ai/aiService";
 import { useProfileOrder } from "./useProfileOrder";
+import { NexusService } from "../dashboard/nexusService";
 
 export const SettingsModal = ({
   profiles,
@@ -46,6 +50,7 @@ export const SettingsModal = ({
   const [editName, setEditName] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Importerer vores sorterings-logik
   const {
@@ -174,12 +179,33 @@ export const SettingsModal = ({
 
     // Bed brugeren skrive navnet for at bekræfte
     const userInput = window.prompt(
-      `SIKKERHEDSTJEK: Dette sletter profilen og alle tilhørende data permanent.\n\nSkriv "${profileToDelete.name}" for at bekræfte sletning.`,
+      `SIKKERHEDSTJEK: Dette sletter profilen og alle tilhørende workspaces, faner og data permanent.\n\nSkriv "${profileToDelete.name}" for at bekræfte sletning.`,
     );
 
     if (userInput === profileToDelete.name) {
+      setDeletingId(id);
       try {
-        await deleteDoc(doc(db, "users", auth.currentUser.uid, "profiles", id));
+        const uid = auth.currentUser.uid;
+
+        // 1. Hent alle items for at kunne finde dem, der tilhører profilen
+        const itemsSnap = await getDocs(collection(db, "users", uid, "items"));
+        const allItems = itemsSnap.docs.map((d) => d.data() as NexusItem);
+
+        // 2. Find de top-level items, der tilhører profilen (NexusService sletter selv children rekursivt)
+        const profileItems = allItems.filter((item) => item.profileId === id);
+        const topLevelItems = profileItems.filter(
+          (item) =>
+            !item.parentId ||
+            !allItems.some((parent) => parent.id === item.parentId),
+        );
+
+        // 3. Brug NexusService til at slette inkl. fysiske vinduer og undermapper sikkert
+        for (const item of topLevelItems) {
+          await NexusService.deleteItem(item, allItems);
+        }
+
+        // 4. Slet selve profil-dokumentet
+        await deleteDoc(doc(db, "users", uid, "profiles", id));
 
         // Håndter sletning i lokal UI
         handleProfileDeleted(id);
@@ -192,8 +218,12 @@ export const SettingsModal = ({
           }
         }
       } catch (error) {
-        console.error("Error deleting profile:", error);
-        alert("Der opstod en fejl under sletning af profilen.");
+        console.error("Error deleting profile and data:", error);
+        alert("Der opstod en fejl under sletning af profilen og dens data.");
+      } finally {
+        setTimeout(() => {
+          setDeletingId(null);
+        }, 500);
       }
     } else if (userInput !== null) {
       // Brugeren trykkede ikke Annuller, men skrev forkert
@@ -412,6 +442,12 @@ export const SettingsModal = ({
                   )}
 
                   <div className="custom-scrollbar max-h-72 space-y-2 overflow-y-auto pr-2">
+                    {deletingId && (
+                      <Loader2
+                        size={16}
+                        className="animate-spin text-success"
+                      />
+                    )}
                     {localProfiles.map((p, index) => {
                       return (
                         <div
@@ -491,9 +527,17 @@ export const SettingsModal = ({
                                   e.stopPropagation();
                                   removeProfile(p.id);
                                 }}
-                                className="cursor-pointer text-low opacity-0 transition group-hover:opacity-100 hover:text-danger"
+                                disabled={deletingId === p.id}
+                                className="cursor-pointer text-low opacity-0 transition group-hover:opacity-100 hover:text-danger disabled:opacity-100"
                               >
-                                <Trash2 size={16} />
+                                {deletingId === p.id ? (
+                                  <Loader2
+                                    size={16}
+                                    className="animate-spin text-danger"
+                                  />
+                                ) : (
+                                  <Trash2 size={16} />
+                                )}
                               </button>
                             </>
                           )}
