@@ -172,10 +172,10 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
 
   if (state === "needs_setup") {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-background p-6 font-sans text-high">
-        <div className="gap flex flex-col">
-          <div className="relative z-20 flex min-h-125 w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-subtle bg-[linear-gradient(180deg,var(--tw-bg-surface)_0%,var(--tw-bg-surface-elevated)_100%)] shadow-2xl">
-            <div className="border-b border-subtle bg-surface-sunken/50 p-8 backdrop-blur-sm">
+      <div className="flex min-h-screen w-full flex-col items-center bg-background px-4 py-8 font-sans text-high sm:px-6">
+        <div className="z-10 my-auto flex w-full max-w-xl flex-col gap-4">
+          <div className="relative flex w-full flex-col overflow-hidden rounded-2xl border border-subtle bg-[linear-gradient(180deg,var(--tw-bg-surface)_0%,var(--tw-bg-surface-elevated)_100%)] shadow-2xl">
+            <div className="border-b border-subtle bg-surface-sunken/50 p-6 backdrop-blur-sm sm:p-8">
               <h1 className="text-4xl font-black tracking-tighter text-high italic">
                 NyviaNexus
               </h1>
@@ -187,7 +187,7 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
               </div>
             </div>
 
-            <div className="relative flex-1 p-10">
+            <div className="relative flex-1 p-6 sm:p-10">
               {view === "landing" ? (
                 <div className="space-y-8">
                   <div className="space-y-3">
@@ -279,7 +279,7 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
                     </div>
 
                     <textarea
-                      className={`h-48 w-full resize-none rounded-xl border bg-surface-sunken p-4 font-mono text-[11px] backdrop-blur-sm outline-none ${
+                      className={`h-32 w-full resize-none rounded-xl border bg-surface-sunken p-4 font-mono text-[11px] backdrop-blur-sm outline-none sm:h-48 ${
                         error
                           ? "border-danger/50 text-danger"
                           : "border-subtle text-high focus:border-action/50 focus:bg-surface-sunken/80"
@@ -339,12 +339,12 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
             </div>
           </div>
           {/* Theme Selector tilføjet her - adskilt med en diskret linje */}
-          <div className="mt-4 border-t border-subtle pt-4">
+          <div className="mt-2 border-t border-subtle pt-4 sm:mt-4">
             <ThemeSelector />
           </div>
         </div>
         {/* Theming friendly background radial: Vi peger den på surface-sunken som er mørk i dark-mode og næsten hvid i light */}
-        <div className="pointer-events-none fixed inset-0 z-10 bg-[radial-gradient(circle_at_top_left,var(--tw-bg-surface-elevated),transparent)] opacity-40" />
+        <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_top_left,var(--tw-bg-surface-elevated),transparent)] opacity-40" />
       </div>
     );
   }

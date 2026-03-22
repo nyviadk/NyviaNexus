@@ -33,9 +33,10 @@ export const SetupGuide: React.FC<SetupGuideProps> = ({
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Nexus Privatlivs-regel: Kun DU har adgang
+    
+    // Matcher ALLE dokumenter i hele databasen rekursivt
     match /{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == "${uid}";
+      allow read, write: if request.auth != null && (request.auth.uid == "${uid}");
     }
   }
 }`;

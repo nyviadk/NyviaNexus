@@ -156,19 +156,22 @@ export const RemoteAccessSettings = () => {
     if (!auth.currentUser) return "";
     const myUid = auth.currentUser.uid;
 
-    // Byg en liste over godkendte UIDs til rules snippet
-    const viewerIds =
-      allowedViewers.length > 0
-        ? allowedViewers.map((id) => `"${id}"`).join(", ")
-        : "";
+    // Byg en liste over alle godkendte UIDs til rules snippet
+    const uids = [myUid, ...allowedViewers];
+    const conditions = uids
+      .map((id) => `request.auth.uid == "${id}"`)
+      .join(" || ");
 
-    return `// NyviaNexus: Sikkerhedsregler for din profil
-match /users/${myUid}/{document=**} {
-  // Du har altid fuld adgang
-  allow read, write: if request.auth.uid == "${myUid}";
-  
-  // Andre enheder du har godkendt må læse dine data
-  allow read: if request.auth.uid in [${viewerIds}];
+    return `rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Matcher ALLE dokumenter i hele databasen rekursivt
+    match /{document=**} {
+      allow read, write: if request.auth != null && (${conditions});
+    }
+  }
 }`;
   }, [auth.currentUser, allowedViewers]);
 

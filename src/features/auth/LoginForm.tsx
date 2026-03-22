@@ -14,7 +14,14 @@ import {
   getDocs,
   addDoc,
 } from "firebase/firestore";
-import { Loader2, ArrowRight, ExternalLink, Sparkles } from "lucide-react";
+import {
+  Loader2,
+  ArrowRight,
+  ExternalLink,
+  Sparkles,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 import { AiService } from "../ai/aiService";
 
 interface LoginFormProps {
@@ -29,6 +36,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onUserCreated }) => {
   const [loading, setLoading] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Tilføjet state til at styre visning af adgangskode og API-nøgle
+  const [showPassword, setShowPassword] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
 
   const handleAuth = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -122,13 +133,24 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onUserCreated }) => {
         className="rounded-lg border border-subtle bg-surface-sunken p-3 text-sm text-high transition-all outline-none focus:border-action focus:ring-1 focus:ring-action"
         required
       />
-      <input
-        type="password"
-        name="password"
-        placeholder="Password"
-        className="rounded-lg border border-subtle bg-surface-sunken p-3 text-sm text-high transition-all outline-none focus:border-action focus:ring-1 focus:ring-action"
-        required
-      />
+
+      <div className="relative">
+        <input
+          type={showPassword ? "text" : "password"}
+          name="password"
+          placeholder="Password"
+          className="w-full rounded-lg border border-subtle bg-surface-sunken p-3 pr-10 text-sm text-high transition-all outline-none focus:border-action focus:ring-1 focus:ring-action"
+          required
+        />
+        <button
+          type="button"
+          onClick={() => setShowPassword(!showPassword)}
+          className="absolute top-1/2 right-3 -translate-y-1/2 cursor-pointer text-low transition-colors hover:text-high"
+          tabIndex={-1}
+        >
+          {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+        </button>
+      </div>
 
       <div className="mt-2 space-y-2">
         <div className="flex items-center justify-between px-1">
@@ -145,12 +167,24 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onUserCreated }) => {
             Hent nøgle <ExternalLink size={10} />
           </a>
         </div>
-        <input
-          type="password"
-          name="cerebrasKey"
-          placeholder="csk-..."
-          className="w-full rounded-lg border border-subtle bg-surface-sunken/50 p-3 text-sm text-high transition-all outline-none focus:border-action focus:ring-1 focus:ring-action"
-        />
+
+        <div className="relative">
+          <input
+            type={showApiKey ? "text" : "password"}
+            name="cerebrasKey"
+            placeholder="csk-..."
+            className="w-full rounded-lg border border-subtle bg-surface-sunken/50 p-3 pr-10 text-sm text-high transition-all outline-none focus:border-action focus:ring-1 focus:ring-action"
+          />
+          <button
+            type="button"
+            onClick={() => setShowApiKey(!showApiKey)}
+            className="absolute top-1/2 right-3 -translate-y-1/2 cursor-pointer text-low transition-colors hover:text-high"
+            tabIndex={-1}
+          >
+            {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+        </div>
+
         <p className="px-1 text-[10px] text-low">
           Vælg model:{" "}
           <span className="font-mono text-medium italic">"llama3.1-8b"</span>
