@@ -6,6 +6,8 @@ import {
   doc,
   getDocs,
   updateDoc,
+  auth,
+  db,
 } from "@/lib/firebase";
 import {
   ArrowDown,
@@ -26,7 +28,6 @@ import {
   X,
   Palette,
 } from "lucide-react";
-import { auth, db } from "../../lib/firebase";
 import {
   AiSettings,
   Profile,

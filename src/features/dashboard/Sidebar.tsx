@@ -5,7 +5,7 @@ import {
   Profile,
 } from "@/features/dashboard/types";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
-import { doc, writeBatch } from "@/lib/firebase";
+import { doc, writeBatch, auth, db } from "@/lib/firebase";
 import {
   Activity,
   AlertTriangle,
@@ -30,7 +30,6 @@ import {
   XCircle,
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { auth, db } from "../../lib/firebase";
 import { NexusService } from "./nexusService";
 import { CustomProfileSelector } from "../profiles/CustomProfileSelector";
 import { LogoutButton } from "../auth/LogoutButton";

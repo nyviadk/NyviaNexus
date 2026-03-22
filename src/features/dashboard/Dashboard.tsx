@@ -1,4 +1,11 @@
-import { collection, doc, onSnapshot, orderBy, query } from "@/lib/firebase";
+import {
+  collection,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  db,
+} from "@/lib/firebase";
 import { Loader2, Monitor, DownloadCloud } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -13,7 +20,6 @@ import { TabGrid } from "./TabGrid";
 
 import { useTabActions } from "./useTabActions";
 
-import { db } from "../../lib/firebase";
 import { LinkManager } from "../CopyPaste/linkManager";
 
 import {

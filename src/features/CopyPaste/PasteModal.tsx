@@ -6,6 +6,7 @@ import {
   arrayUnion,
   collection,
   getDocs,
+  db,
 } from "@/lib/firebase";
 import { getAuth } from "firebase/auth/web-extension";
 import {
@@ -21,7 +22,6 @@ import {
   Maximize,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { db } from "../../lib/firebase";
 import { LinkManager } from "./linkManager";
 import { WinMapping } from "../background/main";
 import { WorkspaceWindow } from "../dashboard/types";

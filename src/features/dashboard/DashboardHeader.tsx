@@ -14,8 +14,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { WindowControlStrip } from "./WindowControlStrip";
-import { auth, db } from "../../lib/firebase";
-import { doc, getDoc, updateDoc } from "@/lib/firebase";
+import { doc, getDoc, updateDoc, auth, db } from "@/lib/firebase";
 import {
   InboxData,
   NexusItem,

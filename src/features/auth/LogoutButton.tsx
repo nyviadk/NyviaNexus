@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { LogOut, Loader2 } from "lucide-react";
-import { auth } from "../../lib/firebase";
+import { auth } from "@/lib/firebase";
 import { WinMapping } from "../background/main";
 
 interface LogoutButtonProps {

@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { auth, db } from "../../lib/firebase";
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -13,6 +12,8 @@ import {
   collection,
   getDocs,
   addDoc,
+  auth,
+  db,
 } from "@/lib/firebase";
 import {
   Loader2,

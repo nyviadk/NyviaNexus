@@ -14,8 +14,8 @@ import {
   setDoc,
   updateDoc,
   writeBatch,
+  db,
 } from "@/lib/firebase";
-import { db } from "../../lib/firebase";
 import { ArchiveItem, NexusItem, Note } from "./types";
 import { TabData } from "../background/main";
 

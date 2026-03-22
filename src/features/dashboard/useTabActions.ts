@@ -7,9 +7,10 @@ import {
   serverTimestamp,
   updateDoc,
   writeBatch,
+  auth,
+  db,
 } from "@/lib/firebase";
 import { useCallback } from "react";
-import { auth, db } from "../../lib/firebase";
 import { NexusService } from "./nexusService";
 
 import {

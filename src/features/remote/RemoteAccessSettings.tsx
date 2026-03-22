@@ -10,6 +10,8 @@ import {
   query,
   setDoc,
   where,
+  auth,
+  db,
 } from "@/lib/firebase";
 import {
   ArrowRightLeft,
@@ -37,7 +39,6 @@ import {
   VenetianMask,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { auth, db } from "../../lib/firebase";
 import { TabData } from "../background/main";
 
 // --- TYPES ---

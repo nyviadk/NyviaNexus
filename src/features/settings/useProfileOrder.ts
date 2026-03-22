@@ -1,6 +1,5 @@
 import { useState, useMemo } from "react";
-import { doc, writeBatch } from "@/lib/firebase";
-import { auth, db } from "../../lib/firebase";
+import { doc, writeBatch, auth, db } from "@/lib/firebase";
 import { Profile } from "../dashboard/types";
 
 export const useProfileOrder = (profiles: Profile[]) => {
