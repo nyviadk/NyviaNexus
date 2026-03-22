@@ -1,5 +1,5 @@
 import { initializeApp, getApp, getApps, FirebaseApp } from "firebase/app";
-import { getFirestore, Firestore } from "firebase/firestore";
+import { initializeFirestore, Firestore } from "firebase/firestore";
 import { getAuth, Auth } from "firebase/auth/web-extension";
 import { FirebaseConfig } from "../features/auth/FirebaseGuard";
 
@@ -19,7 +19,11 @@ export const configureFirebase = (config: FirebaseConfig) => {
       app = getApp();
     }
 
-    db = getFirestore(app);
+    // 2. Brug initializeFirestore med Long Polling aktiveret
+    db = initializeFirestore(app, {
+      experimentalForceLongPolling: true,
+    });
+
     auth = getAuth(app);
 
     console.log("🚀 [Firebase] Dynamisk konfiguration fuldført.");
@@ -29,5 +33,4 @@ export const configureFirebase = (config: FirebaseConfig) => {
     throw error;
   }
 };
-
 // europe-west1 (Belgium)
