@@ -6,7 +6,7 @@ import {
   doc,
   getDocs,
   updateDoc,
-} from "firebase/firestore";
+} from "@/lib/firebase";
 import {
   ArrowDown,
   ArrowUp,

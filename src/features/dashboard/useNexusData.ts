@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { User, onAuthStateChanged } from "firebase/auth/web-extension";
-import { collection, doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, onSnapshot } from "@/lib/firebase";
 import { InboxData, NexusItem, Profile } from "@/features/dashboard/types";
 import { auth, db } from "@/lib/firebase";
 

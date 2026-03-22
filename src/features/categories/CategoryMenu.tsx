@@ -1,4 +1,4 @@
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc } from "@/lib/firebase";
 import { Unlock } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { CategoryMenuProps, UserCategory } from "../dashboard/types";

@@ -10,7 +10,7 @@ import {
   query,
   setDoc,
   where,
-} from "firebase/firestore";
+} from "@/lib/firebase";
 import {
   ArrowRightLeft,
   Ban,

@@ -11,7 +11,7 @@ import {
   setDoc,
   Timestamp,
   updateDoc,
-} from "firebase/firestore";
+} from "@/lib/firebase";
 import { handleMenuClick, initializeContextMenus } from "./contextMenus";
 import { AiService } from "../ai/aiService";
 import { cleanUrlAndGetTracking } from "./trackingUtils";

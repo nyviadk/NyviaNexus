@@ -1,4 +1,4 @@
-import { Timestamp } from "firebase/firestore";
+import { Timestamp } from "@/lib/firebase";
 import { AiData, TabData } from "../background/main";
 
 // Intersection type for Tabs that exist in runtime (have physical ID/WindowID)

@@ -13,7 +13,7 @@ import {
   collection,
   getDocs,
   addDoc,
-} from "firebase/firestore";
+} from "@/lib/firebase";
 import {
   Loader2,
   ArrowRight,

@@ -1,5 +1,5 @@
 import { getAuth } from "firebase/auth/web-extension";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs } from "@/lib/firebase";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import {
   ArrowDown,

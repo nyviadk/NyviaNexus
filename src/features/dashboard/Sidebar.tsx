@@ -5,7 +5,7 @@ import {
   Profile,
 } from "@/features/dashboard/types";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
-import { doc, writeBatch } from "firebase/firestore";
+import { doc, writeBatch } from "@/lib/firebase";
 import {
   Activity,
   AlertTriangle,

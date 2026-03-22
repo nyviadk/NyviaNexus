@@ -1,10 +1,4 @@
-import {
-  collection,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-} from "firebase/firestore";
+import { collection, doc, onSnapshot, orderBy, query } from "@/lib/firebase";
 import { Loader2, Monitor, DownloadCloud } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 

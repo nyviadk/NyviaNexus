@@ -6,7 +6,7 @@ import {
   arrayUnion,
   collection,
   getDocs,
-} from "firebase/firestore";
+} from "@/lib/firebase";
 import { getAuth } from "firebase/auth/web-extension";
 import {
   ClipboardPaste,

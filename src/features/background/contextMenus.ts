@@ -10,7 +10,7 @@ import {
   setDoc,
   updateDoc,
   where,
-} from "firebase/firestore";
+} from "@/lib/firebase";
 import { db } from "../../lib/firebase";
 import { WinMapping } from "./main";
 import { ArchiveItem, Note } from "../dashboard/types";

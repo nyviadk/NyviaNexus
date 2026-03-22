@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { doc, writeBatch } from "firebase/firestore";
+import { doc, writeBatch } from "@/lib/firebase";
 import { auth, db } from "../../lib/firebase";
 import { Profile } from "../dashboard/types";
 

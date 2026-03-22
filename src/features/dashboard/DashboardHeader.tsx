@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { WindowControlStrip } from "./WindowControlStrip";
 import { auth, db } from "../../lib/firebase";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc } from "@/lib/firebase";
 import {
   InboxData,
   NexusItem,
