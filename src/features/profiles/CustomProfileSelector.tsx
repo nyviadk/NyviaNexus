@@ -1,5 +1,6 @@
 import { Check, ChevronDown, ChevronUp, User } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { useClickOutside } from "@/hooks/useClickOutside";
 import { Profile } from "../dashboard/types";
 
 export interface CustomProfileSelectorProps {
@@ -12,24 +13,8 @@ export const CustomProfileSelector = memo(
   ({ profiles, activeProfile, onSelect }: CustomProfileSelectorProps) => {
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
-
-    // Click outside listener
-    useEffect(() => {
-      function handleClickOutside(event: MouseEvent) {
-        if (
-          dropdownRef.current &&
-          !dropdownRef.current.contains(event.target as Node)
-        ) {
-          setIsOpen(false);
-        }
-      }
-      if (isOpen) {
-        document.addEventListener("mousedown", handleClickOutside);
-      }
-      return () => {
-        document.removeEventListener("mousedown", handleClickOutside);
-      };
-    }, [isOpen]);
+    const closeDropdown = useCallback(() => setIsOpen(false), []);
+    useClickOutside(dropdownRef, closeDropdown);
 
     const currentProfileName = useMemo(() => {
       return (

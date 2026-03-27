@@ -1,6 +1,7 @@
 import { doc, getDoc, updateDoc, auth, db } from "@/lib/firebase";
 import { Unlock } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
+import { useClickOutside } from "@/hooks/useClickOutside";
 import { CategoryMenuProps, UserCategory } from "../dashboard/types";
 import { TabData } from "../background/main";
 
@@ -13,19 +14,10 @@ export const CategoryMenu = ({
   categories,
 }: CategoryMenuProps) => {
   const menuRef = useRef<HTMLDivElement>(null);
+  useClickOutside(menuRef, onClose);
 
   const isNearBottom = position.y > window.innerHeight - 300;
   const topPos = isNearBottom ? position.y - 280 : position.y;
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        onClose();
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [onClose]);
 
   const updateCategory = async (
     newCategory: string | null,
