@@ -56,9 +56,12 @@ export const Dashboard = () => {
 
   // Local State
   const [activeProfile, setActiveProfile] = useState<string>("");
-  const [selectedWorkspace, setSelectedWorkspace] = useState<NexusItem | null>(
+
+  // REFACTOR: Bruger nu kun ID'et som state for at undgå useEffect synkronisering
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
     null,
   );
+
   const [viewMode, setViewMode] = useState<"workspace" | "inbox" | "incognito">(
     "workspace",
   );
@@ -121,6 +124,17 @@ export const Dashboard = () => {
     [modalParentId, items],
   );
 
+  // --- DERIVED STATE REFACTOR ---
+  // Denne effekt sikrer, at hvis 'items' opdateres (f.eks. ved rename i sidebar),
+  // så opdateres det valgte workspace objekt i Dashboard state med det samme.
+  // OPPDATERING: Effekten er fjernet! Vi beregner det nu direkte under render. Det er "best practice".
+  const selectedWorkspace = useMemo(() => {
+    return selectedWorkspaceId
+      ? items.find((i) => i.id === selectedWorkspaceId) || null
+      : null;
+  }, [items, selectedWorkspaceId]);
+  // -----------------------------------------
+
   // --- ACTIONS HOOK ---
   const {
     handleSidebarTabDrop,
@@ -137,30 +151,16 @@ export const Dashboard = () => {
 
   // --- HELPERS & MEMOS ---
 
-  // --- SYNC SELECTED WORKSPACE NAME ---
-  // Denne effekt sikrer, at hvis 'items' opdateres (f.eks. ved rename i sidebar),
-  // så opdateres det valgte workspace objekt i Dashboard state med det samme.
-  useEffect(() => {
-    if (selectedWorkspace) {
-      const freshItem = items.find((i) => i.id === selectedWorkspace.id);
-      // Hvis vi finder den i den opdaterede liste, og objektet er ændret (f.eks. nyt navn)
-      if (freshItem && freshItem !== selectedWorkspace) {
-        setSelectedWorkspace(freshItem);
-      }
-    }
-  }, [items, selectedWorkspace]);
-  // -----------------------------------------
-
   const handleDeleteSuccess = useCallback(
     (deletedId: string) => {
-      if (selectedWorkspace?.id === deletedId) {
-        setSelectedWorkspace(null);
+      if (selectedWorkspaceId === deletedId) {
+        setSelectedWorkspaceId(null);
         setWindows([]);
         setArchiveItems([]);
         setViewMode("workspace");
       }
     },
-    [selectedWorkspace],
+    [selectedWorkspaceId],
   );
 
   const getFilteredInboxTabs = useCallback(
@@ -184,8 +184,12 @@ export const Dashboard = () => {
 
     return [...windows].sort((a, b) => {
       // Sikrer at "win_uncategorized" ALTID pinner til toppen
-      const isPinnedA = (a as any).isPinned ?? a.id === "win_uncategorized";
-      const isPinnedB = (b as any).isPinned ?? b.id === "win_uncategorized";
+      const isPinnedA =
+        (a as WorkspaceWindow & { isPinned?: boolean }).isPinned ??
+        a.id === "win_uncategorized";
+      const isPinnedB =
+        (b as WorkspaceWindow & { isPinned?: boolean }).isPinned ??
+        b.id === "win_uncategorized";
 
       if (isPinnedA && !isPinnedB) return -1;
       if (!isPinnedA && isPinnedB) return 1;
@@ -240,26 +244,28 @@ export const Dashboard = () => {
     [activeWindows],
   );
 
-  // Update Cache logic (nu baseret på activeWindows for korrekt indexering, ignorerer ukategoriseret vindue)
-  const normalWindows = activeWindows.filter(
-    (w) => w.id !== "win_uncategorized",
-  );
-  if (selectedWorkspace && normalWindows.length > 0) {
-    const wsId = selectedWorkspace.id;
-    const signature = `${wsId}-${normalWindows.length}-${normalWindows
-      .map((w) => w.id)
-      .join("")}`;
-    const cached = windowOrderCache.get(wsId);
-    if (!cached || cached.signature !== signature) {
-      const indices: Record<string, number> = {};
-      normalWindows.forEach((w, i) => {
-        indices[w.id] = i + 1;
-      });
-      windowOrderCache.set(wsId, { signature, indices });
-    }
-  }
-
   // --- EFFECTS ---
+
+  // Update Cache logic (nu baseret på activeWindows for korrekt indexering, ignorerer ukategoriseret vindue)
+  // REFACTOR: Dette lå direkte i renderingen før. Det er nu flyttet ind i en useEffect, da lagring i en Map() er en sideeffekt.
+  useEffect(() => {
+    if (selectedWorkspace && activeWindows.length > 0) {
+      const normalWindows = activeWindows.filter(
+        (w) => w.id !== "win_uncategorized",
+      );
+      const wsId = selectedWorkspace.id;
+      const signature = `${wsId}-${normalWindows.length}-${normalWindows.map((w) => w.id).join("")}`;
+
+      const cached = windowOrderCache.get(wsId);
+      if (!cached || cached.signature !== signature) {
+        const indices: Record<string, number> = {};
+        normalWindows.forEach((w, i) => {
+          indices[w.id] = i + 1;
+        });
+        windowOrderCache.set(wsId, { signature, indices });
+      }
+    }
+  }, [selectedWorkspace, activeWindows]);
 
   useEffect(() => {
     // 1. Hent indstillinger
@@ -294,7 +300,7 @@ export const Dashboard = () => {
 
   // Window Sync
   useEffect(() => {
-    if (!user || !selectedWorkspace) {
+    if (!user || !selectedWorkspaceId) {
       setWindows([]);
       return;
     }
@@ -304,7 +310,7 @@ export const Dashboard = () => {
         "users",
         user.uid,
         "workspaces_data",
-        selectedWorkspace.id,
+        selectedWorkspaceId,
         "windows",
       ),
       orderBy("createdAt", "asc"),
@@ -316,7 +322,7 @@ export const Dashboard = () => {
       })) as WorkspaceWindow[];
       setWindows(w);
     });
-  }, [user, selectedWorkspace]);
+  }, [user, selectedWorkspaceId]);
 
   // Archive Sync (Updated to handle Inbox/Global AND Incognito)
   useEffect(() => {
@@ -336,13 +342,13 @@ export const Dashboard = () => {
         "archive_data",
         "list",
       );
-    } else if (viewMode === "workspace" && selectedWorkspace) {
+    } else if (viewMode === "workspace" && selectedWorkspaceId) {
       docRef = doc(
         db,
         "users",
         user.uid,
         "workspaces_data",
-        selectedWorkspace.id,
+        selectedWorkspaceId,
         "archive_data",
         "list",
       );
@@ -360,7 +366,7 @@ export const Dashboard = () => {
       }
     });
     return () => unsubscribe();
-  }, [user, selectedWorkspace, viewMode]);
+  }, [user, selectedWorkspaceId, viewMode]);
 
   // Listeners
   useEffect(() => {
@@ -416,7 +422,7 @@ export const Dashboard = () => {
   const handleWorkspaceClick = useCallback(
     (item: NexusItem, specificWindowId?: string) => {
       // Hvis vi allerede er på spacet, men vil skifte vindue:
-      if (selectedWorkspace?.id === item.id) {
+      if (selectedWorkspaceId === item.id) {
         if (specificWindowId && selectedWindowId !== specificWindowId) {
           setSelectedWindowId(specificWindowId);
         }
@@ -430,9 +436,9 @@ export const Dashboard = () => {
       setWindows([]);
       setArchiveItems([]);
       setNotesModalTarget(null);
-      setSelectedWorkspace(item);
+      setSelectedWorkspaceId(item.id);
     },
-    [selectedWorkspace, selectedWindowId],
+    [selectedWorkspaceId, selectedWindowId],
   );
 
   // --- URL PARAMS & DEEP LINKING LOGIC ---
@@ -464,7 +470,7 @@ export const Dashboard = () => {
       // 2. Håndter normal navigation til Workspaces
       if (wsId) {
         const targetWs = items.find((i) => i.id === wsId);
-        if (targetWs && selectedWorkspace?.id !== targetWs.id) {
+        if (targetWs && selectedWorkspaceId !== targetWs.id) {
           // Brug winId fra URL params hvis tilgængeligt
           handleWorkspaceClick(targetWs, winId || undefined);
         }
@@ -482,12 +488,12 @@ export const Dashboard = () => {
 
       hasLoadedUrlParams.current = true;
     }
-  }, [items, selectedWorkspace, handleWorkspaceClick]);
+  }, [items, selectedWorkspaceId, handleWorkspaceClick]);
 
   // Denne effekt sikrer at vi vælger et standard vindue hvis intet er valgt
   useEffect(() => {
     if (
-      selectedWorkspace &&
+      selectedWorkspaceId &&
       viewMode === "workspace" &&
       activeWindows.length > 0 &&
       !selectedWindowId
@@ -501,7 +507,7 @@ export const Dashboard = () => {
         setSelectedWindowId(preselect);
       else if (activeWindows[0]?.id) setSelectedWindowId(activeWindows[0].id);
     }
-  }, [activeWindows, selectedWorkspace, viewMode, selectedWindowId]);
+  }, [activeWindows, selectedWorkspaceId, viewMode, selectedWindowId]);
 
   /**
    * Opgraderet handleCopySpace der understøtter både Standard (###) og Notebook (Newline) format.
@@ -512,7 +518,7 @@ export const Dashboard = () => {
     includeArchived: boolean = false,
   ) => {
     const winsToCopy = includeArchived ? sortedWindows : activeWindows;
-    if (!selectedWorkspace || !winsToCopy || winsToCopy.length === 0) return;
+    if (!selectedWorkspaceId || !winsToCopy || winsToCopy.length === 0) return;
 
     const count = await LinkManager.copyWindowsToClipboard(winsToCopy, format);
 
@@ -568,7 +574,7 @@ export const Dashboard = () => {
 
   // Vis arkiv i Workspace, Inbox OG Incognito
   const shouldShowArchive =
-    (viewMode === "workspace" && selectedWorkspace) ||
+    (viewMode === "workspace" && selectedWorkspaceId) ||
     viewMode === "inbox" ||
     viewMode === "incognito";
 
@@ -576,7 +582,7 @@ export const Dashboard = () => {
   const currentArchiveWorkspaceId =
     viewMode === "inbox" || viewMode === "incognito"
       ? "global"
-      : selectedWorkspace?.id || "";
+      : selectedWorkspaceId || "";
 
   // Helper til at give modalen et pænt navn
   const getNoteModalTitle = () => {
@@ -627,7 +633,11 @@ export const Dashboard = () => {
         viewMode={viewMode}
         setViewMode={setViewMode}
         selectedWorkspace={selectedWorkspace}
-        setSelectedWorkspace={setSelectedWorkspace}
+        setSelectedWorkspace={(item) =>
+          item
+            ? handleWorkspaceClick(item)
+            : handleDeleteSuccess(selectedWorkspaceId!)
+        }
         setModalType={setModalType}
         setModalParentId={setModalParentId}
         activeDragId={activeDragId}
@@ -642,7 +652,7 @@ export const Dashboard = () => {
       />
 
       <main className="relative flex flex-1 flex-col overflow-hidden bg-background">
-        {selectedWorkspace ||
+        {selectedWorkspaceId ||
         viewMode === "inbox" ||
         viewMode === "incognito" ? (
           <>
