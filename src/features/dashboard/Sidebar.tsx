@@ -55,8 +55,6 @@ interface SidebarProps {
   ) => void;
   setModalParentId: (id: string) => void;
   isLoading: boolean;
-  activeDragId: string | null;
-  setActiveDragId: (id: string | null) => void;
   handleSidebarTabDrop: (target: NexusItem | "global") => Promise<void>;
   handleWorkspaceClick: (item: NexusItem, specificWindowId?: string) => void;
   handleDeleteSuccess: (id: string) => void;
@@ -80,8 +78,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setModalType,
   setModalParentId,
   isLoading,
-  activeDragId,
-  setActiveDragId,
   handleSidebarTabDrop,
   handleWorkspaceClick,
   handleDeleteSuccess,
@@ -89,18 +85,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   selectedWindowId,
   setSelectedUrls,
 }) => {
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
   const [isSyncingRoot, setIsSyncingRoot] = useState(false);
-  const [isInboxDragOver, setIsInboxDragOver] = useState(false);
-  const [inboxDropStatus, setInboxDropStatus] = useState<
-    "valid" | "invalid" | null
-  >(null);
+  const [inboxDrag, setInboxDrag] = useState<{
+    active: boolean;
+    status: "valid" | "invalid" | null;
+  }>({ active: false, status: null });
   const [isInboxSyncing, setIsInboxSyncing] = useState(false);
   const [aiHealth, setAiHealth] = useState<AiHealthStatus>("up");
   const [folderStates, setFolderStates] = useState<Record<string, boolean>>({});
-  const [isReordering, setIsReordering] = useState(false);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
-  const [localItems, setLocalItems] = useState<NexusItem[]>([]);
+  const [reorderItems, setReorderItems] = useState<NexusItem[] | null>(null);
+  const isReordering = reorderItems !== null;
+  const displayItems = reorderItems ?? items;
 
   // --- RESIZE HOOK ---
   const {
@@ -118,12 +116,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Dynamisk check for om vi skal vise tekst i knapper (vigtigt for smalle skærme)
   const isCompactHeader = width < 340;
-
-  useEffect(() => {
-    if (!isReordering) {
-      setLocalItems(items);
-    }
-  }, [items, isReordering]);
 
   useEffect(() => {
     chrome.storage.local.get("nexus_folder_states").then((result) => {
@@ -161,8 +153,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const handleToggleReordering = () => {
     if (isReordering) {
-      setLocalItems(items);
-      setIsReordering(false);
+      setReorderItems(null);
     } else {
       const sortedBeforeInit = [...items].sort(
         (a, b) => (a.order || 0) - (b.order || 0),
@@ -173,8 +164,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         order: idx,
       }));
 
-      setLocalItems(initialized);
-      setIsReordering(true);
+      setReorderItems(initialized);
     }
   };
 
@@ -183,12 +173,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setIsSavingOrder(true);
     try {
       const batch = writeBatch(db);
-      localItems.forEach((item) => {
+      reorderItems!.forEach((item) => {
         const ref = doc(db, "users", auth.currentUser!.uid, "items", item.id);
         batch.update(ref, { order: item.order });
       });
       await batch.commit();
-      setIsReordering(false);
+      setReorderItems(null);
     } catch (err) {
       console.error("Fejl ved gemning af rækkefølge:", err);
       alert("Kunne ikke gemme rækkefølgen.");
@@ -198,7 +188,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const handleMoveItem = (id: string, direction: "up" | "down") => {
-    const itemsCopy = [...localItems];
+    const itemsCopy = [...reorderItems!];
     const targetItem = itemsCopy.find((i) => i.id === id);
     if (!targetItem) return;
 
@@ -221,15 +211,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     targetItem.order = swapSibling.order;
     swapSibling.order = tempOrder;
 
-    setLocalItems(itemsCopy);
+    setReorderItems(itemsCopy);
   };
 
   const filteredRootItems = useMemo(
     () =>
-      localItems
+      displayItems
         .filter((i) => i.profileId === activeProfile && i.parentId === "root")
         .sort((a, b) => (a.order || 0) - (b.order || 0)),
-    [localItems, activeProfile],
+    [displayItems, activeProfile],
   );
 
   const getFilteredInboxTabs = useCallback(
@@ -243,8 +233,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 
   const draggedItem = useMemo(
-    () => (activeDragId ? items.find((i) => i.id === activeDragId) : null),
-    [activeDragId, items],
+    () => (activeDragId ? displayItems.find((i) => i.id === activeDragId) : null),
+    [activeDragId, displayItems],
   );
 
   const isAlreadyAtRoot = draggedItem?.parentId === "root";
@@ -712,7 +702,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <SidebarItem
                   key={item.id}
                   item={item}
-                  allItems={localItems}
+                  allItems={displayItems}
                   onRefresh={() => {}}
                   onSelect={handleWorkspaceClick}
                   onAddChild={(pid, type) => {
@@ -745,39 +735,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onDragOver={(e) => {
               e.preventDefault();
               if (activeDragId) {
-                setInboxDropStatus("invalid");
+                setInboxDrag((d) => ({ ...d, status: "invalid" }));
                 return;
               }
               const tJ = window.sessionStorage.getItem("draggedTab");
               if (tJ) {
                 const tab = JSON.parse(tJ) as DraggedTabPayload;
-                setInboxDropStatus(
-                  tab.sourceWorkspaceId !== "global" || tab.isIncognito
-                    ? "valid"
-                    : "invalid",
-                );
+                setInboxDrag((d) => ({
+                  ...d,
+                  status:
+                    tab.sourceWorkspaceId !== "global" || tab.isIncognito
+                      ? "valid"
+                      : "invalid",
+                }));
               }
             }}
             onDragEnter={() => {
-              setIsInboxDragOver(true);
+              setInboxDrag((d) => ({ ...d, active: true }));
             }}
             onDragLeave={(e) => {
               const currentTarget = e.currentTarget;
               const relatedTarget = e.relatedTarget as Node;
               if (currentTarget.contains(relatedTarget)) return;
-              setIsInboxDragOver(false);
-              setInboxDropStatus(null);
+              setInboxDrag({ active: false, status: null });
             }}
             onDrop={async (e) => {
               e.preventDefault();
               if (activeDragId) {
-                setIsInboxDragOver(false);
-                setInboxDropStatus(null);
+                setInboxDrag({ active: false, status: null });
                 return;
               }
               const tJ = window.sessionStorage.getItem("draggedTab");
-              setIsInboxDragOver(false);
-              setInboxDropStatus(null);
+              setInboxDrag({ active: false, status: null });
               setIsInboxSyncing(true);
               try {
                 if (tJ) {
@@ -807,18 +796,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className={`mb-2 flex cursor-pointer items-center gap-2 rounded-xl border p-2 text-sm backdrop-blur-sm transition-all ${
                 viewMode === "inbox"
                   ? "border-mode-inbox/50 bg-mode-inbox/10 text-mode-inbox-high shadow-lg"
-                  : inboxDropStatus === "invalid" && isInboxDragOver
+                  : inboxDrag.status === "invalid" && inboxDrag.active
                     ? "scale-[0.98] border-danger/50 bg-danger/10 text-danger shadow-[0_0_15px_rgba(239,68,68,0.2)]"
-                    : inboxDropStatus === "valid" && isInboxDragOver
+                    : inboxDrag.status === "valid" && inboxDrag.active
                       ? "scale-[1.02] border-success/50 bg-success/20 text-success shadow-[0_0_15px_rgba(16,185,129,0.2)]"
-                      : isInboxDragOver
+                      : inboxDrag.active
                         ? "border-strong bg-surface-elevated/50 text-high"
                         : "border-transparent text-medium hover:bg-surface-hover hover:text-high"
               }`}
             >
               {isInboxSyncing ? (
                 <Loader2 size={20} className="animate-spin text-action" />
-              ) : inboxDropStatus === "invalid" && isInboxDragOver ? (
+              ) : inboxDrag.status === "invalid" && inboxDrag.active ? (
                 <XCircle
                   size={20}
                   className="pointer-events-none text-danger"
@@ -830,7 +819,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 />
               )}
               <span className="pointer-events-none font-medium">
-                {inboxDropStatus === "invalid" && isInboxDragOver
+                {inboxDrag.status === "invalid" && inboxDrag.active
                   ? `Kan ikke flytte ${
                       draggedItem?.type === "folder"
                         ? "mappe"
@@ -851,7 +840,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className={`flex cursor-pointer items-center gap-2 rounded-xl border p-2 text-sm backdrop-blur-sm transition-all ${
                 viewMode === "incognito"
                   ? "border-mode-incognito/50 bg-mode-incognito/10 text-mode-incognito-high shadow-lg"
-                  : inboxDropStatus === "invalid" && isInboxDragOver
+                  : inboxDrag.status === "invalid" && inboxDrag.active
                     ? "cursor-not-allowed opacity-30 grayscale"
                     : "border-transparent text-medium hover:bg-surface-hover hover:text-high"
               }`}

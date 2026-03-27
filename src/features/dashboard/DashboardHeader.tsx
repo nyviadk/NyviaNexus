@@ -32,8 +32,6 @@ interface DashboardHeaderProps {
   activeMappings: [number, WinMapping][];
   selectedWindowId: string | null;
   setSelectedWindowId: (id: string | null) => void;
-  dropTargetWinId: string | null;
-  setDropTargetWinId: (id: string | null) => void;
   handleTabDrop: (id: string) => void;
 
   // Actions
@@ -65,8 +63,6 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   activeMappings,
   selectedWindowId,
   setSelectedWindowId,
-  dropTargetWinId,
-  setDropTargetWinId,
   handleTabDrop,
   handleCopySpace,
   handleCopySelectedTabs,
@@ -81,6 +77,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   isProcessingMove = false,
 }) => {
   const [copyMenu, setCopyMenu] = useState({ open: false, includeArchived: false });
+  const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
 
   // Styrer visningen af arkiverede vinduer globalt i headeren
   const [showArchived, setShowArchived] = useState(false);

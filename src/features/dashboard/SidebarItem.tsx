@@ -68,10 +68,11 @@ export const SidebarItem = ({
   isLast = false,
   activeWorkspaceId = null,
 }: Props) => {
-  const [isDragOver, setIsDragOver] = useState(false);
-  const [tabDropStatus, setTabDropStatus] = useState<
-    "valid" | "invalid" | null
-  >(null);
+  const [dragState, setDragState] = useState<{
+    isOver: boolean;
+    tabStatus: "valid" | "invalid" | null;
+  }>({ isOver: false, tabStatus: null });
+  const { isOver: isDragOver, tabStatus: tabDropStatus } = dragState;
   const [isSyncing, setIsSyncing] = useState(false);
 
   // --- ANIMATION HOOK ---
@@ -98,10 +99,10 @@ export const SidebarItem = ({
 
   useEffect(() => {
     if (!activeDragId) {
-      if (!tabDropStatus) setIsDragOver(false);
+      if (!dragState.tabStatus) setDragState((s) => ({ ...s, isOver: false }));
       dragCounter.current = 0;
     }
-  }, [activeDragId, tabDropStatus]);
+  }, [activeDragId, dragState.tabStatus]);
 
   const isDescendant = (
     sourceId: string,
@@ -200,8 +201,7 @@ export const SidebarItem = ({
 
   const onDragEnd = () => {
     dragCounter.current = 0;
-    setIsDragOver(false);
-    setTabDropStatus(null);
+    setDragState({ isOver: false, tabStatus: null });
     onDragEndCleanup();
   };
 
@@ -215,15 +215,13 @@ export const SidebarItem = ({
     if (tabJson) {
       const tabData = JSON.parse(tabJson) as DraggedTabData;
       const isSourceSpace = tabData.sourceWorkspaceId === item.id;
-      if (isFolder || isSourceSpace) {
-        setTabDropStatus("invalid");
-      } else {
-        setTabDropStatus("valid");
-      }
-      setIsDragOver(true);
+      setDragState({
+        isOver: true,
+        tabStatus: isFolder || isSourceSpace ? "invalid" : "valid",
+      });
       return;
     }
-    if (isFolder) setIsDragOver(true);
+    if (isFolder) setDragState((s) => ({ ...s, isOver: true }));
   };
 
   const onDragLeave = (e: React.DragEvent) => {
@@ -238,8 +236,7 @@ export const SidebarItem = ({
     }
 
     dragCounter.current--;
-    setIsDragOver(false);
-    setTabDropStatus(null);
+    setDragState({ isOver: false, tabStatus: null });
   };
 
   const onDragOver = (e: React.DragEvent) => {
@@ -253,8 +250,7 @@ export const SidebarItem = ({
     e.preventDefault();
     e.stopPropagation();
     dragCounter.current = 0;
-    setIsDragOver(false);
-    setTabDropStatus(null);
+    setDragState({ isOver: false, tabStatus: null });
 
     const tabJson = window.sessionStorage.getItem("draggedTab");
     if (tabJson) {

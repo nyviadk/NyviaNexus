@@ -87,8 +87,6 @@ export const Dashboard = () => {
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
 
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
-  const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
-  const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [isProcessingMove, setIsProcessingMove] = useState(false);
 
   const [pasteModalData, setPasteModalData] = useState<PasteModalState | null>(
@@ -572,8 +570,6 @@ export const Dashboard = () => {
         }
         setModalType={(type) => setModal((m) => ({ ...m, type }))}
         setModalParentId={(parentId) => setModal((m) => ({ ...m, parentId }))}
-        activeDragId={activeDragId}
-        setActiveDragId={setActiveDragId}
         handleSidebarTabDrop={handleSidebarTabDrop}
         handleWorkspaceClick={handleWorkspaceClick}
         handleDeleteSuccess={handleDeleteSuccess}
@@ -597,8 +593,6 @@ export const Dashboard = () => {
               activeMappings={activeMappings}
               selectedWindowId={selectedWindowId}
               setSelectedWindowId={setSelectedWindowId}
-              dropTargetWinId={dropTargetWinId}
-              setDropTargetWinId={setDropTargetWinId}
               handleTabDrop={handleTabDrop}
               handleCopySpace={handleCopySpace}
               handleCopySelectedTabs={handleCopySelectedTabs}
