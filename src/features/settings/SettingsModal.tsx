@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
+import { useDialogOpen } from "@/hooks/useDialogOpen";
 import {
   addDoc,
   collection,
@@ -72,12 +73,9 @@ export const SettingsModal = ({
   const [newCatName, setNewCatName] = useState("");
   const [newCatColor, setNewCatColor] = useState("#3b82f6");
 
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const dialogRef = useDialogOpen();
 
   useEffect(() => {
-    if (dialogRef.current && !dialogRef.current.open) {
-      dialogRef.current.showModal();
-    }
     let isMounted = true;
 
     AiService.getApiKey().then((key) => {
@@ -236,7 +234,7 @@ export const SettingsModal = ({
     <dialog
       ref={dialogRef}
       onCancel={onClose}
-      onClick={(e) => e.target === dialogRef.current && onClose()}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
       className="open:animate-in open:fade-in open:zoom-in-95 m-auto bg-transparent p-0 backdrop:bg-background/80 backdrop:backdrop-blur-sm"
     >
       <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-strong bg-surface-elevated shadow-2xl">

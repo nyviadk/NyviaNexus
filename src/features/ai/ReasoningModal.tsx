@@ -1,21 +1,15 @@
 import { BrainCircuit, Lightbulb, Lock, X } from "lucide-react";
-import { useEffect, useRef } from "react";
 import { ReasoningModalProps } from "../dashboard/types";
+import { useDialogOpen } from "@/hooks/useDialogOpen";
 
 export const ReasoningModal = ({ data, onClose }: ReasoningModalProps) => {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    if (dialogRef.current && !dialogRef.current.open) {
-      dialogRef.current.showModal();
-    }
-  }, []);
+  const dialogRef = useDialogOpen();
 
   return (
     <dialog
       ref={dialogRef}
       onCancel={onClose}
-      onClick={(e) => e.target === dialogRef.current && onClose()}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
       className="open:animate-in open:fade-in open:zoom-in-95 m-auto bg-transparent p-0 backdrop:bg-background/80 backdrop:backdrop-blur-sm"
     >
       <div className="relative w-full max-w-md overflow-hidden rounded-3xl border border-strong bg-surface-elevated p-6 shadow-2xl">

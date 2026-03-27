@@ -10,7 +10,7 @@ import {
   X,
   Eraser,
 } from "lucide-react";
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   DraggedTabPayload,
   RuntimeTabData,
@@ -57,13 +57,9 @@ export const TabItem = React.memo(
     const categoryName = aiData.status === "completed" ? aiData.category : null;
     const isLocked = aiData.isLocked;
 
-    // State til at håndtere hvis favicon URL'en er brudt
-    const [faviconError, setFaviconError] = useState(false);
-
-    // Nulstil fejl-state hvis URL'en ændrer sig
-    useEffect(() => {
-      setFaviconError(false);
-    }, [tab.url]);
+    // Gem URL'en der fejlede — når tab.url ændres, er det ikke længere et match → faviconError bliver false
+    const [failedFaviconUrl, setFailedFaviconUrl] = useState<string | null>(null);
+    const faviconError = failedFaviconUrl === tab.url;
 
     const getBadgeStyle = () => {
       if (!categoryName) return {};
@@ -260,7 +256,7 @@ export const TabItem = React.memo(
                     src={tab.favIconUrl || getFaviconUrl(tab.url)}
                     alt=""
                     className="h-4.5 w-4.5 shrink-0 rounded-sm object-contain transition-transform group-hover/link:scale-110"
-                    onError={() => setFaviconError(true)}
+                    onError={() => setFailedFaviconUrl(tab.url)}
                   />
                 ) : (
                   <Globe

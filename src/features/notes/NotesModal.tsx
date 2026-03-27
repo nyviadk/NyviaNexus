@@ -14,6 +14,7 @@ import {
   Search,
 } from "lucide-react";
 import React, { useEffect, useRef, useState, useMemo } from "react";
+import { useDialogOpen } from "@/hooks/useDialogOpen";
 import { NexusService } from "../dashboard/nexusService";
 import { Note } from "../dashboard/types";
 import { LinkManager } from "../CopyPaste/linkManager";
@@ -334,7 +335,7 @@ export const NotesModal: React.FC<NotesModalProps> = ({
   workspaceName,
   onClose,
 }) => {
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const dialogRef = useDialogOpen();
   const deletedNoteIdsRef = useRef<Set<string>>(new Set());
 
   const mouseDownTarget = useRef<EventTarget | null>(null);
@@ -349,19 +350,14 @@ export const NotesModal: React.FC<NotesModalProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const isFirstLoad = useRef(true);
 
-  useEffect(() => {
-    if (dialogRef.current && !dialogRef.current.open)
-      dialogRef.current.showModal();
-  }, []);
-
   const handleBackdropMouseDown = (e: React.MouseEvent) => {
     mouseDownTarget.current = e.target;
   };
 
   const handleBackdropMouseUp = (e: React.MouseEvent) => {
     if (
-      e.target === dialogRef.current &&
-      mouseDownTarget.current === dialogRef.current
+      e.target === e.currentTarget &&
+      mouseDownTarget.current === e.currentTarget
     ) {
       onClose();
     }

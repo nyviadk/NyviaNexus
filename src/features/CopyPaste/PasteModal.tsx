@@ -22,6 +22,7 @@ import {
   Maximize,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useDialogOpen } from "@/hooks/useDialogOpen";
 import { LinkManager } from "./linkManager";
 import { WinMapping } from "../background/main";
 import { WorkspaceWindow } from "../dashboard/types";
@@ -59,7 +60,7 @@ export const PasteModal = ({
   const [previewStats, setPreviewStats] = useState<WindowStat[]>([]);
   const [totalLinks, setTotalLinks] = useState(0);
 
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const dialogRef = useDialogOpen();
   const mouseDownTarget = useRef<EventTarget | null>(null);
 
   const isCreatingNew = !windowId;
@@ -102,12 +103,6 @@ export const PasteModal = ({
     });
   }, [text]);
 
-  useEffect(() => {
-    if (dialogRef.current && !dialogRef.current.open) {
-      dialogRef.current.showModal();
-    }
-  }, []);
-
   // Håndter lukning: Kun hvis man KLIKKER på baggrunden (mousedown + mouseup på backdrop)
   const handleBackdropMouseDown = (e: React.MouseEvent) => {
     mouseDownTarget.current = e.target;
@@ -115,8 +110,8 @@ export const PasteModal = ({
 
   const handleBackdropMouseUp = (e: React.MouseEvent) => {
     if (
-      e.target === dialogRef.current &&
-      mouseDownTarget.current === dialogRef.current
+      e.target === e.currentTarget &&
+      mouseDownTarget.current === e.currentTarget
     ) {
       onClose();
     }
