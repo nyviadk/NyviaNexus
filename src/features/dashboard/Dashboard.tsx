@@ -25,7 +25,6 @@ import { LinkManager } from "../CopyPaste/linkManager";
 import {
   AiSettings,
   ArchiveItem,
-  DashboardMessage,
   NexusItem,
   UserCategory,
   WorkspaceWindow,
@@ -33,7 +32,8 @@ import {
 
 import { windowOrderCache, getParentPath } from "./utils";
 import { useNexusData } from "./useNexusData";
-import { AiData, TabData, WinMapping } from "../background/main";
+import { useChromeSync } from "./useChromeSync";
+import { AiData, TabData } from "../background/main";
 import { AiService } from "../ai/aiService";
 import { AuthLayout } from "../auth/AuthLayout";
 import { CreateItemModal } from "../settings/CreateItemModal";
@@ -54,6 +54,10 @@ export const Dashboard = () => {
   // Extension Update Hook
   const { updateAvailable, applyUpdate } = useExtensionUpdate();
 
+  // Chrome Sync Hook (active mappings, window IDs, restoration status)
+  const { activeMappings, currentWindowId, restorationStatus, chromeWindows } =
+    useChromeSync(user);
+
   // Local State
   const [activeProfile, setActiveProfile] = useState<string>("");
 
@@ -66,10 +70,10 @@ export const Dashboard = () => {
     "workspace",
   );
 
-  const [modalType, setModalType] = useState<
-    "folder" | "workspace" | "settings" | "remote-access" | null
-  >(null);
-  const [modalParentId, setModalParentId] = useState<string>("root");
+  const [modal, setModal] = useState<{
+    type: "folder" | "workspace" | "settings" | "remote-access" | null;
+    parentId: string;
+  }>({ type: null, parentId: "root" });
 
   // Vi styrer nu notes modal uafhængigt af selectedWorkspace
   const [notesModalTarget, setNotesModalTarget] = useState<{
@@ -81,18 +85,6 @@ export const Dashboard = () => {
   const [archiveItems, setArchiveItems] = useState<ArchiveItem[]>([]);
 
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
-
-  const [activeMappings, setActiveMappings] = useState<[number, WinMapping][]>(
-    [],
-  );
-
-  const [currentWindowId, setCurrentWindowId] = useState<number | null>(null);
-  const [restorationStatus, setRestorationStatus] = useState<string | null>(
-    null,
-  );
-  const [chromeWindows, setChromeWindows] = useState<chrome.windows.Window[]>(
-    [],
-  );
 
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
@@ -120,8 +112,8 @@ export const Dashboard = () => {
   const hasLoadedUrlParams = useRef(false);
 
   const parentPath = useMemo(
-    () => getParentPath(modalParentId, items),
-    [modalParentId, items],
+    () => getParentPath(modal.parentId, items),
+    [modal.parentId, items],
   );
 
   // --- DERIVED STATE REFACTOR ---
@@ -150,6 +142,12 @@ export const Dashboard = () => {
   );
 
   // --- HELPERS & MEMOS ---
+
+  // Wraps setActiveProfile og gemmer i localStorage i samme operation (erstatter useEffect)
+  const handleSetActiveProfile = useCallback((id: string) => {
+    setActiveProfile(id);
+    if (id) localStorage.setItem("lastActiveProfileId", id);
+  }, []);
 
   const handleDeleteSuccess = useCallback(
     (deletedId: string) => {
@@ -268,35 +266,20 @@ export const Dashboard = () => {
   }, [selectedWorkspace, activeWindows]);
 
   useEffect(() => {
-    // 1. Hent indstillinger
+    // Hent indstillinger
     AiService.getSettings().then(setAiSettings);
 
-    // 2. Håndter valg af profil
+    // Håndter valg af profil
     const lastProfile = localStorage.getItem("lastActiveProfileId");
 
     if (profiles.length === 1) {
       // Hvis der kun er én, vælg den altid
-      setActiveProfile(profiles[0].id);
+      handleSetActiveProfile(profiles[0].id);
     } else if (lastProfile && profiles.some((p) => p.id === lastProfile)) {
       // Hvis der er flere, og vi har en gemt profil der stadig findes
       setActiveProfile(lastProfile);
     }
-  }, [profiles]);
-
-  useEffect(() => {
-    if (!modalType) AiService.getSettings().then(setAiSettings);
-  }, [modalType]);
-
-  useEffect(() => {
-    if (activeProfile)
-      localStorage.setItem("lastActiveProfileId", activeProfile);
-  }, [activeProfile]);
-
-  const refreshChromeWindows = useCallback(() => {
-    chrome.windows.getAll({ populate: false }, (wins) =>
-      setChromeWindows(wins),
-    );
-  }, []);
+  }, [profiles, handleSetActiveProfile]);
 
   // Window Sync
   useEffect(() => {
@@ -367,57 +350,6 @@ export const Dashboard = () => {
     });
     return () => unsubscribe();
   }, [user, selectedWorkspaceId, viewMode]);
-
-  // Listeners
-  useEffect(() => {
-    if (user) {
-      chrome.windows.getCurrent((win) => win.id && setCurrentWindowId(win.id));
-
-      chrome.storage.local.get(["nexus_active_windows"], (data) => {
-        if (data?.nexus_active_windows) {
-          setActiveMappings(
-            data.nexus_active_windows as [number, WinMapping][],
-          );
-        }
-      });
-
-      chrome.runtime.sendMessage({ type: "GET_RESTORING_STATUS" }, (res) =>
-        setRestorationStatus(res || null),
-      );
-      refreshChromeWindows();
-    }
-
-    const messageListener = (msg: DashboardMessage) => {
-      if (msg.type === "RESTORATION_STATUS_CHANGE")
-        setRestorationStatus(
-          typeof msg.payload === "string" ? msg.payload : null,
-        );
-      if (msg.type === "PHYSICAL_WINDOWS_CHANGED") refreshChromeWindows();
-    };
-
-    const storageListener = (
-      changes: { [key: string]: chrome.storage.StorageChange },
-      area: string,
-    ) => {
-      if (area === "local") {
-        if (changes.nexus_active_windows) {
-          const newMappings = (changes.nexus_active_windows.newValue || []) as [
-            number,
-            WinMapping,
-          ][];
-          setActiveMappings(newMappings);
-        }
-      }
-    };
-
-    chrome.runtime.onMessage.addListener(messageListener);
-    chrome.storage.onChanged.addListener(storageListener);
-
-    return () => {
-      chrome.runtime.onMessage.removeListener(messageListener);
-      chrome.storage.onChanged.removeListener(storageListener);
-    };
-  }, [user, refreshChromeWindows]);
 
   const handleWorkspaceClick = useCallback(
     (item: NexusItem, specificWindowId?: string) => {
@@ -625,7 +557,7 @@ export const Dashboard = () => {
       <Sidebar
         profiles={profiles}
         activeProfile={activeProfile}
-        setActiveProfile={setActiveProfile}
+        setActiveProfile={handleSetActiveProfile}
         items={items}
         chromeWindows={chromeWindows}
         currentWindowId={currentWindowId}
@@ -638,8 +570,8 @@ export const Dashboard = () => {
             ? handleWorkspaceClick(item)
             : handleDeleteSuccess(selectedWorkspaceId!)
         }
-        setModalType={setModalType}
-        setModalParentId={setModalParentId}
+        setModalType={(type) => setModal((m) => ({ ...m, type }))}
+        setModalParentId={(parentId) => setModal((m) => ({ ...m, parentId }))}
         activeDragId={activeDragId}
         setActiveDragId={setActiveDragId}
         handleSidebarTabDrop={handleSidebarTabDrop}
@@ -737,32 +669,40 @@ export const Dashboard = () => {
         />
       )}
 
-      {(modalType === "folder" || modalType === "workspace") && (
+      {(modal.type === "folder" || modal.type === "workspace") && (
         <CreateItemModal
-          type={modalType}
+          type={modal.type}
           activeProfile={activeProfile}
-          parentId={modalParentId}
+          parentId={modal.parentId}
           parentPath={parentPath}
           onClose={() => {
-            setModalType(null);
-            setModalParentId("root");
+            setModal({ type: null, parentId: "root" });
+            AiService.getSettings().then(setAiSettings);
           }}
           onSuccess={() => {
-            setModalType(null);
-            setModalParentId("root");
+            setModal({ type: null, parentId: "root" });
+            AiService.getSettings().then(setAiSettings);
           }}
         />
       )}
-      {modalType === "settings" && (
+      {modal.type === "settings" && (
         <SettingsModal
           profiles={profiles}
-          onClose={() => setModalType(null)}
+          onClose={() => {
+            setModal({ type: null, parentId: "root" });
+            AiService.getSettings().then(setAiSettings);
+          }}
           activeProfile={activeProfile}
-          setActiveProfile={setActiveProfile}
+          setActiveProfile={handleSetActiveProfile}
         />
       )}
-      {modalType === "remote-access" && (
-        <RemoteAccessModal onClose={() => setModalType(null)} />
+      {modal.type === "remote-access" && (
+        <RemoteAccessModal
+          onClose={() => {
+            setModal({ type: null, parentId: "root" });
+            AiService.getSettings().then(setAiSettings);
+          }}
+        />
       )}
       {reasoningData && (
         <ReasoningModal

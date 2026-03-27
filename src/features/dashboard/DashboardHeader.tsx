@@ -80,8 +80,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   inboxData,
   isProcessingMove = false,
 }) => {
-  const [showCopyMenu, setShowCopyMenu] = useState(false);
-  const [includeArchivedCopy, setIncludeArchivedCopy] = useState(false);
+  const [copyMenu, setCopyMenu] = useState({ open: false, includeArchived: false });
 
   // Styrer visningen af arkiverede vinduer globalt i headeren
   const [showArchived, setShowArchived] = useState(false);
@@ -92,13 +91,14 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setShowCopyMenu(false);
+        setCopyMenu((m) => ({ ...m, open: false }));
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const { open: showCopyMenu, includeArchived: includeArchivedCopy } = copyMenu;
   const hasSelected = selectedUrls.length > 0;
   const isCopyDisabled = totalTabsInSpace === 0 && !hasSelected;
 
@@ -153,7 +153,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                     if (hasSelected) {
                       handleCopySelectedTabs();
                     } else {
-                      setShowCopyMenu(!showCopyMenu);
+                      setCopyMenu((m) => ({ ...m, open: !m.open }));
                     }
                   }}
                   disabled={isCopyDisabled}
@@ -198,7 +198,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                           type="checkbox"
                           checked={includeArchivedCopy}
                           onChange={(e) =>
-                            setIncludeArchivedCopy(e.target.checked)
+                            setCopyMenu((m) => ({ ...m, includeArchived: e.target.checked }))
                           }
                           className="rounded border-subtle bg-surface text-action focus:ring-action"
                         />
@@ -209,7 +209,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                       <button
                         onClick={() => {
                           handleCopySpace("notebook", includeArchivedCopy);
-                          setShowCopyMenu(false);
+                          setCopyMenu((m) => ({ ...m, open: false }));
                         }}
                         className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-medium text-medium transition-colors hover:bg-surface-elevated hover:text-high"
                       >
@@ -224,7 +224,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                       <button
                         onClick={() => {
                           handleCopySpace("standard", includeArchivedCopy);
-                          setShowCopyMenu(false);
+                          setCopyMenu((m) => ({ ...m, open: false }));
                         }}
                         className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-medium text-medium transition-colors hover:bg-surface-elevated hover:text-high"
                       >
