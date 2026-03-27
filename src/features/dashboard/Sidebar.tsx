@@ -29,14 +29,16 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { NexusService } from "./nexusService";
 import { CustomProfileSelector } from "../profiles/CustomProfileSelector";
 import { LogoutButton } from "../auth/LogoutButton";
 import { TabData, WinMapping } from "../background/main";
-import { AiHealthStatus } from "../ai/aiService";
 import { SidebarItem } from "./SidebarItem";
 import { useSidebarResize } from "../settings/useSidebarResize";
+import { useFolderStates } from "./useFolderStates";
+import { useAiHealth } from "./useAiHealth";
+import { useSidebarDrag } from "./useSidebarDrag";
 
 interface SidebarProps {
   profiles: Profile[];
@@ -85,20 +87,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
   selectedWindowId,
   setSelectedUrls,
 }) => {
-  const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  const [isDragOverRoot, setIsDragOverRoot] = useState(false);
-  const [isSyncingRoot, setIsSyncingRoot] = useState(false);
-  const [inboxDrag, setInboxDrag] = useState<{
-    active: boolean;
-    status: "valid" | "invalid" | null;
-  }>({ active: false, status: null });
-  const [isInboxSyncing, setIsInboxSyncing] = useState(false);
-  const [aiHealth, setAiHealth] = useState<AiHealthStatus>("up");
-  const [folderStates, setFolderStates] = useState<Record<string, boolean>>({});
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [reorderItems, setReorderItems] = useState<NexusItem[] | null>(null);
   const isReordering = reorderItems !== null;
   const displayItems = reorderItems ?? items;
+
+  // Extracted hooks
+  const { folderStates, handleToggleFolder } = useFolderStates();
+  const aiHealth = useAiHealth();
+  const {
+    activeDragId, setActiveDragId,
+    isDragOverRoot, setIsDragOverRoot,
+    isSyncingRoot, setIsSyncingRoot,
+    inboxDrag, setInboxDrag,
+    isInboxSyncing, setIsInboxSyncing,
+    draggedItem, isAlreadyAtRoot,
+  } = useSidebarDrag(displayItems);
 
   // --- RESIZE HOOK ---
   const {
@@ -116,40 +120,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Dynamisk check for om vi skal vise tekst i knapper (vigtigt for smalle skærme)
   const isCompactHeader = width < 340;
-
-  useEffect(() => {
-    chrome.storage.local.get("nexus_folder_states").then((result) => {
-      if (result.nexus_folder_states) {
-        setFolderStates(result.nexus_folder_states as Record<string, boolean>);
-      }
-    });
-  }, []);
-
-  const handleToggleFolder = useCallback((itemId: string, isOpen: boolean) => {
-    setFolderStates((prev) => {
-      const newState = { ...prev, [itemId]: isOpen };
-      chrome.storage.local.set({ nexus_folder_states: newState });
-      return newState;
-    });
-  }, []);
-
-  useEffect(() => {
-    chrome.storage.local.get("nexus_ai_health").then((res) => {
-      if (res.nexus_ai_health)
-        setAiHealth(res.nexus_ai_health as AiHealthStatus);
-    });
-
-    const handleStorageChange = (
-      changes: { [key: string]: chrome.storage.StorageChange },
-      areaName: string,
-    ) => {
-      if (areaName === "local" && changes.nexus_ai_health) {
-        setAiHealth(changes.nexus_ai_health.newValue as AiHealthStatus);
-      }
-    };
-    chrome.storage.onChanged.addListener(handleStorageChange);
-    return () => chrome.storage.onChanged.removeListener(handleStorageChange);
-  }, []);
 
   const handleToggleReordering = () => {
     if (isReordering) {
@@ -231,13 +201,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     [inboxData],
   );
-
-  const draggedItem = useMemo(
-    () => (activeDragId ? displayItems.find((i) => i.id === activeDragId) : null),
-    [activeDragId, displayItems],
-  );
-
-  const isAlreadyAtRoot = draggedItem?.parentId === "root";
 
   const handleProfileChange = useCallback(
     (profileId: string) => {

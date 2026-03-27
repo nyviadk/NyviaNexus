@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useCallback } from "react";
+import { useClickOutside } from "@/hooks/useClickOutside";
 import {
   VenetianMask,
   Monitor,
@@ -82,17 +83,8 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   const [showArchived, setShowArchived] = useState(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
-
-  // Luk menuen hvis man klikker udenfor
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setCopyMenu((m) => ({ ...m, open: false }));
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  const closeCopyMenu = useCallback(() => setCopyMenu((m) => ({ ...m, open: false })), []);
+  useClickOutside(menuRef, closeCopyMenu);
 
   const { open: showCopyMenu, includeArchived: includeArchivedCopy } = copyMenu;
   const hasSelected = selectedUrls.length > 0;

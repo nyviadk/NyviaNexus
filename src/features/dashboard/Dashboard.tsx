@@ -1,13 +1,5 @@
-import {
-  collection,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-  db,
-} from "@/lib/firebase";
 import { Loader2, Monitor, DownloadCloud } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PasteModal } from "../CopyPaste/PasteModal";
 import { ArchiveSidebar } from "../archive/ArchiveSidebar";
@@ -24,15 +16,15 @@ import { LinkManager } from "../CopyPaste/linkManager";
 
 import {
   AiSettings,
-  ArchiveItem,
   NexusItem,
   UserCategory,
-  WorkspaceWindow,
 } from "./types";
 
-import { windowOrderCache, getParentPath } from "./utils";
+import { getParentPath } from "./utils";
 import { useNexusData } from "./useNexusData";
 import { useChromeSync } from "./useChromeSync";
+import { useWorkspaceData } from "./useWorkspaceData";
+import { useDeepLinking } from "./useDeepLinking";
 import { AiData, TabData } from "../background/main";
 import { AiService } from "../ai/aiService";
 import { AuthLayout } from "../auth/AuthLayout";
@@ -81,8 +73,17 @@ export const Dashboard = () => {
     name: string;
   } | null>(null);
 
-  const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
-  const [archiveItems, setArchiveItems] = useState<ArchiveItem[]>([]);
+  // Workspace Data Hook (windows, archive, sorting, cache)
+  const {
+    windows,
+    setWindows,
+    archiveItems,
+    setArchiveItems,
+    sortedWindows,
+    activeWindows,
+    archivedWindows,
+    totalTabsInSpace,
+  } = useWorkspaceData(user, selectedWorkspaceId, viewMode);
 
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
 
@@ -106,8 +107,6 @@ export const Dashboard = () => {
     tab: TabData;
     position: { x: number; y: number };
   } | null>(null);
-
-  const hasLoadedUrlParams = useRef(false);
 
   const parentPath = useMemo(
     () => getParentPath(modal.parentId, items),
@@ -169,43 +168,6 @@ export const Dashboard = () => {
     [inboxData],
   );
 
-  const sortedWindows = useMemo(() => {
-    const getTime = (timestamp: any) => {
-      if (!timestamp) return 0;
-      if (typeof timestamp.toMillis === "function") return timestamp.toMillis();
-      if (typeof timestamp.seconds === "number")
-        return timestamp.seconds * 1000;
-      return 0;
-    };
-
-    return [...windows].sort((a, b) => {
-      // Sikrer at "win_uncategorized" ALTID pinner til toppen
-      const isPinnedA =
-        (a as WorkspaceWindow & { isPinned?: boolean }).isPinned ??
-        a.id === "win_uncategorized";
-      const isPinnedB =
-        (b as WorkspaceWindow & { isPinned?: boolean }).isPinned ??
-        b.id === "win_uncategorized";
-
-      if (isPinnedA && !isPinnedB) return -1;
-      if (!isPinnedA && isPinnedB) return 1;
-
-      const createA = getTime(a.createdAt);
-      const createB = getTime(b.createdAt);
-      return createA - createB;
-    });
-  }, [windows]);
-
-  // Opdel vinduer i aktive og arkiverede
-  const activeWindows = useMemo(
-    () => sortedWindows.filter((w) => !w.isArchived),
-    [sortedWindows],
-  );
-  const archivedWindows = useMemo(
-    () => sortedWindows.filter((w) => w.isArchived),
-    [sortedWindows],
-  );
-
   // --- AI CATEGORY AGGREGATION ---
   const aiGeneratedCategories = useMemo(() => {
     const uniqueAiCats = new Set<string>();
@@ -234,34 +196,7 @@ export const Dashboard = () => {
     [aiSettings.userCategories, aiGeneratedCategories],
   );
 
-  // Vi tæller kun tabs i aktive vinduer for det primære overblik
-  const totalTabsInSpace = useMemo(
-    () => activeWindows.reduce((acc, win) => acc + (win.tabs?.length || 0), 0),
-    [activeWindows],
-  );
-
   // --- EFFECTS ---
-
-  // Update Cache logic (nu baseret på activeWindows for korrekt indexering, ignorerer ukategoriseret vindue)
-  // REFACTOR: Dette lå direkte i renderingen før. Det er nu flyttet ind i en useEffect, da lagring i en Map() er en sideeffekt.
-  useEffect(() => {
-    if (selectedWorkspace && activeWindows.length > 0) {
-      const normalWindows = activeWindows.filter(
-        (w) => w.id !== "win_uncategorized",
-      );
-      const wsId = selectedWorkspace.id;
-      const signature = `${wsId}-${normalWindows.length}-${normalWindows.map((w) => w.id).join("")}`;
-
-      const cached = windowOrderCache.get(wsId);
-      if (!cached || cached.signature !== signature) {
-        const indices: Record<string, number> = {};
-        normalWindows.forEach((w, i) => {
-          indices[w.id] = i + 1;
-        });
-        windowOrderCache.set(wsId, { signature, indices });
-      }
-    }
-  }, [selectedWorkspace, activeWindows]);
 
   useEffect(() => {
     // Hent indstillinger
@@ -278,76 +213,6 @@ export const Dashboard = () => {
       setActiveProfile(lastProfile);
     }
   }, [profiles, handleSetActiveProfile]);
-
-  // Window Sync
-  useEffect(() => {
-    if (!user || !selectedWorkspaceId) {
-      setWindows([]);
-      return;
-    }
-    const q = query(
-      collection(
-        db,
-        "users",
-        user.uid,
-        "workspaces_data",
-        selectedWorkspaceId,
-        "windows",
-      ),
-      orderBy("createdAt", "asc"),
-    );
-    return onSnapshot(q, (snap) => {
-      const w = snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      })) as WorkspaceWindow[];
-      setWindows(w);
-    });
-  }, [user, selectedWorkspaceId]);
-
-  // Archive Sync (Updated to handle Inbox/Global AND Incognito)
-  useEffect(() => {
-    if (!user) return;
-
-    // Bestem korrekt path baseret på viewMode
-    let docRef;
-
-    // Både Inbox og Incognito deler den globale mappe
-    if (viewMode === "inbox" || viewMode === "incognito") {
-      docRef = doc(
-        db,
-        "users",
-        user.uid,
-        "inbox_data",
-        "global",
-        "archive_data",
-        "list",
-      );
-    } else if (viewMode === "workspace" && selectedWorkspaceId) {
-      docRef = doc(
-        db,
-        "users",
-        user.uid,
-        "workspaces_data",
-        selectedWorkspaceId,
-        "archive_data",
-        "list",
-      );
-    } else {
-      setArchiveItems([]);
-      return;
-    }
-
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setArchiveItems((data.items || []) as ArchiveItem[]);
-      } else {
-        setArchiveItems([]);
-      }
-    });
-    return () => unsubscribe();
-  }, [user, selectedWorkspaceId, viewMode]);
 
   const handleWorkspaceClick = useCallback(
     (item: NexusItem, specificWindowId?: string) => {
@@ -371,73 +236,18 @@ export const Dashboard = () => {
     [selectedWorkspaceId, selectedWindowId],
   );
 
-  // --- URL PARAMS & DEEP LINKING LOGIC ---
-  useEffect(() => {
-    if (items.length > 0 && !hasLoadedUrlParams.current) {
-      const params = new URLSearchParams(window.location.search);
-
-      const wsId = params.get("workspaceId");
-      const winId = params.get("windowId");
-      const noteSpaceId = params.get("noteSpace");
-      const viewParam = params.get("view"); // Håndterer automatisk inbox/incognito navigation
-
-      // 0. Håndter direkte genstart/restore af Inbox og Incognito
-      if (viewParam === "inbox") setViewMode("inbox");
-      if (viewParam === "incognito") setViewMode("incognito");
-
-      // 1. Håndter Deep Link til Noter
-      if (noteSpaceId) {
-        if (noteSpaceId === "global") {
-          setNotesModalTarget({ id: "global", name: "Inbox" });
-        } else {
-          const noteWs = items.find((i) => i.id === noteSpaceId);
-          if (noteWs) {
-            setNotesModalTarget({ id: noteWs.id, name: noteWs.name });
-          }
-        }
-      }
-
-      // 2. Håndter normal navigation til Workspaces
-      if (wsId) {
-        const targetWs = items.find((i) => i.id === wsId);
-        if (targetWs && selectedWorkspaceId !== targetWs.id) {
-          // Brug winId fra URL params hvis tilgængeligt
-          handleWorkspaceClick(targetWs, winId || undefined);
-        }
-      }
-
-      // RYD URL STRAKS (Så vi har en ren URL og brugeren kan navigere uden at være fastlåst)
-      if (wsId || noteSpaceId || viewParam) {
-        const newUrl = new URL(window.location.href);
-        newUrl.searchParams.delete("noteSpace");
-        newUrl.searchParams.delete("workspaceId");
-        newUrl.searchParams.delete("windowId");
-        newUrl.searchParams.delete("view");
-        window.history.replaceState({}, "", newUrl.toString());
-      }
-
-      hasLoadedUrlParams.current = true;
-    }
-  }, [items, selectedWorkspaceId, handleWorkspaceClick]);
-
-  // Denne effekt sikrer at vi vælger et standard vindue hvis intet er valgt
-  useEffect(() => {
-    if (
-      selectedWorkspaceId &&
-      viewMode === "workspace" &&
-      activeWindows.length > 0 &&
-      !selectedWindowId
-    ) {
-      if (!hasLoadedUrlParams.current) return;
-
-      const params = new URLSearchParams(window.location.search);
-      const preselect = params.get("windowId");
-
-      if (preselect && activeWindows.some((w) => w.id === preselect))
-        setSelectedWindowId(preselect);
-      else if (activeWindows[0]?.id) setSelectedWindowId(activeWindows[0].id);
-    }
-  }, [activeWindows, selectedWorkspaceId, viewMode, selectedWindowId]);
+  // Deep Linking Hook (URL params + auto-select window)
+  useDeepLinking(
+    items,
+    selectedWorkspaceId,
+    activeWindows,
+    viewMode,
+    selectedWindowId,
+    setViewMode,
+    setSelectedWindowId,
+    setNotesModalTarget,
+    handleWorkspaceClick,
+  );
 
   /**
    * Opgraderet handleCopySpace der understøtter både Standard (###) og Notebook (Newline) format.

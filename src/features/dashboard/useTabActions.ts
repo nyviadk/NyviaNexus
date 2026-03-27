@@ -18,7 +18,8 @@ import {
   NexusItem,
   RuntimeTabData,
 } from "@/features/dashboard/types";
-import { AiData, TabData, WinMapping } from "../background/main";
+import { TabData, WinMapping } from "../background/main";
+import { prepareTabData, getCleanData, forceQueueIfMoving } from "./tabActionHelpers";
 
 export const useTabActions = (
   activeMappings: [number, WinMapping][],
@@ -28,70 +29,6 @@ export const useTabActions = (
   setIsProcessingMove: (val: boolean) => void,
   setIsInboxSyncing?: (val: boolean) => void,
 ) => {
-  /**
-   * Helper til at nulstille AI data hvis vi flytter på tværs af spaces
-   */
-  const prepareTabData = (
-    tab: DraggedTabPayload,
-    sourceWorkspaceId: string,
-    targetWorkspaceId: string,
-  ): DraggedTabPayload => {
-    if (sourceWorkspaceId !== targetWorkspaceId) {
-      console.log(
-        `🧠 [AI Reset] Moving from ${sourceWorkspaceId} to ${targetWorkspaceId}. Resetting AI status.`,
-      );
-      return {
-        ...tab,
-        aiData: { status: "pending" } as AiData,
-        lastUpdated: Date.now(),
-        isIncognito: false,
-      };
-    }
-    return tab;
-  };
-
-  const getCleanData = (tab: DraggedTabPayload): TabData => {
-    const {
-      uid,
-      title,
-      url,
-      favIconUrl,
-      isIncognito,
-      aiData,
-      clearedTracking,
-    } = tab;
-    return {
-      uid,
-      title,
-      url,
-      favIconUrl: favIconUrl || "",
-      isIncognito: !!isIncognito,
-      aiData: aiData || { status: "pending" },
-      lastUpdated: Date.now(),
-      clearedTracking: clearedTracking ?? null,
-    };
-  };
-
-  const forceQueueIfMoving = (
-    tab: DraggedTabPayload,
-    sourceWorkspaceId: string,
-    targetWorkspaceId: string,
-    workspaceName?: string,
-  ) => {
-    if (sourceWorkspaceId !== targetWorkspaceId && tab.id) {
-      chrome.runtime.sendMessage({
-        type: "FORCE_QUEUE_TAB",
-        payload: {
-          uid: tab.uid,
-          url: tab.url,
-          title: tab.title,
-          tabId: Number(tab.id),
-          workspaceName: workspaceName || "Unknown",
-        },
-      });
-    }
-  };
-
   const handleSidebarTabDrop = useCallback(
     async (targetItem: NexusItem | "global") => {
       const currentUser = auth.currentUser;
