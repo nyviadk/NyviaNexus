@@ -77,7 +77,6 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   isProcessingMove = false,
 }) => {
   const [copyMenu, setCopyMenu] = useState({ open: false, includeArchived: false });
-  const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
 
   // Styrer visningen af arkiverede vinduer globalt i headeren
   const [showArchived, setShowArchived] = useState(false);
@@ -459,8 +458,6 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             activeMappings={activeMappings}
             selectedWindowId={selectedWindowId}
             setSelectedWindowId={setSelectedWindowId}
-            dropTargetWinId={dropTargetWinId}
-            setDropTargetWinId={setDropTargetWinId}
             handleTabDrop={handleTabDrop}
             selectedWorkspace={selectedWorkspace}
             showArchived={showArchived}

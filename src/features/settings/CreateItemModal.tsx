@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useCallback, useRef } from "react";
 import { X, FolderPlus, Monitor, Loader2, ChevronRight } from "lucide-react";
 import { NexusService } from "../dashboard/nexusService";
 
@@ -19,40 +19,33 @@ export const CreateItemModal = ({
   onClose,
   onSuccess,
 }: CreateItemModalProps) => {
-  const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Åbn dialogen native når komponenten mounter
-  useEffect(() => {
-    if (dialogRef.current && !dialogRef.current.open) {
-      dialogRef.current.showModal();
-
+  // Callback ref: åbner dialogen og fokuserer input ved mount (erstatter useEffect + dialogRef)
+  const initDialog = useCallback((node: HTMLDialogElement | null) => {
+    if (node && !node.open) {
+      node.showModal();
       // Native <dialog> stjæler fokus til det første fokuserbare element (krydset).
       // Vi tvinger fokus tilbage på input-feltet efter browseren har renderet dialogen.
-      requestAnimationFrame(() => {
-        inputRef.current?.focus();
-      });
+      requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, []);
 
   const handleClose = () => {
-    // Luk animation eller lignende kunne være her
     onClose();
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    const formData = new FormData(e.currentTarget);
+    const name = (formData.get("name") as string)?.trim();
+    if (!name) return;
 
     setLoading(true);
     try {
-      // Vi bruger NexusService her, da den håndterer:
-      // 1. Den korrekte sti: users/{uid}/items
-      // 2. Oprettelse af tilhørende windows-data, hvis det er et workspace (Batch write)
       await NexusService.createItem({
-        name: name.trim(),
+        name,
         type,
         profileId: activeProfile,
         parentId,
@@ -68,11 +61,10 @@ export const CreateItemModal = ({
 
   return (
     <dialog
-      ref={dialogRef}
-      onCancel={handleClose} // Håndterer ESC tasten automatisk
+      ref={initDialog}
+      onCancel={handleClose}
       onClick={(e) => {
-        // Luk hvis man klikker på backdrop (udenfor selve dialogen)
-        if (e.target === dialogRef.current) handleClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
       className="open:animate-in open:fade-in open:zoom-in-95 m-auto bg-transparent p-0 backdrop:bg-background/80 backdrop:backdrop-blur-sm"
     >
@@ -133,9 +125,9 @@ export const CreateItemModal = ({
 
             <input
               ref={inputRef}
+              name="name"
+              required
               autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
               placeholder={`Navn på ${
                 type === "folder" ? "mappe" : "space"
               }...`}
@@ -153,7 +145,7 @@ export const CreateItemModal = ({
             </button>
             <button
               type="submit"
-              disabled={loading || !name.trim()}
+              disabled={loading}
               className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl bg-action px-4 py-2.5 text-sm font-bold text-inverted shadow-lg shadow-action/20 ring-action-hover transition-all outline-none hover:bg-action-hover focus:ring-2 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading && <Loader2 size={16} className="animate-spin" />}

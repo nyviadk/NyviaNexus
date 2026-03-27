@@ -8,7 +8,7 @@ import {
   ArchiveRestore,
   Pin,
 } from "lucide-react";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { DraggedTabPayload, NexusItem, WorkspaceWindow } from "./types";
 import { NexusService } from "./nexusService";
 import { WinMapping } from "../background/main";
@@ -19,11 +19,9 @@ interface WindowControlStripProps {
   activeMappings: [number, WinMapping][];
   selectedWindowId: string | null;
   setSelectedWindowId: (id: string | null) => void;
-  dropTargetWinId: string | null;
-  setDropTargetWinId: (id: string | null) => void;
   handleTabDrop: (winId: string) => void;
   selectedWorkspace: NexusItem | null;
-  showArchived: boolean; // Modtager nu state fra headeren
+  showArchived: boolean;
 }
 
 export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
@@ -32,24 +30,21 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
   activeMappings,
   selectedWindowId,
   setSelectedWindowId,
-  dropTargetWinId,
-  setDropTargetWinId,
   handleTabDrop,
   selectedWorkspace,
   showArchived,
 }) => {
   const [isPlusOver, setIsPlusOver] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editName, setEditName] = useState("");
+  const [editing, setEditing] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [dropTargetWinId, setDropTargetWinId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (editingId && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-    }
-  }, [editingId]);
+  const isTabDrag = (e: React.DragEvent) =>
+    e.dataTransfer.types.includes("nexus/tab");
 
   const handleCreateNewWindow = (initialTab?: DraggedTabPayload) => {
     if (!selectedWorkspace) return;
@@ -72,15 +67,18 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
 
   const handleStartRename = (win: WorkspaceWindow, e: React.MouseEvent) => {
     e.stopPropagation();
-    setEditingId(win.id);
-    setEditName(win.name || "");
+    setEditing({ id: win.id, name: win.name || "" });
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
   };
 
   const handleSaveRename = async () => {
-    if (!editingId || !selectedWorkspace) return;
+    if (!editing || !selectedWorkspace) return;
 
-    const currentEditingId = editingId;
-    const trimmed = editName.trim();
+    const currentEditingId = editing.id;
+    const trimmed = editing.name.trim();
 
     await NexusService.renameWindow(
       selectedWorkspace.id,
@@ -88,7 +86,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
       trimmed || "",
     );
 
-    setEditingId(null);
+    setEditing(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -96,7 +94,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
       handleSaveRename();
     }
     if (e.key === "Escape") {
-      setEditingId(null);
+      setEditing(null);
     }
   };
 
@@ -114,7 +112,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
       {activeWindows.map((win) => {
         const isDropTarget = dropTargetWinId === win.id;
         const isSourceWindow = selectedWindowId === win.id;
-        const isEditing = editingId === win.id;
+        const isEditing = editing?.id === win.id;
         const isOpen = activeMappings.some(
           ([_, m]) => m.internalWindowId === win.id,
         );
@@ -150,6 +148,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
             key={win.id}
             className="flex flex-col items-center gap-1 transition-all duration-200"
             onDragOver={(e) => {
+              if (!isTabDrag(e)) return;
               e.preventDefault();
               if (dropTargetWinId !== win.id) {
                 setDropTargetWinId(win.id);
@@ -164,6 +163,7 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
               setDropTargetWinId(null);
             }}
             onDrop={(e) => {
+              if (!isTabDrag(e)) return;
               e.preventDefault();
               setDropTargetWinId(null);
               handleTabDrop(win.id);
@@ -181,8 +181,12 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
                   <div className="flex items-center gap-2">
                     <input
                       ref={inputRef}
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
+                      value={editing.name}
+                      onChange={(e) =>
+                        setEditing((prev) =>
+                          prev ? { ...prev, name: e.target.value } : null,
+                        )
+                      }
                       onKeyDown={handleKeyDown}
                       onBlur={handleSaveRename}
                       onClick={(e) => e.stopPropagation()}
@@ -301,11 +305,13 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
       {/* --- PLUS KNAPPEN --- */}
       <button
         onDragOver={(e) => {
+          if (!isTabDrag(e)) return;
           e.preventDefault();
           setIsPlusOver(true);
         }}
         onDragLeave={() => setIsPlusOver(false)}
         onDrop={(e) => {
+          if (!isTabDrag(e)) return;
           e.preventDefault();
           setIsPlusOver(false);
           const tJ = window.sessionStorage.getItem("draggedTab");
@@ -316,8 +322,6 @@ export const WindowControlStrip: React.FC<WindowControlStripProps> = ({
               console.error("JSON Parse error in drop:", err);
               handleCreateNewWindow();
             }
-          } else {
-            handleCreateNewWindow();
           }
         }}
         onClick={() => handleCreateNewWindow()}
