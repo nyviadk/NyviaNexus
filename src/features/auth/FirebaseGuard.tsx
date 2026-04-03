@@ -75,10 +75,12 @@ const testConnection = async (config: FirebaseConfig): Promise<boolean> => {
       }
 
       // 2. Auth virker — test nu Firestore-forbindelse
+      // Vi bruger rå getDoc (IKKE retry-wrapped) så testen fejler hurtigt
       console.log("🧪 [TestConnection] Auth OK. Tester Firestore-forbindelse...");
       try {
-        const { doc, getDoc } = await import("@/lib/firebase");
-        await getDoc(doc(db, "__connection_test__", "ping"));
+        const { getDoc: rawGetDoc } = await import("firebase/firestore");
+        const { doc } = await import("@/lib/firebase");
+        await rawGetDoc(doc(db, "__connection_test__", "ping"));
         console.log("🧪 [TestConnection] Firestore svarede (uventet success)");
       } catch (fsErr: any) {
         console.log("🧪 [TestConnection] Firestore svar:", fsErr?.code, fsErr?.message);
@@ -172,7 +174,7 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
       const isConnected = await testConnection(parsedPreview);
       if (!isConnected) {
         setError(
-          "Forbindelsen mislykkedes. Tjek at Firestore-databasen er oprettet i Firebase Console (region: europe-west1).",
+          "Firestore-databasen svarer ikke. Tjek at du har oprettet en Firestore Database i Firebase Console under dit projekt (region: europe-west1 Belgium).",
         );
         setIsValidating(false);
         return;
