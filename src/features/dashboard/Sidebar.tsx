@@ -28,6 +28,9 @@ import {
   VenetianMask,
   X,
   XCircle,
+  SlidersHorizontal,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import React, { useCallback, useMemo, useState } from "react";
 import { NexusService } from "./nexusService";
@@ -39,6 +42,7 @@ import { useSidebarResize } from "../settings/useSidebarResize";
 import { useFolderStates } from "./useFolderStates";
 import { useAiHealth } from "./useAiHealth";
 import { useSidebarDrag } from "./useSidebarDrag";
+import { useNativeZoom } from "../settings/useNativeZoom";
 
 interface SidebarProps {
   profiles: Profile[];
@@ -89,19 +93,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [reorderItems, setReorderItems] = useState<NexusItem[] | null>(null);
+  const [showControls, setShowControls] = useState(false);
   const isReordering = reorderItems !== null;
   const displayItems = reorderItems ?? items;
 
   // Extracted hooks
   const { folderStates, handleToggleFolder } = useFolderStates();
   const aiHealth = useAiHealth();
+  const { zoomLevel, changeZoom } = useNativeZoom(); // Indbygget native zoom hook
   const {
-    activeDragId, setActiveDragId,
-    isDragOverRoot, setIsDragOverRoot,
-    isSyncingRoot, setIsSyncingRoot,
-    inboxDrag, setInboxDrag,
-    isInboxSyncing, setIsInboxSyncing,
-    draggedItem, isAlreadyAtRoot,
+    activeDragId,
+    setActiveDragId,
+    isDragOverRoot,
+    setIsDragOverRoot,
+    isSyncingRoot,
+    setIsSyncingRoot,
+    inboxDrag,
+    setInboxDrag,
+    isInboxSyncing,
+    setIsInboxSyncing,
+    draggedItem,
+    isAlreadyAtRoot,
   } = useSidebarDrag(displayItems);
 
   // --- RESIZE HOOK ---
@@ -117,9 +129,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   } = useSidebarResize();
 
   const [animationParent] = useAutoAnimate();
-
-  // Dynamisk check for om vi skal vise tekst i knapper (vigtigt for smalle skærme)
-  const isCompactHeader = width < 340;
 
   const handleToggleReordering = () => {
     if (isReordering) {
@@ -250,56 +259,79 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      {/* Header med Adaptiv Logik */}
-      <div className="flex items-center justify-between gap-2 border-b border-subtle bg-surface-sunken/10 p-6 backdrop-blur-sm">
-        <div className="min-w-0 flex-1 truncate text-xl font-black tracking-tighter text-high uppercase">
-          NyviaNexus
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {!isLocked && (
-            <button
-              onClick={resetWidth}
-              className={`group flex shrink-0 cursor-pointer items-center justify-center rounded-lg border border-strong/50 bg-surface-elevated transition-all hover:border-action hover:text-action ${
-                isCompactHeader ? "p-2" : "gap-1.5 px-2 py-1.5"
-              }`}
-              title="Nulstil bredde"
-            >
-              <RotateCcw
-                size={14}
-                className="transition-transform group-hover:-rotate-45"
-              />
-              {!isCompactHeader && (
-                <span className="text-[10px] font-bold tracking-widest uppercase">
-                  Reset
-                </span>
-              )}
-            </button>
-          )}
+      {/* --- HEADER OG KONTROLPANEL --- */}
+      <div className="flex flex-col border-b border-subtle bg-surface-sunken/10 backdrop-blur-sm">
+        <div className="flex items-center justify-between gap-2 p-6 pb-4">
+          <div className="min-w-0 flex-1 truncate text-xl font-black tracking-tighter text-high uppercase">
+            NyviaNexus
+          </div>
           <button
-            onClick={toggleLock}
-            className={`flex shrink-0 cursor-pointer items-center justify-center rounded-lg transition-all ${
-              isLocked
-                ? "p-2 text-low hover:bg-surface-hover hover:text-medium"
-                : `bg-action text-inverted shadow-lg ring-2 shadow-action/20 ring-action/50 ${
-                    isCompactHeader ? "p-2" : "gap-2 px-2 py-1.5"
-                  }`
+            onClick={() => setShowControls(!showControls)}
+            className={`flex shrink-0 cursor-pointer items-center justify-center rounded-lg p-2 transition-all hover:bg-surface-elevated hover:text-action ${
+              showControls ? "bg-surface-elevated text-action" : "text-medium"
             }`}
-            title={isLocked ? "Lås sidebar op" : "Lås sidebar bredde"}
+            title="Vis UI indstillinger (Bredde & Zoom)"
           >
-            {isLocked ? (
-              <Lock size={16} />
-            ) : (
-              <>
-                <Unlock size={16} />
-                {!isCompactHeader && (
-                  <span className="text-[10px] font-black uppercase">
-                    Ulåst
-                  </span>
-                )}
-              </>
-            )}
+            <SlidersHorizontal size={18} />
           </button>
         </div>
+
+        {/* Kontrolpanelet - Vises kun hvis showControls er sand, optimeret til små skærme */}
+        {showControls && (
+          <div className="animate-in slide-in-from-top-2 flex flex-col gap-2 px-4 pb-4">
+            <div className="grid grid-cols-2 gap-2">
+              {/* Bredde-kontroller */}
+              <div className="flex flex-col justify-between gap-1.5 rounded-xl border border-subtle bg-surface/50 p-2 shadow-inner">
+                <span className="text-center text-[9px] font-bold tracking-widest text-low uppercase">
+                  Bredde
+                </span>
+                <div className="flex gap-1">
+                  <button
+                    onClick={resetWidth}
+                    className="flex flex-1 cursor-pointer items-center justify-center rounded-lg bg-surface-elevated p-1.5 text-medium transition-colors hover:text-action"
+                    title="Nulstil sidebar bredde"
+                  >
+                    <RotateCcw size={14} />
+                  </button>
+                  <button
+                    onClick={toggleLock}
+                    className={`flex flex-1 cursor-pointer items-center justify-center rounded-lg p-1.5 transition-all ${
+                      isLocked
+                        ? "bg-surface-hover text-medium hover:text-high"
+                        : "bg-action text-inverted shadow-md shadow-action/20"
+                    }`}
+                    title={isLocked ? "Lås sidebar op" : "Lås sidebar bredde"}
+                  >
+                    {isLocked ? <Lock size={14} /> : <Unlock size={14} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Zoom-kontroller */}
+              <div className="flex flex-col justify-between gap-1.5 rounded-xl border border-subtle bg-surface/50 p-2 shadow-inner">
+                <span className="text-center text-[9px] font-bold tracking-widest text-low uppercase">
+                  {Math.round(zoomLevel * 100)}% Zoom
+                </span>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => changeZoom(-0.1)}
+                    className="flex flex-1 cursor-pointer items-center justify-center rounded-lg bg-surface-elevated p-1.5 text-medium transition-colors hover:text-action"
+                    title="Zoom ud"
+                  >
+                    <ZoomOut size={14} />
+                  </button>
+                  <button
+                    onClick={() => changeZoom(0.1)}
+                    className="flex flex-1 cursor-pointer items-center justify-center rounded-lg bg-surface-elevated p-1.5 text-medium transition-colors hover:text-action"
+                    title="Zoom ind"
+                  >
+                    <ZoomIn size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {chromeWindows.length > 0 && (
