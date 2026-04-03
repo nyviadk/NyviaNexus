@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { configureFirebase, auth, db } from "@/lib/firebase";
+import { configureFirebase, auth } from "@/lib/firebase";
 import { signInWithEmailAndPassword } from "firebase/auth/web-extension";
 import { FirebaseError } from "firebase/app";
 import {
@@ -53,49 +53,19 @@ const parseFirebaseSnippet = (snippet: string): FirebaseConfig | null => {
 
 const testConnection = async (config: FirebaseConfig): Promise<boolean> => {
   try {
-    console.log("🧪 [TestConnection] Starter forbindelsestest...");
     configureFirebase(config);
-
-    // 1. Test Auth
-    console.log("🧪 [TestConnection] Tester Auth...");
     await signInWithEmailAndPassword(auth, "test@nexus.dk", "123456");
     return true;
   } catch (err) {
     if (err instanceof FirebaseError) {
-      console.log("🧪 [TestConnection] Auth svar:", err.code, err.message);
       const validAuthErrors = [
         "auth/invalid-credential",
         "auth/user-not-found",
         "auth/wrong-password",
         "auth/invalid-email",
       ];
-      if (!validAuthErrors.includes(err.code)) {
-        console.error("🧪 [TestConnection] Auth FEJLEDE med uventet kode:", err.code);
-        return false;
-      }
-
-      // 2. Auth virker — test nu Firestore-forbindelse
-      // Vi bruger rå getDoc (IKKE retry-wrapped) så testen fejler hurtigt
-      console.log("🧪 [TestConnection] Auth OK. Tester Firestore-forbindelse...");
-      try {
-        const { getDoc: rawGetDoc } = await import("firebase/firestore");
-        const { doc } = await import("@/lib/firebase");
-        await rawGetDoc(doc(db, "__connection_test__", "ping"));
-        console.log("🧪 [TestConnection] Firestore svarede (uventet success)");
-      } catch (fsErr: any) {
-        console.log("🧪 [TestConnection] Firestore svar:", fsErr?.code, fsErr?.message);
-        // "permission-denied" eller "not-found" = Firestore ER tilgængelig (regler afviser, men DB svarer)
-        // "unavailable" = Firestore er IKKE tilgængelig (ikke oprettet, forkert region, netværk)
-        if (fsErr?.code === "unavailable") {
-          console.error("🧪 [TestConnection] Firestore IKKE tilgængelig! Er databasen oprettet i Firebase Console?");
-          return false;
-        }
-      }
-
-      console.log("🧪 [TestConnection] Alle tests bestået ✓");
-      return true;
+      return validAuthErrors.includes(err.code);
     }
-    console.error("🧪 [TestConnection] Uventet fejltype:", err);
     return false;
   }
 };
@@ -117,19 +87,14 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
 
     const checkStorage = async () => {
       try {
-        console.log("🔍 [CheckStorage] Tjekker for gemt Firebase config...");
         const data = await chrome.storage.local.get(["userFirebaseConfig"]);
         if (data.userFirebaseConfig) {
-          console.log("🔍 [CheckStorage] Config fundet. Kalder configureFirebase...");
           configureFirebase(data.userFirebaseConfig as FirebaseConfig);
-          console.log("🔍 [CheckStorage] configureFirebase OK. Sætter auth listener op...");
 
           // Overvåg Auth tilstand
           unsubscribe = auth.onAuthStateChanged((user) => {
             const isSetupMode =
               sessionStorage.getItem("nexus_setup_mode") === "true";
-
-            console.log("🔍 [AuthState] user:", user?.uid ?? "ingen", "| setupMode:", isSetupMode);
 
             if (user && !isSetupMode) {
               setState("ready");
@@ -138,11 +103,9 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
             }
           });
         } else {
-          console.log("🔍 [CheckStorage] Ingen config fundet. Viser setup.");
           setState("needs_setup");
         }
       } catch (e) {
-        console.error("🔍 [CheckStorage] FEJL:", e);
         setState("needs_setup");
       }
     };
@@ -169,32 +132,26 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
     setError("");
 
     try {
-      // 1. Test forbindelsen først (Auth + Firestore)
-      console.log("💾 [HandleSave] Starter validering...");
+      // 1. Test forbindelsen først
       const isConnected = await testConnection(parsedPreview);
       if (!isConnected) {
         setError(
-          "Firestore-databasen svarer ikke. Tjek at du har oprettet en Firestore Database i Firebase Console under dit projekt (region: europe-west1 Belgium).",
+          "Forbindelsen mislykkedes. Tjek venligst dine Firebase-nøgler.",
         );
         setIsValidating(false);
         return;
       }
 
       // 2. Gem til storage
-      console.log("💾 [HandleSave] Gemmer config til storage...");
       await chrome.storage.local.set({ userFirebaseConfig: parsedPreview });
 
       // 3. VIGTIGT: Giv Background Script besked og VENT på svar
       // Dette sikrer at background er klar FØR vi lader UI gå videre
-      console.log("💾 [HandleSave] Sender REINITIALIZE_FIREBASE til background...");
-      const bgResponse = await chrome.runtime.sendMessage({ type: "REINITIALIZE_FIREBASE" });
-      console.log("💾 [HandleSave] Background svar:", bgResponse);
+      await chrome.runtime.sendMessage({ type: "REINITIALIZE_FIREBASE" });
 
       // 4. Skift tilstand til auth (bruger skal logge ind/oprette konto)
-      console.log("💾 [HandleSave] Config gemt. Skifter til login-skærm.");
       setState("needs_auth");
     } catch (err) {
-      console.error("💾 [HandleSave] Fejl:", err);
       setError("Kunne ikke gemme konfigurationen.");
       setIsValidating(false);
     }

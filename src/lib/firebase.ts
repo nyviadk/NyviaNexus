@@ -89,16 +89,6 @@ async function withRetry<T>(
       error.message?.toLowerCase().includes("offline") ||
       error.code === "unavailable";
 
-    // Diagnostik: Log den fulde fejl så vi kan se hvad der sker
-    console.warn(
-      `[Nexus Firewall] Firestore fejl:`,
-      `code=${error.code}`,
-      `message=${error.message}`,
-      `name=${error.name}`,
-      `isOffline=${isOffline}`,
-      `retries=${retries}`,
-    );
-
     if (isOffline && retries > 0) {
       console.warn(
         `[Nexus Firewall] Database offline. Prøver igen om ${delay}ms... (${retries} forsøg tilbage)`,
@@ -136,15 +126,10 @@ export const addDoc = <T = DocumentData>(ref: any, data: T) =>
 
 export const configureFirebase = (config: FirebaseConfig) => {
   try {
-    const appCount = getApps().length;
-    console.log(`🔧 [Firebase] configureFirebase kaldt. Eksisterende apps: ${appCount}`);
-
-    if (appCount === 0) {
+    if (getApps().length === 0) {
       app = initializeApp(config);
-      console.log("🔧 [Firebase] Ny app oprettet med config:", config.projectId);
     } else {
       app = getApp();
-      console.log("🔧 [Firebase] Genbruger eksisterende app:", app.options.projectId);
     }
 
     /**
@@ -158,15 +143,11 @@ export const configureFirebase = (config: FirebaseConfig) => {
       db = initializeFirestore(app, {
         experimentalAutoDetectLongPolling: true,
       });
-      console.log("🔧 [Firebase] Firestore initialiseret med AutoDetectLongPolling");
-    } catch (fsError) {
-      console.warn("🔧 [Firebase] initializeFirestore allerede kaldt, bruger getFirestore:", fsError);
+    } catch {
       db = getFirestore(app);
-      console.log("🔧 [Firebase] Firestore hentet via getFirestore (eksisterende instans)");
     }
 
     auth = getAuth(app);
-    console.log("🔧 [Firebase] Auth klar. currentUser:", auth.currentUser?.uid ?? "ingen");
 
     console.log(
       "🚀 [Firebase] Dynamisk konfiguration & Smart Firewall fuldført.",
@@ -174,7 +155,6 @@ export const configureFirebase = (config: FirebaseConfig) => {
     return { db, auth, app };
   } catch (error) {
     console.error("❌ [Firebase] Fejl ved konfiguration:", error);
-    console.error("❌ [Firebase] Error type:", (error as any)?.code, (error as any)?.message);
     throw error;
   }
 };

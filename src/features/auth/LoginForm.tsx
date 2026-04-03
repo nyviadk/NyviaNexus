@@ -73,7 +73,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onUserCreated }) => {
       }
 
       const uid = userCredential.user.uid;
-      console.log("🔑 [LoginForm] Auth success. UID:", uid);
 
       // Gem Cerebras API nøgle hvis den er indtastet (Valgfrit)
       if (cerebrasKey && cerebrasKey.trim()) {
@@ -81,29 +80,23 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onUserCreated }) => {
       }
 
       // Bootstrap Inbox
-      console.log("📦 [LoginForm] Bootstrap: Opretter inbox...");
       const inboxRef = doc(db, "users", uid, "inbox_data", "global");
       const inboxSnap = await getDoc(inboxRef);
-      console.log("📦 [LoginForm] Inbox exists:", inboxSnap.exists());
       if (!inboxSnap.exists()) {
         await setDoc(inboxRef, {
           tabs: [],
           lastUpdate: serverTimestamp(),
         });
-        console.log("📦 [LoginForm] Inbox oprettet ✓");
       }
 
       // Bootstrap Profiler
-      console.log("📦 [LoginForm] Bootstrap: Opretter profiler...");
       const profilesCollection = collection(db, "users", uid, "profiles");
       const profilesSnap = await getDocs(profilesCollection);
-      console.log("📦 [LoginForm] Profiles empty:", profilesSnap.empty);
       if (profilesSnap.empty) {
         await addDoc(profilesCollection, {
           name: "Privat",
           createdAt: serverTimestamp(),
         });
-        console.log("📦 [LoginForm] Default profil oprettet ✓");
       }
 
       if (isNewUser) {
