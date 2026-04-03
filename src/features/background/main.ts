@@ -1223,24 +1223,6 @@ async function saveToFirestore(
         }
       }
 
-      if (validTabs.length === 0 && isRemoval) {
-        // Safe delete
-        try {
-          await deleteDoc(docRef);
-        } catch (e) {
-          /* ignore already deleted */
-        }
-
-        activeWindows.delete(windowId);
-
-        // VIGTIGT: Re-indexer, hvis vi fjerner et vindue fra et workspace
-        await reindexWorkspaceWindows(mapping.workspaceId, uid);
-
-        await saveActiveWindowsToStorage();
-        chrome.windows.remove(windowId).catch(() => {});
-        return;
-      }
-
       await setDoc(
         docRef,
         {
