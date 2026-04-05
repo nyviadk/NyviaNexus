@@ -388,7 +388,6 @@ async function runWithLock(
 }
 
 // --- CRITICAL: STATE HYDRATION & CLEANUP ---
-
 // Denne funktion køres ved opstart af Chrome eller Service Worker.
 // Den fjerner "Spøgelses-vinduer" og sikrer at tabTracker er up-to-date.
 async function validateAndCleanupState() {
@@ -403,203 +402,131 @@ async function validateAndCleanupState() {
   if (!uid) return;
 
   try {
-    // 1. Hent gemte mappings OG tab tracker
-    const data = (await chrome.storage.local.get([
-      "nexus_active_windows",
-      TRACKER_STORAGE_KEY,
-      "nexus_pending_dashboards", // Hentes for at se om vi kommer fra en opdatering
-    ])) as StorageResponse;
+    // 1. Hent alt på én gang (Aggressiv performance)
+    const [storage, allPhysicalTabs, physicalWindows] = await Promise.all([
+      chrome.storage.local.get([
+        "nexus_active_windows",
+        TRACKER_STORAGE_KEY,
+        "nexus_pending_dashboards",
+      ]) as Promise<StorageResponse>,
+      chrome.tabs.query({}),
+      chrome.windows.getAll(),
+    ]);
 
-    // --- RECOVER DASHBOARDS EFTER OPDATERING ---
-    // Hvis udvidelsen netop er genstartet (opdateret), vil Chrome have lukket alle dashboards.
-    // Vi genåbner dem præcis hvor de var, med deres korrekte URL.
+    const physicalTabIds = new Map<number, string>();
+    allPhysicalTabs.forEach((t) => {
+      if (t.id) physicalTabIds.set(t.id, t.url || "");
+    });
+    const physicalWindowIds = new Set(physicalWindows.map((w) => w.id));
+
+    // --- 1.1 RECOVER DASHBOARDS EFTER OPDATERING ---
     if (
-      data.nexus_pending_dashboards &&
-      data.nexus_pending_dashboards.length > 0
+      storage.nexus_pending_dashboards &&
+      storage.nexus_pending_dashboards.length > 0
     ) {
       console.log("♻️ Gendanner dashboards efter opdatering...");
-      for (const d of data.nexus_pending_dashboards) {
-        try {
-          await chrome.tabs.create({
+      for (const d of storage.nexus_pending_dashboards) {
+        chrome.tabs
+          .create({
             windowId: d.windowId,
             url: d.url,
             pinned: d.pinned,
             index: d.index,
-          });
-        } catch (e) {
-          console.warn("Kunne ikke gendanne dashboard i vindue:", d.windowId);
-        }
+          })
+          .catch(() => {});
       }
-      // Ryd op, så vi ikke åbner dem igen og igen ved normale genstart
       await chrome.storage.local.remove("nexus_pending_dashboards");
     }
 
-    // --- 1.1 HYDRATE TAB TRACKER ---
-    if (data[TRACKER_STORAGE_KEY] && Array.isArray(data[TRACKER_STORAGE_KEY])) {
-      tabTracker.clear();
-      data[TRACKER_STORAGE_KEY].forEach(([tabId, trackerData]) => {
-        tabTracker.set(tabId, trackerData);
-      });
-      console.log(
-        `📥 Hydrated Tab Tracker from Storage: ${tabTracker.size} tabs`,
-      );
-    }
+    // --- 1.2 HYDRATE & CLEANUP TAB TRACKER (Fixer URL-skift mens vi sov) ---
+    tabTracker.clear();
+    let trackerDirty = false;
+    const deadTabIds: number[] = [];
 
-    // --- 1.2 HYDRATE WINDOWS ---
-    let storedMappings: [number, WinMapping][] = [];
     if (
-      data?.nexus_active_windows &&
-      Array.isArray(data.nexus_active_windows)
+      storage[TRACKER_STORAGE_KEY] &&
+      Array.isArray(storage[TRACKER_STORAGE_KEY])
     ) {
-      storedMappings = data.nexus_active_windows;
-    }
+      storage[TRACKER_STORAGE_KEY].forEach(([tabId, trackedData]) => {
+        const actualUrl = physicalTabIds.get(tabId);
 
-    // --- 1.3 CLEANUP STALE TABS (Slet spøgelses-tabs) ---
-    // Vi tjekker om fanerne i trackeren rent faktisk eksisterer i browseren.
-    if (tabTracker.size > 0) {
-      const allTabs = await chrome.tabs.query({});
-      // Opret et map for hurtigt opslag af fysiske tabs: tabId -> url
-      const physicalTabsMap = new Map<number, string>();
-      allTabs.forEach((t) => {
-        if (t.id) physicalTabsMap.set(t.id, t.url || "");
-      });
-
-      const deadTabIds: number[] = [];
-      let trackerDirty = false;
-
-      for (const [trackedTabId, trackedData] of tabTracker.entries()) {
-        // A) Tjek om fanen er død (lukket mens extension sov)
-        if (!physicalTabsMap.has(trackedTabId)) {
-          deadTabIds.push(trackedTabId);
-        }
-        // B) Tjek om URL har ændret sig mens vi sov
-        else {
-          const actualUrl = physicalTabsMap.get(trackedTabId);
-          if (
-            actualUrl &&
-            actualUrl !== trackedData.url &&
-            !isDash(actualUrl)
-          ) {
-            tabTracker.set(trackedTabId, { ...trackedData, url: actualUrl });
+        if (actualUrl) {
+          // A) Tjek om URL har ændret sig mens SW sov
+          if (actualUrl !== trackedData.url && !isDash(actualUrl)) {
+            tabTracker.set(tabId, { ...trackedData, url: actualUrl });
             trackerDirty = true;
+          } else {
+            tabTracker.set(tabId, trackedData);
           }
+        } else {
+          // B) Tab findes ikke længere fysisk
+          deadTabIds.push(tabId);
         }
-      }
-
-      // Slet døde faner fra Firestore (via vores helper)
-      if (deadTabIds.length > 0) {
-        await handleClosePhysicalTabs([], deadTabIds);
-      } else if (trackerDirty) {
-        // Hvis vi kun opdaterede URLs, skal vi huske at gemme trackeren
-        await saveTrackerToStorage();
-      }
+      });
     }
 
-    if (storedMappings.length === 0) {
-      activeWindows.clear();
-      // Hvis vi ikke har nogen gemte vinduer, men auth findes, så kør en fuld rebuild for en sikkerheds skyld
-      if (uid && tabTracker.size === 0) await rebuildTabTracker();
-      return;
+    // Slet døde faner fra Firestore (via vores helper)
+    if (deadTabIds.length > 0) {
+      await handleClosePhysicalTabs([], deadTabIds);
+    } else if (trackerDirty) {
+      await saveTrackerToStorage();
     }
 
-    // --- 1.4 CLEANUP STALE WINDOWS ---
-    // 2. Hent alle FYSISKE vinduer lige nu
-    const physicalWindows = await chrome.windows.getAll();
-    const physicalIds = new Set(physicalWindows.map((w) => w.id));
-
-    const validMappings: [number, WinMapping][] = [];
-    let dirty = false;
-
-    // Opdater activeWindows map
+    // --- 1.3 WINDOW MAPPING HYDRATION & CLEANUP ---
     activeWindows.clear();
-
-    // Vi skal holde styr på hvilke workspaces der måske skal re-indekseres pga. oprydning
+    const validMappings: [number, WinMapping][] = [];
+    const storedMappings = storage.nexus_active_windows || [];
     const workspacesToCheck = new Set<string>();
+    let windowDirty = false;
 
     for (const [winId, mapping] of storedMappings) {
-      // Hvis vinduet fysisk findes, beholder vi det
-      if (physicalIds.has(winId)) {
-        validMappings.push([winId, mapping]);
+      if (physicalWindowIds.has(winId)) {
         activeWindows.set(winId, mapping);
+        validMappings.push([winId, mapping]);
         workspacesToCheck.add(mapping.workspaceId);
       } else {
-        // 3. Vinduet er dødt -> Opdater Firestore til isActive = false
-        dirty = true;
-
-        if (uid) {
-          const docRef = doc(
-            db,
-            "users",
-            uid,
-            "workspaces_data",
-            mapping.workspaceId,
-            "windows",
-            mapping.internalWindowId,
-          );
-
-          try {
-            await updateDoc(docRef, { isActive: false });
-          } catch (error: unknown) {
-            // Type guard for Firestore error code
-            const firestoreError = error as { code?: string };
-            if (firestoreError.code === "not-found") {
-              // Ignore already deleted
-            } else {
-              console.error("Cleanup Firestore error:", error);
-            }
-          }
-        }
+        // Vinduet er dødt -> Opdater Firestore og marker state som dirty
+        windowDirty = true;
+        const docRef = doc(
+          db,
+          "users",
+          uid,
+          "workspaces_data",
+          mapping.workspaceId,
+          "windows",
+          mapping.internalWindowId,
+        );
+        updateDoc(docRef, { isActive: false }).catch(() => {});
       }
     }
 
-    // 4. Gem oprydning lokalt
-    if (dirty) {
+    if (windowDirty) {
       await chrome.storage.local.set({ nexus_active_windows: validMappings });
-      // Opdater activeWindows map i hukommelsen
-      activeWindows.clear();
-      validMappings.forEach(([id, map]) => activeWindows.set(id, map));
-    } else {
-      // Ingen ændringer, men sørg for hukommelsen er synkroniseret
-      activeWindows.clear();
-      storedMappings.forEach(([id, map]) => activeWindows.set(id, map));
     }
 
-    // --- FIX: RE-INDEXER ---
-    // Hvis vi har fjernet døde vinduer, eller bare genstartet, er det en god idé at sikre indeksene er korrekte.
-    if (uid) {
-      for (const wsId of workspacesToCheck) {
-        await reindexWorkspaceWindows(wsId, uid);
-      }
+    // --- 1.4 RE-INDEXER ARBEJDSOMRÅDER ---
+    // Hvis vi har fjernet døde vinduer, skal vi sikre at indeksene (Vindue 1, 2...) er korrekte
+    for (const wsId of workspacesToCheck) {
+      await reindexWorkspaceWindows(wsId, uid);
     }
 
     // --- 1.5 REBUILD & DISCOVER (Self-Healing) ---
-    // Dette sikrer at hvis nye tabs er opstået mens vi sov, bliver de opdaget.
-    if (uid) {
-      // Først prøver vi at matche fysiske tabs med eksisterende Firestore data (via URL)
-      // Dette forhindrer dubletter
-      await rebuildTabTracker();
+    // Kobler faner med nye ID'er og scanner for helt nye tabs
+    await rebuildTabTracker();
 
-      // Nu scanner vi alle vinduer for at fange faner, der STADIG ikke er tracket (dvs. helt nye)
-      console.log("🔍 Scanning for untracked/new tabs...");
-      for (const win of physicalWindows) {
-        if (!win.id) continue;
-        // SKIP: Ignorer popups under scanning
-        if (win.type === "popup" || win.type === "panel" || win.type === "app")
-          continue;
+    console.log("🔍 Scanning for untracked/new tabs...");
+    for (const win of physicalWindows) {
+      if (!win.id || win.type !== "normal") continue;
 
-        if (activeWindows.has(win.id)) {
-          // Dette er Workspace-vindue -> Force Sync
-          await saveToFirestore(win.id, false, true);
-        } else {
-          // Dette er et Inbox-vindue -> Scan for nye tabs til Inbox
-          await registerNewInboxWindow(win.id);
-        }
+      if (activeWindows.has(win.id)) {
+        await saveToFirestore(win.id, false, true);
+      } else {
+        await registerNewInboxWindow(win.id);
       }
     }
   } catch (err) {
     console.error("🔥 CRITICAL ERROR during cleanup:", err);
   } finally {
-    // 6. KICKSTART AI QUEUE: Hvis der ligger opgaver fra et tidligere crash/offline periode
     processAiQueue();
   }
 }
