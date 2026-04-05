@@ -23,6 +23,7 @@ import {
 } from "@/features/dashboard/types";
 import { PasteModalState } from "@/features/dashboard/Dashboard";
 import { TabData, WinMapping } from "../background/main";
+import { handleToggleSelection } from "@/features/CopyPaste/handleToggleSelection";
 
 interface DashboardHeaderProps {
   viewMode: "workspace" | "inbox" | "incognito";
@@ -77,13 +78,19 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   inboxData,
   isProcessingMove = false,
 }) => {
-  const [copyMenu, setCopyMenu] = useState({ open: false, includeArchived: false });
+  const [copyMenu, setCopyMenu] = useState({
+    open: false,
+    includeArchived: false,
+  });
 
   // Styrer visningen af arkiverede vinduer globalt i headeren
   const [showArchived, setShowArchived] = useState(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
-  const closeCopyMenu = useCallback(() => setCopyMenu((m) => ({ ...m, open: false })), []);
+  const closeCopyMenu = useCallback(
+    () => setCopyMenu((m) => ({ ...m, open: false })),
+    [],
+  );
   useClickOutside(menuRef, closeCopyMenu);
 
   const { open: showCopyMenu, includeArchived: includeArchivedCopy } = copyMenu;
@@ -145,7 +152,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                     }
                   }}
                   disabled={isCopyDisabled}
-                  className={`flex cursor-pointer items-center gap-2 rounded-xl border border-subtle bg-surface-elevated px-4 py-2.5 text-sm font-bold transition hover:border-strong hover:text-high active:scale-95 ${
+                  className={`flex cursor-pointer items-center gap-2 rounded-xl border border-strong bg-surface-elevated px-4 py-2.5 text-sm font-bold transition hover:border-strong hover:text-high active:scale-95 ${
                     isCopyDisabled ? "cursor-not-allowed opacity-50" : ""
                   }`}
                   title={
@@ -186,7 +193,10 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                           type="checkbox"
                           checked={includeArchivedCopy}
                           onChange={(e) =>
-                            setCopyMenu((m) => ({ ...m, includeArchived: e.target.checked }))
+                            setCopyMenu((m) => ({
+                              ...m,
+                              includeArchived: e.target.checked,
+                            }))
                           }
                           className="rounded border-subtle bg-surface text-action focus:ring-action"
                         />
@@ -330,23 +340,33 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           )}
 
           <button
-            onClick={() => {
-              let list = [];
-              if (viewMode === "incognito") list = getFilteredInboxTabs(true);
-              else if (viewMode === "inbox") list = getFilteredInboxTabs(false);
-              else
-                list =
-                  windows.find((w) => w.id === selectedWindowId)?.tabs || [];
-              const allU = list.map((t: TabData) => t.uid);
-              setSelectedUrls(selectedUrls.length === allU.length ? [] : allU);
-            }}
-            className={`cursor-pointer rounded-xl border bg-surface-elevated p-2.5 transition ${
+            onClick={() =>
+              handleToggleSelection({
+                viewMode,
+                getFilteredInboxTabs,
+                windows,
+                selectedWindowId,
+                selectedUrls,
+                setSelectedUrls,
+              })
+            }
+            className={`group relative flex cursor-pointer items-center justify-center rounded-xl border bg-surface-elevated p-2.5 transition ${
               selectedUrls.length > 0
                 ? "border-action text-action"
                 : "border-subtle hover:text-action"
             }`}
+            title={
+              viewMode === "workspace"
+                ? "Vælg alle"
+                : "Marker ikke-åbne -> Alle -> Nulstil"
+            }
           >
             <CheckSquare size={24} />
+            {selectedUrls.length > 0 && (
+              <div className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-action px-1 text-[9px] font-black text-inverted ring-2 ring-background">
+                {selectedUrls.length}
+              </div>
+            )}
           </button>
 
           {viewMode === "inbox" && getFilteredInboxTabs(false).length > 0 && (
