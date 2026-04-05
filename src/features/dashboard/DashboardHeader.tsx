@@ -394,6 +394,8 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                   });
 
                   await updateDoc(ref, { tabs: tabsToKeep });
+                  // Ryd selection når hele inboxen tømmes
+                  setSelectedUrls([]);
                 }
               }}
               className="flex cursor-pointer items-center gap-2 rounded-xl bg-mode-inbox/20 px-4 py-2.5 text-sm font-bold text-mode-inbox transition hover:bg-mode-inbox hover:text-inverted"
@@ -428,6 +430,8 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                     });
 
                     await updateDoc(ref, { tabs: tabsToKeep });
+                    // Ryd selection når incognito listen tømmes
+                    setSelectedUrls([]);
                   }
                 }}
                 className="flex cursor-pointer items-center gap-2 rounded-xl bg-mode-incognito/20 px-4 py-2.5 text-sm font-bold text-mode-incognito transition hover:bg-mode-incognito hover:text-inverted"
