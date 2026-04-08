@@ -10,13 +10,22 @@ const TRACKING_PARAMS: Set<string> = new Set([
   "_gl", // <-- Google
   "_up", // <-- Google consent/update tracker
 
-  // --- Google & YouTube Ads ---
+  // --- Google & YouTube Ads (Inkl. ValueTrack) ---
   "gclid", // Google Click ID (Auto-tagging i Google Ads)
   "gbraid", // Google Click ID til iOS (Web-to-App)
   "wbraid", // Google Click ID til iOS (App-to-Web)
   "dclid", // Google Display Network Click ID
   "gad_source", // Google Ads kilde
   "gad_campaignid", // Google Ads kampagne ID
+  "campaignid", // Google Ads Campaign ID (ValueTrack)
+  "adgroupid", // Google Ads AdGroup ID (ValueTrack)
+  "matchtype", // Google Ads Matchtype (ValueTrack)
+  "network", // Google Ads Network (ValueTrack)
+  "device", // Google Ads Device (ValueTrack)
+  "devicemodel", // Google Ads Device Model (ValueTrack)
+  "creative", // Google Ads Creative ID
+  "keyword", // Google Ads Keyword
+  "placement", // Google Ads Placement
 
   // --- Meta (Facebook & Instagram) & Generisk Ad Tracking ---
   "fbclid", // Facebook Click ID
@@ -108,11 +117,14 @@ export function cleanUrlAndGetTracking(rawUrl: string): {
 
     params.forEach((value, key) => {
       const lowerKey = key.toLowerCase();
-      // Vi tjekker nu BÅDE for eksakte matches i vores Set,
-      // OG om parameteren starter med "_ga_" (til GA4 dynamiske ID'er)
-      // Vi tjekker også om den starter med "gad_" for at fange fremtidige Google Ads parametre
+      // Vi tjekker nu for:
+      // 1. Eksakte matches i vores omfattende liste
+      // 2. Alle parametre der starter med "utm_" (fanger custom UTMs som utm_adgroup)
+      // 3. Alle parametre der starter med "_ga_" (GA4 interne parametre)
+      // 4. Alle parametre der starter med "gad_" (Google Ads nye konventioner)
       if (
         TRACKING_PARAMS.has(lowerKey) ||
+        lowerKey.startsWith("utm_") ||
         lowerKey.startsWith("_ga_") ||
         lowerKey.startsWith("gad_")
       ) {
