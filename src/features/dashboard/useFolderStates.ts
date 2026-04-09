@@ -1,23 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
+import { useChromeStorage } from "@/hooks/useChromeStorage";
+import { useCallback } from "react";
 
 export const useFolderStates = () => {
-  const [folderStates, setFolderStates] = useState<Record<string, boolean>>({});
+  // Vi bruger nu vores udvidede hook som håndterer både cache, lyttere og local storage
+  const [folderStates, setFolderStates] = useChromeStorage<
+    Record<string, boolean>
+  >("nexus_folder_states", {});
 
-  useEffect(() => {
-    chrome.storage.local.get("nexus_folder_states").then((result) => {
-      if (result.nexus_folder_states) {
-        setFolderStates(result.nexus_folder_states as Record<string, boolean>);
-      }
-    });
-  }, []);
-
-  const handleToggleFolder = useCallback((itemId: string, isOpen: boolean) => {
-    setFolderStates((prev) => {
-      const newState = { ...prev, [itemId]: isOpen };
-      chrome.storage.local.set({ nexus_folder_states: newState });
-      return newState;
-    });
-  }, []);
+  const handleToggleFolder = useCallback(
+    (itemId: string, isOpen: boolean) => {
+      // Takket være opdateringen af useChromeStorage kan vi nu bruge functional state updates
+      setFolderStates((prev) => ({
+        ...prev,
+        [itemId]: isOpen,
+      }));
+    },
+    [setFolderStates],
+  );
 
   return { folderStates, handleToggleFolder };
 };
