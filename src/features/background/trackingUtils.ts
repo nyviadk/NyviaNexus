@@ -90,6 +90,15 @@ const TRACKING_PARAMS: Set<string> = new Set([
   "_branch_match_id", // Branch.io deep linking tracking
   "s_kwcid", // Adobe/Google Search tracking
   "wickedid", // Wicked Reports tracking
+
+  // --- Google Ads interne parametre (brugt af Datadog, m.fl.) ---
+  "igaag", // Internal Google Ads Ad Group
+  "igaat", // Internal Google Ads Ad Type
+  "igacm", // Internal Google Ads Campaign
+  "igacr", // Internal Google Ads Creative
+  "igakw", // Internal Google Ads Keyword
+  "igamt", // Internal Google Ads Match Type
+  "igant", // Internal Google Ads Network
 ]);
 
 export function cleanUrlAndGetTracking(rawUrl: string): {

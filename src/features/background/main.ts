@@ -1467,14 +1467,19 @@ chrome.windows.onFocusChanged.addListener(
     try {
       const win = await chrome.windows.get(winId);
 
-      // FIX: Tjek om vinduet er en popup, app eller panel.
-      if (win.type === "popup" || win.type === "panel" || win.type === "app") {
-        return;
-      }
+      // FIX: Kun "normal" Chrome-vinduer skal have dashboard.
+      if (win.type !== "normal") return;
 
       if (win.incognito && !activeWindows.has(winId)) return;
       const tabs = await chrome.tabs.query({ windowId: winId });
-      if (!tabs.some((t) => isDash(t.url))) {
+
+      // FIX: Kun indsæt dashboard i vinduer vi allerede kender.
+      // Ukendte vinduer (fx Teams PWA, eksterne popups) håndteres af onCreated.
+      const isTracked = activeWindows.has(winId);
+      const alreadyHasDash = tabs.some((t) => isDash(t.url));
+      if (!isTracked && !alreadyHasDash) return;
+
+      if (!alreadyHasDash) {
         lastDashboardTime = now;
 
         // Find den rigtige URL til Dashboardet
