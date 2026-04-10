@@ -93,9 +93,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   selectedWindowId,
   setSelectedUrls,
 }) => {
-  const [incogWindowNames, setIncogWindowNames] = useChromeStorage<
+  const [inboxWindowNames, setInboxWindowNames] = useChromeStorage<
     Record<number, string>
-  >("nexus_incog_window_names", {});
+  >("nexus_inbox_window_names", {});
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [reorderItems, setReorderItems] = useState<NexusItem[] | null>(null);
   const [showControls, setShowControls] = useState(false);
@@ -360,15 +360,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 (mapping && mapping.workspaceId === "global") ||
                 cWin.type === "popup";
 
-              const incogName =
-                cWin.incognito && cWin.id
-                  ? incogWindowNames[cWin.id]
+              const customInboxName =
+                isInbox && cWin.id
+                  ? inboxWindowNames[cWin.id]
                   : undefined;
 
               if (isInbox) {
-                if (cWin.incognito && incogName) {
-                  label = incogName;
-                  subLabel = "Incognito";
+                if (customInboxName) {
+                  label = customInboxName;
+                  subLabel = cWin.incognito ? "Incognito" : "Inbox";
                 } else {
                   label = cWin.incognito ? "Incognito Inbox" : "Inbox";
                   subLabel = "Global";
@@ -475,17 +475,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     )}
                   </div>
                   <div className="flex items-center gap-1.5">
-                    {cWin.incognito && cWin.id && (
+                    {isInbox && cWin.id && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          const current = incogName || "";
+                          const current = customInboxName || "";
                           const newName = prompt(
-                            "Navngiv incognito-vindue:",
+                            cWin.incognito
+                              ? "Navngiv incognito-vindue:"
+                              : "Navngiv inbox-vindue:",
                             current,
                           );
                           if (newName === null) return;
-                          setIncogWindowNames((prev) => {
+                          setInboxWindowNames((prev) => {
                             const next = { ...prev };
                             if (newName.trim()) {
                               next[cWin.id!] = newName.trim();
@@ -495,8 +497,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             return next;
                           });
                         }}
-                        className="flex cursor-pointer items-center justify-center rounded bg-surface-elevated/50 p-1 text-medium transition-all hover:bg-mode-incognito hover:text-inverted"
-                        title="Navngiv incognito-vindue"
+                        className={`flex cursor-pointer items-center justify-center rounded bg-surface-elevated/50 p-1 text-medium transition-all hover:text-inverted ${
+                          cWin.incognito ? "hover:bg-mode-incognito" : "hover:bg-mode-inbox"
+                        }`}
+                        title={cWin.incognito ? "Navngiv incognito-vindue" : "Navngiv inbox-vindue"}
                       >
                         <Pencil size={12} />
                       </button>
