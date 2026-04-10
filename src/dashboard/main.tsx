@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import { Dashboard } from "../features/dashboard/Dashboard";
 import "../index.css";
 import { FirebaseGuard } from "@/features/auth/FirebaseGuard";
-import { applyThemeToDOM, getSavedTheme } from "@/theme-config";
+import { applyThemeToDOM, getSavedTheme, listenForThemeChanges } from "@/theme-config";
 
 /**
  * Initialiserer Dashboardet
@@ -16,6 +16,7 @@ async function initDashboard() {
   // 1. Hent og aktivér det gemte tema (Architect, Pastel eller Serene)
   const theme = await getSavedTheme();
   applyThemeToDOM(theme);
+  listenForThemeChanges();
 
   // 2. Render applikationen
   ReactDOM.createRoot(rootElement).render(

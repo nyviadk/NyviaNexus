@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
-import { applyThemeToDOM, getSavedTheme } from "./theme-config";
+import { applyThemeToDOM, getSavedTheme, listenForThemeChanges } from "./theme-config";
 
 /**
  * NyviaNexus - Popup Entry Point
@@ -14,6 +14,7 @@ async function initPopup() {
   // 1. Hent og aktivér tema med det samme (fjerner flicker)
   const theme = await getSavedTheme();
   applyThemeToDOM(theme);
+  listenForThemeChanges();
 
   // 2. Render React appen
   ReactDOM.createRoot(rootElement).render(

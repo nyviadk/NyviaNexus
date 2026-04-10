@@ -45,3 +45,15 @@ export const getSavedTheme = async (): Promise<ThemeId> => {
   const res = await chrome.storage.local.get(["nexus_theme"]);
   return (res.nexus_theme as ThemeId) || "architect";
 };
+
+/**
+ * Lytter på tema-ændringer fra andre vinduer via chrome.storage.onChanged
+ * og anvender det nye tema med det samme — så alle åbne vinduer synkroniserer.
+ */
+export const listenForThemeChanges = () => {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.nexus_theme?.newValue) {
+      applyThemeToDOM(changes.nexus_theme.newValue as string);
+    }
+  });
+};
