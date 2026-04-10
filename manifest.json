@@ -20,6 +20,15 @@
     "alarms",
     "contextMenus"
   ],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+S",
+        "mac": "Alt+S"
+      },
+      "description": "Åbn NyviaNexus switcher"
+    }
+  },
   "incognito": "spanning",
   "host_permissions": ["<all_urls>"]
 }
