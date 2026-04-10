@@ -1472,14 +1472,7 @@ chrome.windows.onFocusChanged.addListener(
 
       if (win.incognito && !activeWindows.has(winId)) return;
       const tabs = await chrome.tabs.query({ windowId: winId });
-
-      // FIX: Kun indsæt dashboard i vinduer vi allerede kender.
-      // Ukendte vinduer (fx Teams PWA, eksterne popups) håndteres af onCreated.
-      const isTracked = activeWindows.has(winId);
-      const alreadyHasDash = tabs.some((t) => isDash(t.url));
-      if (!isTracked && !alreadyHasDash) return;
-
-      if (!alreadyHasDash) {
+      if (!tabs.some((t) => isDash(t.url))) {
         lastDashboardTime = now;
 
         // Find den rigtige URL til Dashboardet

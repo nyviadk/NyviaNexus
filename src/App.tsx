@@ -2,7 +2,7 @@ import { Hammer, LayoutDashboard } from "lucide-react";
 
 export default function App() {
   const openDashboard = () => {
-    chrome.tabs.create({ url: "dashboard.html" });
+    chrome.tabs.create({ url: "dashboard.html", pinned: true });
   };
 
   return (
