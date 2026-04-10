@@ -213,10 +213,7 @@ export default function App() {
       </div>
 
       {/* Vindues-liste */}
-      <div
-        ref={listRef}
-        className="flex-1 overflow-y-auto p-1.5"
-      >
+      <div ref={listRef} className="flex-1 overflow-y-auto p-1.5">
         {filtered.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs text-low">
             {entries.length === 0 ? "Ingen vinduer fundet" : "Ingen match"}
@@ -231,7 +228,7 @@ export default function App() {
                 onMouseEnter={() => setSelectedIndex(idx)}
                 className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-all duration-100 ${
                   isSelected
-                    ? "border border-action/40 bg-action/10 shadow-sm"
+                    ? "border border-action/40 bg-action/20 shadow-sm"
                     : "border border-transparent hover:bg-surface-hover"
                 }`}
               >
@@ -247,7 +244,9 @@ export default function App() {
                   >
                     {entry.label}
                   </div>
-                  <div className={`truncate text-[10px] ${isSelected ? "text-medium" : "text-low"}`}>
+                  <div
+                    className={`truncate text-[10px] ${isSelected ? "text-medium" : "text-low"}`}
+                  >
                     {entry.subLabel}
                   </div>
                 </div>
@@ -277,7 +276,9 @@ export default function App() {
         </button>
 
         <button
-          onClick={() => chrome.tabs.create({ url: "chrome://extensions/shortcuts" })}
+          onClick={() =>
+            chrome.tabs.create({ url: "chrome://extensions/shortcuts" })
+          }
           className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg py-1 text-[10px] text-low transition-colors hover:text-medium"
         >
           <Keyboard size={10} />
