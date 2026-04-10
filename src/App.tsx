@@ -102,9 +102,15 @@ export default function App() {
 
   // Filtrering
   const filtered = useMemo(() => {
-    if (!query.trim()) return entries;
+    // Sortér: nuværende vindue først
+    const sorted = [...entries].sort((a, b) => {
+      if (a.isCurrent && !b.isCurrent) return -1;
+      if (!a.isCurrent && b.isCurrent) return 1;
+      return 0;
+    });
+    if (!query.trim()) return sorted;
     const q = query.toLowerCase();
-    return entries.filter(
+    return sorted.filter(
       (e) =>
         e.label.toLowerCase().includes(q) ||
         e.subLabel.toLowerCase().includes(q),
