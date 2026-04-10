@@ -1528,6 +1528,16 @@ chrome.windows.onRemoved.addListener(
       await saveActiveWindowsToStorage();
     }
     lockedWindowIds.delete(windowId);
+
+    // Ryd incognito-vinduesnavne op fra storage
+    try {
+      const data = await chrome.storage.local.get("nexus_incog_window_names");
+      const names = data.nexus_incog_window_names as Record<number, string> | undefined;
+      if (names && names[windowId]) {
+        delete names[windowId];
+        await chrome.storage.local.set({ nexus_incog_window_names: names });
+      }
+    } catch (e) { /* ignore */ }
   }),
 );
 

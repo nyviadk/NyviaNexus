@@ -29,10 +29,12 @@ import {
   X,
   XCircle,
   SlidersHorizontal,
+  Pencil,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
 import React, { useCallback, useMemo, useState } from "react";
+import { useChromeStorage } from "@/hooks/useChromeStorage";
 import { NexusService } from "./nexusService";
 import { CustomProfileSelector } from "../profiles/CustomProfileSelector";
 import { LogoutButton } from "../auth/LogoutButton";
@@ -91,6 +93,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   selectedWindowId,
   setSelectedUrls,
 }) => {
+  const [incogWindowNames, setIncogWindowNames] = useChromeStorage<
+    Record<number, string>
+  >("nexus_incog_window_names", {});
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [reorderItems, setReorderItems] = useState<NexusItem[] | null>(null);
   const [showControls, setShowControls] = useState(false);
@@ -355,9 +360,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 (mapping && mapping.workspaceId === "global") ||
                 cWin.type === "popup";
 
+              const incogName =
+                cWin.incognito && cWin.id
+                  ? incogWindowNames[cWin.id]
+                  : undefined;
+
               if (isInbox) {
-                label = cWin.incognito ? "Incognito Inbox" : "Inbox";
-                subLabel = "Global";
+                if (cWin.incognito && incogName) {
+                  label = incogName;
+                  subLabel = "Incognito";
+                } else {
+                  label = cWin.incognito ? "Incognito Inbox" : "Inbox";
+                  subLabel = "Global";
+                }
               } else if (mapping) {
                 const ws = items.find((i) => i.id === mapping.workspaceId);
                 if (ws) {
@@ -459,43 +474,71 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </span>
                     )}
                   </div>
-                  {isCurrent && (
-                    <div className="flex items-center gap-1.5">
-                      {!isContextMatch && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (isInbox) {
-                              setSelectedWorkspace(null);
-                              setViewMode(
-                                cWin.incognito ? "incognito" : "inbox",
-                              );
-                            } else if (mapping?.workspaceId) {
-                              const ws = items.find(
-                                (i) => i.id === mapping.workspaceId,
-                              );
-                              if (ws) {
-                                if (ws.profileId !== activeProfile) {
-                                  setActiveProfile(ws.profileId);
-                                }
-                                handleWorkspaceClick(
-                                  ws,
-                                  mapping.internalWindowId,
-                                );
-                              }
+                  <div className="flex items-center gap-1.5">
+                    {cWin.incognito && cWin.id && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const current = incogName || "";
+                          const newName = prompt(
+                            "Navngiv incognito-vindue:",
+                            current,
+                          );
+                          if (newName === null) return;
+                          setIncogWindowNames((prev) => {
+                            const next = { ...prev };
+                            if (newName.trim()) {
+                              next[cWin.id!] = newName.trim();
+                            } else {
+                              delete next[cWin.id!];
                             }
-                          }}
-                          className="group flex cursor-pointer items-center justify-center rounded bg-surface-elevated/50 p-1 text-medium transition-all hover:bg-action hover:text-inverted"
-                          title="Gå til dette space/vindue i Dashboardet"
-                        >
-                          <Eye size={12} />
-                        </button>
-                      )}
-                      <div className="ml-2 shrink-0 rounded bg-success/20 px-1.5 py-0.5 text-[9px] font-black tracking-wider text-success uppercase shadow-[0_0_5px_rgba(34,197,94,0.2)]">
-                        HER
-                      </div>
-                    </div>
-                  )}
+                            return next;
+                          });
+                        }}
+                        className="flex cursor-pointer items-center justify-center rounded bg-surface-elevated/50 p-1 text-medium transition-all hover:bg-mode-incognito hover:text-inverted"
+                        title="Navngiv incognito-vindue"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                    )}
+                    {isCurrent && (
+                      <>
+                        {!isContextMatch && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isInbox) {
+                                setSelectedWorkspace(null);
+                                setViewMode(
+                                  cWin.incognito ? "incognito" : "inbox",
+                                );
+                              } else if (mapping?.workspaceId) {
+                                const ws = items.find(
+                                  (i) => i.id === mapping.workspaceId,
+                                );
+                                if (ws) {
+                                  if (ws.profileId !== activeProfile) {
+                                    setActiveProfile(ws.profileId);
+                                  }
+                                  handleWorkspaceClick(
+                                    ws,
+                                    mapping.internalWindowId,
+                                  );
+                                }
+                              }
+                            }}
+                            className="group flex cursor-pointer items-center justify-center rounded bg-surface-elevated/50 p-1 text-medium transition-all hover:bg-action hover:text-inverted"
+                            title="Gå til dette space/vindue i Dashboardet"
+                          >
+                            <Eye size={12} />
+                          </button>
+                        )}
+                        <div className="ml-2 shrink-0 rounded bg-success/20 px-1.5 py-0.5 text-[9px] font-black tracking-wider text-success uppercase shadow-[0_0_5px_rgba(34,197,94,0.2)]">
+                          HER
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               );
             })}
