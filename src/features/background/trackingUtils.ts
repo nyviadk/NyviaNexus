@@ -101,6 +101,52 @@ const TRACKING_PARAMS: Set<string> = new Set([
   "igakw", // Internal Google Ads Keyword
   "igamt", // Internal Google Ads Match Type
   "igant", // Internal Google Ads Network
+
+  // --- (Enterprise & E-handel) ---
+  "s_cid", // Adobe Analytics
+  "sc_cid", // Adobe Campaign ID
+  "cmpid", // Adobe/Oracle regi
+  "emid", // Adobe/Oracle regi
+  "elqtrackid", // Oracle Eloqua
+  "elq", // Oracle Eloqua
+  "pk_campaign", // Matomo standard
+  "pk_kwd", // Matomo standard
+  "mtm_campaign", // Matomo nyere
+  "mtm_source", // Matomo nyere
+  "piwik_campaign", // Ældre Matomo
+  "ranmid", // Rakuten
+  "raneaid", // Rakuten
+  "ransiteid", // Rakuten
+  "irclickid", // Impact
+  "sharedid", // Impact
+  "awc", // Awin
+  "mkevt", // eBay
+  "mkcid", // eBay
+  "mkrid", // eBay
+  "campid", // eBay
+  "toolid", // eBay
+  "customid", // eBay
+  "ga_order", // Etsy
+  "ga_search_query", // Etsy
+  "ga_search_type", // Etsy
+  "_ke", // Shopify/Klaviyo
+  "shpxid", // Shopify Internal
+  "_kx", // Klaviyo (Ny standard)
+  "pi_id", // Salesforce/Pardot
+  "picid", // Salesforce/Pardot
+  "goal", // Mailchimp
+  "vgo_ee", // ActiveCampaign
+  "_bta_tid", // Braze
+  "_bta_c", // Braze
+  "rdt_cid", // Reddit
+  "scid", // Snapchat
+  "q_id", // Quora
+  "ep_click_id", // Pinterest
+  "usqp", // Google Shopping/Search
+  "ved", // Google Search interne ID
+  "ei", // Google Search Engine ID
+  "gs_lcp", // Google Search autocomplete
+  "sclient", // Google Search autocomplete
 ]);
 
 export function cleanUrlAndGetTracking(rawUrl: string): {
@@ -137,9 +183,15 @@ export function cleanUrlAndGetTracking(rawUrl: string): {
       if (
         TRACKING_PARAMS.has(lowerKey) ||
         lowerKey.startsWith("utm_") ||
-        lowerKey.startsWith("_ga_") ||
+        lowerKey.startsWith("_ga") || // Fanger både _ga, _ga_ og _gac_
         lowerKey.startsWith("gad_") ||
-        lowerKey.startsWith("hsa_")
+        lowerKey.startsWith("hsa_") ||
+        lowerKey.startsWith("_hs") || // Fanger alle HubSpot-parametre
+        lowerKey.startsWith("mtm_") || // Matomo
+        lowerKey.startsWith("pk_") || // Matomo/Piwik
+        lowerKey.startsWith("rb_") || // Rakuten
+        lowerKey.startsWith("ir") || // Impact (fanger irclickid, iradid osv.)
+        lowerKey.startsWith("s_kwcid") // Adobe
       ) {
         keysToDelete.push(key);
         removed.push(`${key}=${value}`);
