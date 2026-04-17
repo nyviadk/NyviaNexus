@@ -34,6 +34,7 @@ const TRACKING_PARAMS: Set<string> = new Set([
   "campaign_id", // Generisk/Meta/TikTok kampagne ID
   "adset_id", // Generisk/Meta adset ID
   "ad_id", // Generisk/Meta ad ID
+  "adid", // Generisk Ad ID
 
   // --- Andre Sociale Medier ---
   "ttclid", // TikTok Click ID
@@ -48,6 +49,7 @@ const TRACKING_PARAMS: Set<string> = new Set([
   "_hsenc", // HubSpot Email Tracking
   "_hsmi", // HubSpot Marketing Email ID
   "mkt_tok", // Marketo Tracking Token
+  "hnt", // Specifik tracking/referral
 
   // --- Affiliate & Referral ---
   "cid", // Generisk Campaign/Client ID (brugt af bl.a. TV2)
@@ -131,11 +133,13 @@ export function cleanUrlAndGetTracking(rawUrl: string): {
       // 2. Alle parametre der starter med "utm_" (fanger custom UTMs som utm_adgroup)
       // 3. Alle parametre der starter med "_ga_" (GA4 interne parametre)
       // 4. Alle parametre der starter med "gad_" (Google Ads nye konventioner)
+      // 5. Alle parametre der starter med "hsa_" (HubSpot Ads)
       if (
         TRACKING_PARAMS.has(lowerKey) ||
         lowerKey.startsWith("utm_") ||
         lowerKey.startsWith("_ga_") ||
-        lowerKey.startsWith("gad_")
+        lowerKey.startsWith("gad_") ||
+        lowerKey.startsWith("hsa_")
       ) {
         keysToDelete.push(key);
         removed.push(`${key}=${value}`);
