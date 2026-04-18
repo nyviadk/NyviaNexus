@@ -26,6 +26,7 @@ const TRACKING_PARAMS: Set<string> = new Set([
   "creative", // Google Ads Creative ID
   "keyword", // Google Ads Keyword
   "placement", // Google Ads Placement
+  "srsltid", // Google Shopping / Merchant Center auto-tagging
 
   // --- Meta (Facebook & Instagram) & Generisk Ad Tracking ---
   "fbclid", // Facebook Click ID
