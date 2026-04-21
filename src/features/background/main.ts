@@ -772,11 +772,38 @@ async function processAiQueue() {
     // Hent vindues-mapping for at se om vi stadig kender vinduet
     await ensureStateHydrated();
 
+    let liveTab: chrome.tabs.Tab;
     try {
-      await chrome.tabs.get(item.tabId);
+      liveTab = await chrome.tabs.get(item.tabId);
     } catch (e) {
       // Tab eksisterer ikke længere fysisk
       await cleanupQueueItem(item.uid);
+      return;
+    }
+
+    // Hvis fanen er navigeret siden queue-tid, re-queue med friske data
+    // så titel/url/metadata kommer fra samme snapshot (undgår "hænger fast
+    // i gammel metadata"-bug i AI-reasoning).
+    const liveUrl = liveTab.url || "";
+    const liveTitle = liveTab.title || "";
+    if (liveUrl !== item.url || liveTitle !== item.title) {
+      console.log(
+        `🔄 Tab ${item.uid} ændret siden queue — re-queuer med friske data`,
+      );
+      await cleanupQueueItem(item.uid);
+      await addToAiQueue(
+        [
+          {
+            uid: item.uid,
+            url: liveUrl,
+            title: liveTitle,
+            tabId: item.tabId,
+            attempts: item.attempts,
+            workspaceName: item.workspaceName,
+          },
+        ],
+        true,
+      );
       return;
     }
 
