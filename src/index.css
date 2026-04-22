@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/**
+ * Override Tailwind's hover variant so it works on devices that incorrectly
+ * report `hover: none` (some Windows 2-in-1s, touchscreen laptops, Chrome
+ * with touch-events flag). Without this, `hover:` / `group-hover:` classes
+ * silently no-op and hover-revealed UI (action icons) never appears.
+ */
+@custom-variant hover (&:hover);
+
 @theme {
   /* Mapping af Tailwind klasser til vores semantiske slots */
   --color-background: var(--nexus-bg);
