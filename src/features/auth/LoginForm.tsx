@@ -4,17 +4,7 @@ import {
   createUserWithEmailAndPassword,
 } from "firebase/auth/web-extension";
 import { FirebaseError } from "firebase/app";
-import {
-  doc,
-  getDoc,
-  setDoc,
-  serverTimestamp,
-  collection,
-  getDocs,
-  addDoc,
-  auth,
-  db,
-} from "@/lib/firebase";
+import { auth } from "@/lib/firebase";
 import {
   Loader2,
   ArrowRight,
@@ -24,16 +14,13 @@ import {
   EyeOff,
 } from "lucide-react";
 import { AiService } from "../ai/aiService";
-
-interface LoginFormProps {
-  onUserCreated: (uid: string) => void;
-}
+import { bootstrapUserData } from "./authUtils";
 
 /**
  * LoginForm
  * Håndterer logik for både eksisterende og nye brugere.
  */
-export const LoginForm: React.FC<LoginFormProps> = ({ onUserCreated }) => {
+export const LoginForm = () => {
   const [loading, setLoading] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,28 +66,20 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onUserCreated }) => {
         await AiService.saveApiKey(cerebrasKey.trim());
       }
 
-      // Bootstrap Inbox
-      const inboxRef = doc(db, "users", uid, "inbox_data", "global");
-      const inboxSnap = await getDoc(inboxRef);
-      if (!inboxSnap.exists()) {
-        await setDoc(inboxRef, {
-          tabs: [],
-          lastUpdate: serverTimestamp(),
-        });
-      }
-
-      // Bootstrap Profiler
-      const profilesCollection = collection(db, "users", uid, "profiles");
-      const profilesSnap = await getDocs(profilesCollection);
-      if (profilesSnap.empty) {
-        await addDoc(profilesCollection, {
-          name: "Privat",
-          createdAt: serverTimestamp(),
-        });
+      // Bootstrap Inbox & profil
+      // Vi lægger den i en try/catch, så et låst projekt (permission-denied) ikke crasher login-flowet fuldstændigt.
+      try {
+        await bootstrapUserData(uid);
+      } catch (bootstrapErr) {
+        console.log("Bootstrap afventer bekræftelse af rules...");
       }
 
       if (isNewUser) {
-        onUserCreated(uid);
+        // Sætter flaget via chrome storage for at overleve refresh/nedlukninger
+        await chrome.storage.local.set({ nexus_needs_rules: uid });
+      } else {
+        // Sikkerhed for eksisterende brugere, sørg for flaget er væk
+        await chrome.storage.local.remove(["nexus_needs_rules"]);
       }
     } catch (err) {
       sessionStorage.removeItem("nexus_setup_mode");

@@ -3,6 +3,7 @@ import { LoginForm } from "./LoginForm";
 import { ConfigReset } from "./ConfigReset";
 import { FirebaseConfig } from "./FirebaseGuard";
 import { SetupGuide } from "./SetupGuide";
+import { useChromeStorage } from "../../hooks/useChromeStorage"; // Ret stien hvis nødvendigt
 
 /**
  * AuthLayout
@@ -10,12 +11,13 @@ import { SetupGuide } from "./SetupGuide";
  * Henter projectId fra storage for at kunne linke direkte til Firebase Console.
  */
 export const AuthLayout: React.FC = () => {
-  const [setupUid, setSetupUid] = useState<string | null>(null);
+  // Læser ID'et direkte via din custom hook.
+  // Sættes automatisk når LoginForm opretter ny bruger.
+  const [setupUid] = useChromeStorage<string | null>("nexus_needs_rules", null);
   const [projectId, setProjectId] = useState<string | null>(null);
 
   useEffect(() => {
     // Hent projectId så vi kan bygge de direkte links i guiden
-    // Vi caster resultatet for at undgå TS-fejl på Property 'projectId'
     chrome.storage.local.get(["userFirebaseConfig"], (result) => {
       const data = result as { userFirebaseConfig?: FirebaseConfig };
       if (data.userFirebaseConfig?.projectId) {
@@ -50,7 +52,8 @@ export const AuthLayout: React.FC = () => {
               onComplete={() => window.location.reload()}
             />
           ) : (
-            <LoginForm onUserCreated={(uid) => setSetupUid(uid)} />
+            <LoginForm />
+            // onUserCreated bruges ikke længere aktivt her, da useChromeStorage håndterer skiftet.
           )}
         </div>
 

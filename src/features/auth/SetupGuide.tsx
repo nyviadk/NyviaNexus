@@ -7,6 +7,7 @@ import {
   ExternalLink,
   AlertTriangle,
 } from "lucide-react";
+import { bootstrapUserData } from "./authUtils";
 
 interface SetupGuideProps {
   uid: string;
@@ -25,6 +26,7 @@ export const SetupGuide: React.FC<SetupGuideProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [hasConfirmed, setHasConfirmed] = useState(false);
+  const [isBootstrapping, setIsBootstrapping] = useState(false);
 
   // Dynamisk link direkte til rules-siden for brugerens projekt
   const rulesUrl = `https://console.firebase.google.com/project/${projectId}/firestore/databases/-default-/security/rules`;
@@ -47,10 +49,19 @@ service cloud.firestore {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleFinalize = () => {
+  const handleFinalize = async () => {
     if (!hasConfirmed) return;
-    sessionStorage.removeItem("nexus_setup_mode");
-    onComplete();
+    setIsBootstrapping(true);
+
+    try {
+      await bootstrapUserData(uid);
+      await chrome.storage.local.remove(["nexus_needs_rules"]);
+      onComplete();
+    } catch (error) {
+      console.error(error);
+      alert("Noget gik galt. Har du publiceret reglerne?");
+      setIsBootstrapping(false);
+    }
   };
 
   return (
@@ -110,6 +121,7 @@ service cloud.firestore {
               className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-strong bg-surface-elevated transition-all checked:border-success checked:bg-success"
               checked={hasConfirmed}
               onChange={(e) => setHasConfirmed(e.target.checked)}
+              disabled={isBootstrapping}
             />
             <Check
               size={12}
@@ -125,15 +137,15 @@ service cloud.firestore {
 
       <button
         onClick={handleFinalize}
-        disabled={!hasConfirmed}
+        disabled={!hasConfirmed || isBootstrapping}
         className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg p-3 text-sm font-bold transition-all ${
-          hasConfirmed
+          hasConfirmed && !isBootstrapping
             ? "bg-success text-inverted shadow-lg shadow-success/20 hover:bg-success/80 active:scale-95"
             : "cursor-not-allowed bg-surface-elevated text-strong opacity-50"
         }`}
       >
-        {!hasConfirmed && <AlertTriangle size={14} />}
-        Start Nexus
+        {!hasConfirmed && !isBootstrapping && <AlertTriangle size={14} />}
+        {isBootstrapping ? "Starter Nexus..." : "Start Nexus"}
       </button>
     </div>
   );
