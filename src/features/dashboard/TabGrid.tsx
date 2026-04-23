@@ -4,6 +4,7 @@ import { TabItem } from "./TabItem";
 import { PasteModalState } from "@/features/dashboard/Dashboard";
 import { AiData, TabData, WinMapping } from "../background/main";
 import { AiSettings, NexusItem, WorkspaceWindow } from "./types";
+import { useChromeStorage } from "@/hooks/useChromeStorage";
 
 interface TabGridProps {
   viewMode: "workspace" | "inbox" | "incognito";
@@ -76,6 +77,13 @@ export const TabGrid: React.FC<TabGridProps> = ({
   setPasteModalData,
   aiSettings,
 }) => {
+  // Lyt aktivt på om vi har en API nøgle via den nye custom hook
+  const [apiKey] = useChromeStorage<string | undefined>(
+    "cerebras_api_key",
+    undefined,
+  );
+  const hasApiKey = !!apiKey;
+
   // Håndterer klik på en dato-header (Bulk Select/Deselect)
   const toggleGroupSelection = (groupTabs: TabData[]) => {
     const allSelected = groupTabs.every((t) => selectedUrls.includes(t.uid));
@@ -109,6 +117,7 @@ export const TabGrid: React.FC<TabGridProps> = ({
         tab={tab}
         isSelected={selectedUrls.includes(tab.uid)}
         selectionCount={selectedUrls.length}
+        hasApiKey={hasApiKey}
         onSelect={handleTabSelect}
         onDelete={handleTabDelete}
         onConsume={
@@ -262,10 +271,10 @@ export const TabGrid: React.FC<TabGridProps> = ({
         {rawList.map((tab, i) => renderTabItem(tab, i))}
 
         {/* "Tilføj Fane" kort 
-           - Vises KUN hvis vi er i workspace mode
-           - Vises KUN hvis et vindue er valgt
-           - Vises KUN hvis vinduet faktisk eksisterer i Firestore (windowExists)
-           - Vises KUN hvis vinduet IKKE er åbnet fysisk (isPhysicallyOpen === false)
+            - Vises KUN hvis vi er i workspace mode
+            - Vises KUN hvis et vindue er valgt
+            - Vises KUN hvis vinduet faktisk eksisterer i Firestore (windowExists)
+            - Vises KUN hvis vinduet IKKE er åbnet fysisk (isPhysicallyOpen === false)
         */}
         {viewMode === "workspace" &&
           selectedWindowId &&
@@ -319,6 +328,7 @@ export const TabGrid: React.FC<TabGridProps> = ({
     setReasoningData,
     setMenuData,
     setPasteModalData,
+    hasApiKey,
   ]);
 
   return <div className="flex-1 overflow-y-auto p-8">{renderedContent}</div>;

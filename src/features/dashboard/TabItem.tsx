@@ -50,6 +50,7 @@ export const TabItem = React.memo(
     onShowReasoning,
     onOpenMenu,
     selectionCount = 0,
+    hasApiKey = false,
   }: ExtendedTabItemProps) => {
     const aiData = tab.aiData || { status: "pending" };
     const isProcessing = aiData.status === "processing";
@@ -58,7 +59,9 @@ export const TabItem = React.memo(
     const isLocked = aiData.isLocked;
 
     // Gem URL'en der fejlede — når tab.url ændres, er det ikke længere et match → faviconError bliver false
-    const [failedFaviconUrl, setFailedFaviconUrl] = useState<string | null>(null);
+    const [failedFaviconUrl, setFailedFaviconUrl] = useState<string | null>(
+      null,
+    );
     const faviconError = failedFaviconUrl === tab.url;
 
     const getBadgeStyle = () => {
@@ -297,43 +300,49 @@ export const TabItem = React.memo(
             </div>
 
             <div className="mt-1 flex min-h-6 flex-wrap gap-2 pl-8">
-              {isProcessing && (
-                <div className="inline-flex w-fit animate-pulse cursor-wait items-center gap-1.5 rounded-full border border-strong bg-surface px-2.5 py-0.5 text-[10px] font-medium text-medium">
-                  <Loader2 size={10} className="animate-spin" />
-                  AI sorterer...
-                </div>
-              )}
+              {hasApiKey && (
+                <>
+                  {isProcessing && (
+                    <div className="inline-flex w-fit animate-pulse cursor-wait items-center gap-1.5 rounded-full border border-strong bg-surface px-2.5 py-0.5 text-[10px] font-medium text-medium">
+                      <Loader2 size={10} className="animate-spin" />
+                      AI sorterer...
+                    </div>
+                  )}
 
-              {isPending && (
-                <div
-                  className="inline-flex w-fit cursor-help items-center gap-1.5 rounded-full border border-strong bg-surface px-2.5 py-0.5 text-[10px] font-medium text-medium"
-                  title="Analyseres næste gang ai kører"
-                >
-                  <Clock size={10} />I kø til AI
-                </div>
-              )}
+                  {isPending && (
+                    <div
+                      className="inline-flex w-fit cursor-help items-center gap-1.5 rounded-full border border-strong bg-surface px-2.5 py-0.5 text-[10px] font-medium text-medium"
+                      title="Analyseres næste gang ai kører"
+                    >
+                      <Clock size={10} />I kø til AI
+                    </div>
+                  )}
 
-              {categoryName && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (aiData.reasoning) {
-                      onShowReasoning(aiData);
-                    }
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onOpenMenu(e, tab);
-                  }}
-                  className={`inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wide uppercase shadow-sm backdrop-blur-sm transition-all duration-300 hover:scale-105 active:scale-95 ${classNameStyle}`}
-                  style={inlineStyle}
-                  title="Venstreklik: Info | Højreklik: Skift kategori"
-                >
-                  <Tag size={10} />
-                  {categoryName}
-                  {isLocked && <Lock size={8} className="ml-0.5 opacity-80" />}
-                </button>
+                  {categoryName && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (aiData.reasoning) {
+                          onShowReasoning(aiData);
+                        }
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onOpenMenu(e, tab);
+                      }}
+                      className={`inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wide uppercase shadow-sm backdrop-blur-sm transition-all duration-300 hover:scale-105 active:scale-95 ${classNameStyle}`}
+                      style={inlineStyle}
+                      title="Venstreklik: Info | Højreklik: Skift kategori"
+                    >
+                      <Tag size={10} />
+                      {categoryName}
+                      {isLocked && (
+                        <Lock size={8} className="ml-0.5 opacity-80" />
+                      )}
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -344,6 +353,7 @@ export const TabItem = React.memo(
   (prev, next) => {
     return (
       prev.isSelected === next.isSelected &&
+      prev.hasApiKey === next.hasApiKey &&
       prev.tab.url === next.tab.url &&
       prev.tab.title === next.tab.title &&
       prev.tab.uid === next.tab.uid &&

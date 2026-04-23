@@ -51,6 +51,7 @@ export interface TabItemProps {
   userCategories: UserCategory[];
   onShowReasoning: (data: AiData) => void;
   onOpenMenu: (e: React.MouseEvent, tab: TabData) => void;
+  hasApiKey?: boolean;
 }
 
 // Discriminated Union for Messaging
