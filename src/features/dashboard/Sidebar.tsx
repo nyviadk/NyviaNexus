@@ -45,6 +45,7 @@ import { useFolderStates } from "./useFolderStates";
 import { useAiHealth } from "./useAiHealth";
 import { useSidebarDrag } from "./useSidebarDrag";
 import { useNativeZoom } from "../settings/useNativeZoom";
+import { useWindowFocus } from "./useWindowFocus";
 
 interface SidebarProps {
   profiles: Profile[];
@@ -96,7 +97,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [inboxWindowNames, setInboxWindowNames] = useChromeStorage<
     Record<number, string>
   >("nexus_inbox_window_names", {});
+  const [maxVisibleWindows, setMaxVisibleWindows] = useChromeStorage<number>(
+    "nexus_sidebar_max_visible_windows",
+    0,
+  );
   const [isSavingOrder, setIsSavingOrder] = useState(false);
+
+  // Tracker om dashboard-vinduet faktisk har fokus. Når brugeren klikker
+  // på et andet vindue, blurrer dashboardet og browseren re-evaluerer
+  // hover-state — hvilket kortvarigt kan applicere :hover på et andet
+  // item end det musen reelt er over. Vi gater hover-styling på dette
+  // flag så der intet er at flashe under fokusskift.
+  const windowFocused = useWindowFocus();
+
   const [reorderItems, setReorderItems] = useState<NexusItem[] | null>(null);
   const [showControls, setShowControls] = useState(false);
   const isReordering = reorderItems !== null;
@@ -206,6 +219,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     [displayItems, activeProfile],
   );
 
+  // Stabil sortering — Chrome's windows.getAll returnerer ikke konsekvent
+  // i samme rækkefølge mellem kald, hvilket får DOM-noder til at flytte sig
+  // (og dermed flashe) ved hver re-render.
+  const sortedChromeWindows = useMemo(
+    () => [...chromeWindows].sort((a, b) => (a.id || 0) - (b.id || 0)),
+    [chromeWindows],
+  );
+
   const getFilteredInboxTabs = useCallback(
     (incognitoMode: boolean) => {
       if (!inboxData?.tabs) return [];
@@ -284,6 +305,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Kontrolpanelet - Vises kun hvis showControls er sand, optimeret til små skærme */}
         {showControls && (
           <div className="animate-in slide-in-from-top-2 flex flex-col gap-2 px-4 pb-4">
+            {/* Åbne vinduer scroll-grænse */}
+            <div className="flex flex-col gap-1.5 rounded-xl border border-subtle bg-surface/50 p-2 shadow-inner">
+              <span className="text-center text-[9px] font-bold tracking-widest text-low uppercase">
+                Vis max. åbne vinduer (0 = alle)
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={50}
+                value={maxVisibleWindows || ""}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === "") {
+                    setMaxVisibleWindows(0);
+                    return;
+                  }
+                  const v = parseInt(raw, 10);
+                  if (isNaN(v) || v < 0) return;
+                  setMaxVisibleWindows(Math.min(v, 50));
+                }}
+                placeholder="Fra"
+                className="w-full rounded-lg bg-surface-elevated px-2 py-1 text-center text-xs text-medium outline-none focus:text-action"
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-2">
               {/* Bredde-kontroller */}
               <div className="flex flex-col justify-between gap-1.5 rounded-xl border border-subtle bg-surface/50 p-2 shadow-inner">
@@ -339,13 +385,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       </div>
 
-      {chromeWindows.length > 0 && (
-        <div className="border-b border-subtle bg-surface-sunken/20 px-4 py-3 backdrop-blur-sm">
+      {sortedChromeWindows.length > 0 && (
+        <div
+          className="border-b border-subtle bg-surface-sunken/20 px-4 py-3"
+          style={{ isolation: "isolate" }}
+        >
           <div className="mb-2 px-1 text-[10px] font-bold tracking-widest text-low uppercase">
             Åbne Vinduer
           </div>
-          <div className="space-y-1.5">
-            {chromeWindows.map((cWin) => {
+          <div
+            className={`space-y-1.5 ${
+              maxVisibleWindows > 0
+                ? "scrollbar-thin scrollbar-thumb-strong scrollbar-track-transparent overflow-y-auto"
+                : ""
+            }`}
+            style={
+              maxVisibleWindows > 0
+                ? {
+                    // Pr. række: ~60px (p-2 padding + 2 tekstrækker + border + space-y-1.5 gap + lille buffer)
+                    maxHeight: `${maxVisibleWindows * 60}px`,
+                    // Reservér plads til scrollbar selv når den ikke vises,
+                    // så indholdet ikke rykker når den dukker op/forsvinder.
+                    scrollbarGutter: "stable",
+                  }
+                : undefined
+            }
+          >
+            {sortedChromeWindows.map((cWin) => {
               const isCurrent = cWin.id === currentWindowId;
               const mappingEntry = activeMappings.find(
                 ([wId]) => wId === cWin.id,
@@ -361,9 +427,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 cWin.type === "popup";
 
               const customInboxName =
-                isInbox && cWin.id
-                  ? inboxWindowNames[cWin.id]
-                  : undefined;
+                isInbox && cWin.id ? inboxWindowNames[cWin.id] : undefined;
 
               if (isInbox) {
                 if (customInboxName) {
@@ -383,8 +447,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   label = "Slettet Space";
                 }
 
+                // Streng typecast til intersection for at undgå any, når vi leder efter specifikke properties
+                const mappingExtended = mapping as WinMapping & {
+                  windowName?: string;
+                  name?: string;
+                };
                 const customWindowName =
-                  (mapping as any).windowName || (mapping as any).name;
+                  mappingExtended.windowName || mappingExtended.name;
 
                 if (customWindowName) {
                   subLabel = label;
@@ -428,10 +497,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       chrome.windows.update(cWin.id, { focused: true });
                     }
                   }}
-                  className={`flex items-center justify-between rounded-lg p-2 text-xs transition-all duration-200 ${
+                  className={`flex items-center justify-between rounded-lg p-2 text-xs ${
                     isCurrent
                       ? "cursor-default border border-success/30 bg-success/10 shadow-[0_0_10px_rgba(34,197,94,0.1)]"
-                      : "cursor-pointer border border-transparent bg-surface-elevated/30 hover:border-strong hover:bg-surface-hover"
+                      : windowFocused
+                        ? "cursor-pointer border border-transparent bg-surface-elevated hover:border-strong hover:bg-surface-hover"
+                        : "cursor-pointer border border-transparent bg-surface-elevated"
                   }`}
                 >
                   <div className="flex min-w-0 flex-col truncate">
@@ -498,9 +569,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           });
                         }}
                         className={`flex cursor-pointer items-center justify-center rounded bg-surface-elevated/50 p-1 text-medium transition-all hover:text-inverted ${
-                          cWin.incognito ? "hover:bg-mode-incognito" : "hover:bg-mode-inbox"
+                          cWin.incognito
+                            ? "hover:bg-mode-incognito"
+                            : "hover:bg-mode-inbox"
                         }`}
-                        title={cWin.incognito ? "Navngiv incognito-vindue" : "Navngiv inbox-vindue"}
+                        title={
+                          cWin.incognito
+                            ? "Navngiv incognito-vindue"
+                            : "Navngiv inbox-vindue"
+                        }
                       >
                         <Pencil size={12} />
                       </button>

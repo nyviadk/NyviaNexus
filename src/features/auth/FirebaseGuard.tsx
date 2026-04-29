@@ -74,6 +74,7 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const [state, setState] = useState<SetupState>("loading");
+  const [hasConfig, setHasConfig] = useState(false);
   const [view, setView] = useState<SetupView>("landing");
   const [inputValue, setInputValue] = useState("");
   const [isValidating, setIsValidating] = useState(false);
@@ -82,43 +83,40 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
     null,
   );
 
+  // Initial check: er der en gemt Firebase-config?
   useEffect(() => {
-    let unsubscribe: (() => void) | undefined;
-
-    const checkStorage = async () => {
-      try {
-        const data = await chrome.storage.local.get(["userFirebaseConfig"]);
+    chrome.storage.local
+      .get(["userFirebaseConfig"])
+      .then((data) => {
         if (data.userFirebaseConfig) {
           configureFirebase(data.userFirebaseConfig as FirebaseConfig);
-
-          // Overvåg Auth tilstand
-          unsubscribe = auth.onAuthStateChanged((user) => {
-            const isSetupMode =
-              sessionStorage.getItem("nexus_setup_mode") === "true";
-
-            if (user && !isSetupMode) {
-              setState("ready");
-            } else {
-              setState("needs_auth");
-            }
-          });
+          setHasConfig(true);
         } else {
           setState("needs_setup");
         }
-      } catch (e) {
-        setState("needs_setup");
-      }
-    };
-
-    checkStorage();
-
-    // Sikrer at vi ikke har memory leaks, hvis komponenten unmountes
-    return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-    };
+      })
+      .catch(() => setState("needs_setup"));
   }, []);
+
+  // Auth-listener: registreres hver gang config bliver tilgængelig.
+  // Tidligere kørte den kun ved mount, så hvis brugeren submittede config
+  // og loggede ind UDEN reload, fyrede listeneren aldrig → login virkede ikke.
+  useEffect(() => {
+    if (!hasConfig) return;
+
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      const isSetupMode =
+        sessionStorage.getItem("nexus_setup_mode") === "true";
+
+      if (user && !isSetupMode) {
+        setState("ready");
+      } else {
+        setState("needs_auth");
+      }
+    });
+
+    return () => unsubscribe();
+  }, [hasConfig]);
 
   useEffect(() => {
     const config = parseFirebaseSnippet(inputValue);
@@ -149,7 +147,10 @@ export const FirebaseGuard: React.FC<{ children: React.ReactNode }> = ({
       // Dette sikrer at background er klar FØR vi lader UI gå videre
       await chrome.runtime.sendMessage({ type: "REINITIALIZE_FIREBASE" });
 
-      // 4. Skift tilstand til auth (bruger skal logge ind/oprette konto)
+      // 4. Aktivér auth-listeneren (registreres via useEffect på hasConfig)
+      // og skift til login-tilstand. Listeneren overtager nu state-styringen
+      // når brugeren logger ind / opretter konto.
+      setHasConfig(true);
       setState("needs_auth");
     } catch (err) {
       setError("Kunne ikke gemme konfigurationen.");

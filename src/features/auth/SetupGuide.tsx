@@ -56,6 +56,10 @@ service cloud.firestore {
     try {
       await bootstrapUserData(uid);
       await chrome.storage.local.remove(["nexus_needs_rules"]);
+      // Vigtigt: ryd setup-mode flaget — ellers tror FirebaseGuard's
+      // onAuthStateChanged-listener efter reload at vi stadig er i setup,
+      // og sender brugeren til AuthLayout selvom de er logget ind.
+      sessionStorage.removeItem("nexus_setup_mode");
       onComplete();
     } catch (error) {
       console.error(error);
