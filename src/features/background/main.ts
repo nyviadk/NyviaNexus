@@ -268,7 +268,9 @@ function createSafeListener<T extends any[]>(
 // --- STATE ---
 let activeRestorations = 0;
 let restorationStatus = "";
-let lastDashboardTime = 0;
+
+// Window-specifik dashboard lock (Forhindrer race conditions ift. dashboard injektion og fjerner global rate-limit)
+const pendingDashboards = new Set<number>();
 
 // VIGTIGT: Dette map nulstilles når SW sover. Vi stoler på storage og hydration.
 // Key: chromeWindowId (number), Value: WinMapping
@@ -397,6 +399,7 @@ async function validateAndCleanupState() {
   activeRestorations = 0;
   restorationStatus = "";
   lockedWindowIds.clear();
+  pendingDashboards.clear();
 
   const uid = auth.currentUser?.uid;
   if (!uid) return;
@@ -1464,12 +1467,54 @@ chrome.contextMenus.onClicked.addListener(
   }),
 );
 
+// --- Sikker Dashboard Injektion ---
+// Låser forhindrer at to kald forsøger at oprette dashboardet samtidig
+async function ensureDashboardInWindow(winId: number, incognito: boolean) {
+  if (pendingDashboards.has(winId)) return;
+  pendingDashboards.add(winId);
+
+  try {
+    const tabs = await chrome.tabs.query({ windowId: winId });
+    // Tjekker også pendingUrl for at fange faner der er ved at blive oprettet
+    if (
+      !tabs.some((t) => isDash(t.url) || (t.pendingUrl && isDash(t.pendingUrl)))
+    ) {
+      const mapping = activeWindows.get(winId);
+      const correctUrl = mapping
+        ? `dashboard.html?workspaceId=${mapping.workspaceId}&windowId=${mapping.internalWindowId}`
+        : incognito
+          ? "dashboard.html?view=incognito"
+          : "dashboard.html?view=inbox";
+
+      await chrome.tabs.create({
+        windowId: winId,
+        url: correctUrl,
+        pinned: true,
+        index: 0,
+      });
+    }
+  } catch (e) {
+    // Ignorer fejl hvis vinduet allerede er lukket før vi kunne agere
+  } finally {
+    // Frigiv låsen efter lidt tid. Sikrer at eventuelle fejl i Chrome's API ikke efterlader den blokeret for altid.
+    pendingDashboards.delete(winId);
+  }
+}
+
 chrome.windows.onCreated.addListener(
   createSafeListener(async (win) => {
     broadcast("PHYSICAL_WINDOWS_CHANGED");
     if (activeRestorations > 0) return;
 
     await ensureStateHydrated();
+
+    // Tjek proaktivt ved 'normal' vinduesoprettelse for at fjerne forsinkelse
+    if (win.id && win.type === "normal") {
+      if (win.incognito && !activeWindows.has(win.id)) {
+        return;
+      }
+      await ensureDashboardInWindow(win.id, win.incognito || false);
+    }
 
     if (win.id && !activeWindows.has(win.id)) {
       // FIX: Tjek vinduestype. Popups og Paneler skal IKKE blive til Inbox-vinduer.
@@ -1489,8 +1534,6 @@ chrome.windows.onFocusChanged.addListener(
 
     await ensureStateHydrated();
 
-    const now = Date.now();
-    if (now - lastDashboardTime < 1500) return;
     try {
       const win = await chrome.windows.get(winId);
 
@@ -1498,23 +1541,9 @@ chrome.windows.onFocusChanged.addListener(
       if (win.type !== "normal") return;
 
       if (win.incognito && !activeWindows.has(winId)) return;
-      const tabs = await chrome.tabs.query({ windowId: winId });
-      if (!tabs.some((t) => isDash(t.url))) {
-        lastDashboardTime = now;
 
-        // Find den rigtige URL til Dashboardet
-        const mapping = activeWindows.get(winId);
-        const correctUrl = mapping
-          ? `dashboard.html?workspaceId=${mapping.workspaceId}&windowId=${mapping.internalWindowId}`
-          : "dashboard.html?view=inbox";
-
-        await chrome.tabs.create({
-          windowId: winId,
-          url: correctUrl,
-          pinned: true,
-          index: 0,
-        });
-      }
+      // Failsafe injektion ved fokusskift (hvis proaktiv på 'onCreated' svipsede)
+      await ensureDashboardInWindow(winId, win.incognito || false);
     } catch (e) {}
   }),
 );
@@ -1552,12 +1581,16 @@ chrome.windows.onRemoved.addListener(
     // Ryd incognito-vinduesnavne op fra storage
     try {
       const data = await chrome.storage.local.get("nexus_inbox_window_names");
-      const names = data.nexus_inbox_window_names as Record<number, string> | undefined;
+      const names = data.nexus_inbox_window_names as
+        | Record<number, string>
+        | undefined;
       if (names && names[windowId]) {
         delete names[windowId];
         await chrome.storage.local.set({ nexus_inbox_window_names: names });
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
   }),
 );
 
