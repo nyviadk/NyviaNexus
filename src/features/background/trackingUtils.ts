@@ -27,6 +27,7 @@ const TRACKING_PARAMS: Set<string> = new Set([
   "keyword", // Google Ads Keyword
   "placement", // Google Ads Placement
   "srsltid", // Google Shopping / Merchant Center auto-tagging
+  "newparameter", // Skjult Google Click ID (Tracking evasion)
 
   // --- Meta (Facebook & Instagram) & Generisk Ad Tracking ---
   "fbclid", // Facebook Click ID
