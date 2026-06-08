@@ -191,13 +191,18 @@ ${contextInstruction}
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: "llama3.1-8b",
+          model: "gpt-oss-120b",
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
-          temperature: 0.1, // Giver LLaMA lidt luft til at danne korrekte UTF-8 tokens
-          max_tokens: 400,
+          temperature: 0.1, // Lidt luft til at danne korrekte UTF-8 tokens
+          // gpt-oss-120b er en reasoning-model og bruger output-tokens på at
+          // tænke før den svarer. 4000 er rigeligt til at reasoning + JSON
+          // ALDRIG bliver klippet over, og samtidig sikkert under token-loftet:
+          // 5 kald/min × ~4000 ud + ~800 ind ≈ 24k/min < 30k/min-grænsen.
+          // En reel kategoriserings-respons rammer aldrig så højt i praksis.
+          max_tokens: 4000,
           // VI HAR FJERNET: response_format: { type: "json_object" }
           // Det forhindrer API'et i at "smadre" æøå mens den tvinger JSON syntaks.
         }),

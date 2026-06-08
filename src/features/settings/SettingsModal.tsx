@@ -268,7 +268,7 @@ export const SettingsModal = ({
                 {/* API KEY */}
                 <div className="space-y-4">
                   <h4 className="flex items-center gap-2 text-xs font-bold tracking-widest text-medium uppercase">
-                    <Key size={16} /> AI adgang (Cerabras, llama3.1-8b)
+                    <Key size={16} /> AI adgang (Cerebras, gpt-oss-120b)
                   </h4>
                   <div className="space-y-3 rounded-2xl border border-subtle bg-surface-sunken/50 p-4">
                     <div className="flex gap-2">

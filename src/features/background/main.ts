@@ -289,6 +289,11 @@ let tabTracker = new Map<number, TrackerData>();
 const AI_STORAGE_KEY = "nexus_ai_queue";
 const AI_LOCK_KEY = "nexus_ai_lock";
 const AI_LAST_CALL_KEY = "nexus_ai_last_call";
+
+// Rate-limit for AI-kald. gpt-oss-120b på Cerebras tillader kun 5 requests/min
+// (= ét kald hvert 12. sekund). Vi bruger 13s for en lille sikkerhedsmargin,
+// så vi ikke rammer 429 ved små burst/uret-skævheder.
+const AI_MIN_INTERVAL_MS = 13000;
 const TRACKER_STORAGE_KEY = "nexus_tab_tracker";
 
 const isDash = (url?: string) => url?.includes("dashboard.html");
@@ -756,8 +761,8 @@ async function processAiQueue() {
     // Safety break: if lock is older than 30s, assume crash and proceed
     if (lock?.isProcessing && now - lock.timestamp < 30000) return;
 
-    if (now - lastCall < 2000) {
-      const delay = 2000 - (now - lastCall);
+    if (now - lastCall < AI_MIN_INTERVAL_MS) {
+      const delay = AI_MIN_INTERVAL_MS - (now - lastCall);
       chrome.alarms.create("process_ai_next", { when: now + delay });
       return;
     }

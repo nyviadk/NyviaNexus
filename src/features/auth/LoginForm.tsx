@@ -167,7 +167,7 @@ export const LoginForm = () => {
 
         <p className="px-1 text-[10px] text-low">
           Vælg model:{" "}
-          <span className="font-mono text-medium italic">"llama3.1-8b"</span>
+          <span className="font-mono text-medium italic">"gpt-oss-120b"</span>
         </p>
       </div>
 
